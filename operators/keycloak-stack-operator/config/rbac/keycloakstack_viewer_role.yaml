@@ -1,0 +1,27 @@
+# permissions for end users to view keycloakstacks.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: clusterrole
+    app.kubernetes.io/instance: keycloakstack-viewer-role
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: keycloak-stack-operator
+    app.kubernetes.io/part-of: keycloak-stack-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: keycloakstack-viewer-role
+rules:
+- apiGroups:
+  - iam.iam.mas.ibm.com
+  resources:
+  - keycloakstacks
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - iam.iam.mas.ibm.com
+  resources:
+  - keycloakstacks/status
+  verbs:
+  - get
