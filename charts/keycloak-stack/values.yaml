@@ -1,0 +1,165 @@
+keycloak:
+  devMode:
+    enabled: false
+  image:
+    registry: quay.io
+    repository: keycloak/keycloak
+    tag: "26.0.5"
+    pullPolicy: IfNotPresent
+  args:
+    - start
+  replicaCount: 1
+  env:
+    - name: KC_HEALTH_ENABLED
+      value: "true"
+    - name: KC_HTTP_ENABLED
+      value: "true"
+    - name: KC_HOSTNAME_STRICT
+      value: "false"
+    - name: KC_PROXY_HEADERS
+      value: xforwarded
+  bootstrapAdmin:
+    createSecret: true
+    secretName: ""
+    usernameKey: username
+    passwordKey: password
+    username: admin
+    password: ""
+  route:
+    enabled: true
+    host: ""
+    autoHost:
+      enabled: false
+      appsDomain: ""
+    tls:
+      termination: edge
+      insecurePolicy: Redirect
+  service:
+    port: 8080
+  realmImport:
+    enabled: true
+    overrideExisting: false
+    files:
+      - file: realm-config/maximo-realm.json
+        target: maximo-realm.json
+  ldap:
+    autoConfigure: true
+    realm: maximo
+    providerName: openldap
+    connectionUrl: ""
+    baseDn: ""
+    bindDn: ""
+    bindCredentialSecret: ""
+    bindCredentialKey: password
+    usersDn: ""
+    groupsDn: ""
+    useTruststoreSpi: Always
+    truststoreSecret: ""
+    truststoreKey: truststore.jks
+    truststorePasswordSecret: ""
+    truststorePasswordKey: password
+    tls:
+      enabled: true
+      caSecret: ""
+      caBundleKey: ca.crt
+      truststorePassword: changeit
+      truststoreFile: ldap-truststore.p12
+      hostnameVerificationPolicy: ANY
+    editMode: READ_ONLY
+    importUsers: true
+    syncPeriod: 3600
+    fullSyncPeriod: 86400
+    changedSyncPeriod: 600
+    cachePolicy: DEFAULT
+    searchScope: SUBTREE
+    uuidLDAPAttribute: entryUUID
+    usernameLDAPAttribute: uid
+    rdnLDAPAttribute: uid
+postgresql:
+  enabled: true
+  image:
+    registry: docker.io
+    repository: bitnamilegacy/postgresql
+    tag: "17.6.0-debian-12-r4"
+    pullPolicy: IfNotPresent
+  auth:
+    username: keycloak
+    password: keycloak123
+    database: keycloak
+  primary:
+    persistence:
+      enabled: true
+      storageClass: rook-ceph-block
+      size: 8Gi
+    podSecurityContext:
+      enabled: true
+      fsGroup: 1001
+    containerSecurityContext:
+      enabled: true
+      runAsUser: 1001
+      runAsNonRoot: true
+    volumePermissions:
+      enabled: true
+openldap:
+  enabled: true
+  image:
+    repository: osixia/openldap
+    tag: "1.5.0"
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  admin:
+    createSecret: true
+    secretName: ""
+    passwordKey: password
+    password: ""
+    configPassword: ""
+    configPasswordKey: configPassword
+  service:
+    port: 389
+    tlsPort: 636
+    type: ClusterIP
+  persistence:
+    enabled: false
+    size: 2Gi
+    storageClass: ""
+  config:
+    organisation: "Demo Org"
+    domain: "demo.local"
+    baseDN: ""
+    enableConfigAdmin: false
+  podSecurityContext:
+    enabled: false
+    fsGroup: 0
+  containerSecurityContext:
+    enabled: false
+    runAsNonRoot: false
+    runAsUser: 0
+  extraEnv: []
+  podAnnotations: {}
+  podLabels: {}
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  serviceAccount:
+    create: true
+    name: ""
+  seedLDIFs:
+    - file: ldap-seed/dev-base.ldif
+  tls:
+    enabled: true
+    createSecret: false
+    secretName: ""
+    certKey: tls.crt
+    privateKeyKey: tls.key
+    caKey: ca.crt
+    truststoreKey: ldap-truststore.p12
+    truststorePasswordKey: truststorePassword
+    enforce: false
+  extraEnv:
+    - name: CONTAINER_LOG_LEVEL
+      value: "4"
+    - name: LDAP_LOGLEVEL
+      value: "256"
+    - name: LDAP_TLS_VERIFY_CLIENT
+      value: "never"

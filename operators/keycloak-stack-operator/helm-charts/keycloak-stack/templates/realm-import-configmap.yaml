@@ -1,0 +1,14 @@
+{{- if and .Values.keycloak.realmImport.enabled .Values.keycloak.realmImport.files }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "keycloak-stack.fullname" . }}-realm-import
+  labels:
+    {{- include "keycloak-stack.labels" . | nindent 4 }}
+data:
+{{- range $file := .Values.keycloak.realmImport.files }}
+  {{- $target := default (base $file.file) $file.target -}}
+  {{- printf "%s: |" $target | nindent 2 }}
+{{ $.Files.Get $file.file | indent 4 }}
+{{- end }}
+{{- end }}

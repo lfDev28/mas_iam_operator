@@ -1,0 +1,8 @@
+HTTP/2 200 
+date: Thu, 09 Oct 2025 22:17:53 GMT
+content-type: application/json
+content-length: 1408
+docker-distribution-api-version: registry/2.0
+link: </v2/bitnamilegacy/postgresql/tags/list?last=10.10.0-r91&n=100>; rel="next"
+strict-transport-security: max-age=31536000
+

@@ -1,0 +1,3 @@
+# Local development artifacts (not for source control)
+tls-artifacts/
+charts/keycloak-stack/tmpcharts-*/
