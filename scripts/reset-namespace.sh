@@ -93,12 +93,11 @@ mapfile -t release_secrets < <(oc get secret -n "${namespace}" \
   -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null | grep "^${release}-" || true)
 
 for secret in "${release_secrets[@]}"; do
-  if [[ "${secret}" == "${release}-keycloak-openldap-tls" ]]; then
-    echo "Preserving TLS secret ${secret}"
-    continue
-  fi
   delete_resource secret "${secret}"
 done
+
+# Remove any dev TLS secret that may not share the release prefix.
+delete_resource secret "keycloakstack-sample-keycloak-openldap-tls"
 
 # Remove Jobs that may linger after the CR is deleted.
 delete_resource job "${release}-keycloak-ldap-config"
@@ -106,6 +105,10 @@ delete_resource job "${release}-keycloak-ldap-config"
 # Delete the PostgreSQL PVC (name matches StatefulSet volume claim).
 pvc_name="data-${release}-postgresql-0"
 delete_resource pvc "${pvc_name}"
+
+# Remove associated ConfigMaps to ensure clean re-apply of generated resources.
+delete_resource configmap "${release}-postgresql-configuration"
+delete_resource configmap "${release}-postgresql-scripts"
 
 # Clean up subscription and CSV if the operator was scoped to this namespace.
 subscription_name="keycloak-stack-operator"
