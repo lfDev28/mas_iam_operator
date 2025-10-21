@@ -1,0 +1,58 @@
+# Apply this manifest to install the MAS IAM Operator via OLM.
+# Replace every occurrence of `iam` if you want to target a different namespace.
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: CatalogSource
+metadata:
+  name: mas-iam-operator
+  namespace: openshift-marketplace
+spec:
+  displayName: MAS IAM Operator
+  image: quay.io/lee_forster/mas-iam-operator:catalog-0.0.2
+  sourceType: grpc
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: iam-operator-group
+  namespace: iam
+spec:
+  targetNamespaces:
+  - iam
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: keycloak-stack-operator
+  namespace: iam
+spec:
+  channel: alpha
+  installPlanApproval: Automatic
+  name: keycloak-stack-operator
+  source: mas-iam-operator
+  sourceNamespace: openshift-marketplace
+---
+# Optional: example KeycloakStack custom resource once the operator CSV is ready.
+# Ensure the required LDAP TLS secret exists (see documentation) before applying.
+apiVersion: iam.iam.mas.ibm.com/v1alpha1
+kind: KeycloakStack
+metadata:
+  name: keycloakstack-sample
+  namespace: iam
+spec:
+  keycloak:
+    ldap:
+      autoConfigure: true
+      # Populate with the name of the secret containing LDAP bind credentials.
+      bindCredentialSecret: ""
+      # Provide the ldaps:// endpoint for your LDAP server.
+      connectionUrl: ""
+      tls:
+        enabled: true
+        caSecret: keycloakstack-sample-keycloak-openldap-tls
+  openldap:
+    enabled: true
+  postgresql:
+    primary:
+      persistence:
+        storageClass: rook-ceph-block

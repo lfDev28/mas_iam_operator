@@ -32,16 +32,16 @@ spec:
       tag: 26.0.5
     ldap:
       autoConfigure: true
-      baseDn: ""
+      baseDn: dc=demo,dc=local
       bindCredentialKey: password
       bindCredentialSecret: ""
-      bindDn: ""
+      bindDn: cn=admin,dc=demo,dc=local
       cachePolicy: DEFAULT
       changedSyncPeriod: 600
       connectionUrl: ""
       editMode: READ_ONLY
       fullSyncPeriod: 86400
-      groupsDn: ""
+      groupsDn: ou=groups,dc=demo,dc=local
       importUsers: true
       providerName: openldap
       rdnLDAPAttribute: uid
@@ -50,7 +50,7 @@ spec:
       syncPeriod: 3600
       tls:
         caBundleKey: ca.crt
-        caSecret: ""
+        caSecret: keycloakstack-sample-keycloak-openldap-tls
         enabled: true
         hostnameVerificationPolicy: ANY
         truststoreFile: ldap-truststore.p12
@@ -61,7 +61,7 @@ spec:
       truststoreSecret: ""
       useTruststoreSpi: Always
       usernameLDAPAttribute: uid
-      usersDn: ""
+      usersDn: ou=users,dc=demo,dc=local
       uuidLDAPAttribute: entryUUID
     realmImport:
       enabled: true
@@ -91,7 +91,7 @@ spec:
       secretName: ""
     affinity: {}
     config:
-      baseDN: ""
+      baseDN: dc=demo,dc=local
       domain: demo.local
       enableConfigAdmin: false
       organisation: Demo Org
@@ -139,7 +139,7 @@ spec:
       enabled: true
       enforce: false
       privateKeyKey: tls.key
-      secretName: ""
+      secretName: keycloakstack-sample-keycloak-openldap-tls
       truststoreKey: ldap-truststore.p12
       truststorePasswordKey: truststorePassword
     tolerations: []
@@ -158,10 +158,10 @@ spec:
       database: keycloak
       enablePostgresUser: true
       existingSecret: ""
-      password: keycloak123
-      postgresPassword: ""
+      password: ""          # leave empty to let the chart generate and reuse a password
+      postgresPassword: ""  # leave empty to let the chart generate and reuse the postgres superuser password
       replicationPassword: ""
-      replicationUsername: repl_user
+      replicationUsername: ""
       secretKeys:
         adminPasswordKey: postgres-password
         replicationPasswordKey: replication-password

@@ -236,5 +236,9 @@ spec:
                 '}' \
               > /tmp/ldap-component.json
               echo "Creating LDAP user storage provider '${KC_PROVIDER_NAME}' for realm '${KC_REALM}'."
-              /opt/keycloak/bin/kcadm.sh create components -r "$KC_REALM" -f /tmp/ldap-component.json
+              until /opt/keycloak/bin/kcadm.sh create components -r "$KC_REALM" -f /tmp/ldap-component.json; do
+                echo "LDAP provider creation failed; retrying in 5 seconds..."
+                sleep 5
+              done
+              echo "LDAP user storage provider '${KC_PROVIDER_NAME}' created successfully."
 {{- end -}}

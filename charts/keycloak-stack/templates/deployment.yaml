@@ -9,6 +9,7 @@
 {{- $ldapTlsSecret := default (printf "%s-openldap-tls" (include "keycloak-stack.fullname" .)) $ldapTls.caSecret -}}
 {{- $ldapTlsCaKey := default "ca.crt" $ldapTls.caBundleKey -}}
 {{- $ldapTlsHostnamePolicy := default "ANY" $ldapTls.hostnameVerificationPolicy -}}
+{{- $pgSecretName := .Values.postgresql.auth.existingSecret | default (printf "%s-postgresql" .Release.Name) -}}
 {{- if not $bootstrapSecretName -}}
   {{- fail "Set keycloak.bootstrapAdmin.secretName or enable keycloak.bootstrapAdmin.createSecret before deployment" -}}
 {{- end -}}
@@ -92,7 +93,10 @@ spec:
             - name: KC_DB_USERNAME
               value: {{ .Values.postgresql.auth.username | quote }}
             - name: KC_DB_PASSWORD
-              value: {{ .Values.postgresql.auth.password | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $pgSecretName | quote }}
+                  key: {{ default "password" .Values.postgresql.auth.secretKeys.userPasswordKey | quote }}
             - name: KC_DB_URL_HOST
               value: {{ printf "%s-postgresql" .Release.Name | quote }}
             - name: KC_DB_URL_PORT
