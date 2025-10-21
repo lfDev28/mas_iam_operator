@@ -12,9 +12,11 @@ This directory contains a Helm-based operator scaffold generated with
   to your `PATH` or invoke the binary explicitly)
 - Access to a container registry where you can push operator and bundle images
 
-Ensure the Keycloak/OpenLDAP TLS secret exists in the target namespace before
-deploying the operator-managed CR (`<release>-keycloak-openldap-tls` by default).
-The helper script at the repository root can generate dev material:
+For the single-manifest install path, a self-signed TLS secret is created
+automatically for development and test clusters. If you need production-ready
+certificates (or prefer to supply your own), create
+`<release>-keycloak-openldap-tls` in the target namespace before applying your
+custom CR. The helper script at the repository root can generate dev material:
 
 ```bash
 ./scripts/dev-generate-openldap-tls.sh -n iam -r mas-iam
@@ -157,8 +159,12 @@ to a catalog source.
 After publishing the manager image, bundle, and catalog, you can install the
 operator (and optionally a starter Keycloak stack) with a single manifest.
 
-1. Ensure the LDAP TLS secret exists in the target namespace before installing
-   the stack. The helper script can generate the development material:
+1. For quick-start environments the manifest will create a self-signed TLS
+   secret automatically and seeds PostgreSQL with known credentials
+   (`keycloak` / `keycloak123`, `postgres` admin user / `admin123`). If you need
+   to replace them with your own certificates or database passwords, edit the
+   manifest before applying it (the helper script below can generate TLS
+   material you can paste into the secret stanza):
 
    ```bash
    ./scripts/dev-generate-openldap-tls.sh -n iam -r mas-iam
@@ -173,9 +179,10 @@ operator (and optionally a starter Keycloak stack) with a single manifest.
    ```
 
    The manifest installs the catalog source, operator group, subscription, and
-   includes an example `KeycloakStack` custom resource at the end. Download and
-   edit the file locally first if you need to customise the release name or
-   remove the sample CR.
+   creates a self-signed TLS secret and includes an example `KeycloakStack`
+   custom resource at the end. Download and edit the file locally first if you
+   need to customise the release name, replace the secret material, or remove the
+   sample CR.
 
 3. Wait for the CSV in the target namespace to report `Succeeded`:
 
@@ -196,12 +203,14 @@ retries until Keycloak’s admin API becomes reachable.
 ### Resetting a development namespace
 
 Use `scripts/reset-namespace.sh` to tear down an environment and start from a
-clean slate without touching the TLS secret:
+clean slate:
 
 ```bash
 ./scripts/reset-namespace.sh --namespace iam --release keycloakstack-sample
 ```
 
 Add `--force` to skip the confirmation prompt. The script deletes the
-`KeycloakStack` custom resource, related secrets, the LDAP configuration job,
-the PostgreSQL PVC, and the namespace-scoped OLM objects (subscription/CSV).
+`KeycloakStack` custom resource, related secrets (including the dev TLS
+material), the LDAP configuration job, the PostgreSQL PVC, and the
+namespace-scoped OLM objects (subscription/CSV). Reapplying
+`manifests/install-olm.yaml` restores the secret and operator stack.
