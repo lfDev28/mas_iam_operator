@@ -184,6 +184,11 @@ operator (and optionally a starter Keycloak stack) with a single manifest.
    need to customise the release name, replace the secret material, or remove the
    sample CR.
 
+   The Keycloak deployment now ships with an init container that makes the
+   bootstrap admin password permanent (`kc.sh set-password --temporary=false`)
+   so post-install automation (for example the LDAP configuration job) can log in
+   without manual intervention.
+
 3. Wait for the CSV in the target namespace to report `Succeeded`:
 
    ```bash

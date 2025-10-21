@@ -29,8 +29,52 @@ spec:
       labels:
         {{- include "keycloak-stack.selectorLabels" . | nindent 8 }}
     spec:
-      {{- if $ldapTlsEnabled }}
+      {{- $hasBootstrapSecret := ne $bootstrapSecretName "" }}
+      {{- $hasBootstrapInline := and $bootstrap.username $bootstrap.password }}
+      {{- if or $hasBootstrapSecret $hasBootstrapInline $ldapTlsEnabled }}
       initContainers:
+        {{- if or $hasBootstrapSecret $hasBootstrapInline }}
+        - name: bootstrap-admin-password
+          image: "{{ .Values.keycloak.image.registry }}/{{ .Values.keycloak.image.repository }}:{{ .Values.keycloak.image.tag }}"
+          imagePullPolicy: {{ .Values.keycloak.image.pullPolicy }}
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              set -euo pipefail
+              if [[ -z "${KC_BOOTSTRAP_ADMIN_PASSWORD:-}" ]]; then
+                echo "Bootstrap admin password not provided; skipping flag reset."
+                exit 0
+              fi
+              echo "Ensuring bootstrap admin password is marked permanent."
+              /opt/keycloak/bin/kc.sh set-password \
+                --realm "${KC_BOOTSTRAP_ADMIN_REALM:-master}" \
+                --user "${KC_BOOTSTRAP_ADMIN_USERNAME:-admin}" \
+                --new-password "${KC_BOOTSTRAP_ADMIN_PASSWORD}" \
+                --temporary=false
+              echo "Bootstrap admin password persisted."
+          env:
+            - name: KC_BOOTSTRAP_ADMIN_REALM
+              value: {{ default "master" .Values.keycloak.realmImport.realm | default "master" | quote }}
+          {{- if $hasBootstrapSecret }}
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $bootstrapSecretName | quote }}
+                  key: {{ default "username" $bootstrap.usernameKey | quote }}
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $bootstrapSecretName | quote }}
+                  key: {{ default "password" $bootstrap.passwordKey | quote }}
+          {{- else }}
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              value: {{ $bootstrap.username | quote }}
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              value: {{ $bootstrap.password | quote }}
+          {{- end }}
+        {{- end }}
+        {{- if $ldapTlsEnabled }}
         - name: ldap-truststore-setup
           image: "{{ .Values.keycloak.image.registry }}/{{ .Values.keycloak.image.repository }}:{{ .Values.keycloak.image.tag }}"
           imagePullPolicy: {{ .Values.keycloak.image.pullPolicy }}
@@ -54,6 +98,7 @@ spec:
               mountPath: /truststore
             - name: ldap-ca-bundle
               mountPath: /ldap-ca
+        {{- end }}
       {{- end }}
       containers:
         - name: keycloak
