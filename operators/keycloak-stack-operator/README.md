@@ -12,14 +12,13 @@ This directory contains a Helm-based operator scaffold generated with
   to your `PATH` or invoke the binary explicitly)
 - Access to a container registry where you can push operator and bundle images
 
-For the single-manifest install path, a self-signed TLS secret is created
-automatically for development and test clusters. If you need production-ready
-certificates (or prefer to supply your own), create
-`<release>-keycloak-openldap-tls` in the target namespace before applying your
-custom CR. The helper script at the repository root can generate dev material:
+For the single-manifest install path, the YAML now includes a bootstrap job that
+creates the LDAP TLS secret automatically (self-signed, dev use only) and
+generates a random truststore password on each run. The helper script remains
+available if you need to regenerate the secret manually or outside the cluster:
 
 ```bash
-./scripts/dev-generate-openldap-tls.sh -n iam -r mas-iam
+./scripts/dev-generate-openldap-tls.sh -n iam -r keycloakstack-sample
 ```
 
 ## Layout
@@ -72,6 +71,10 @@ time with:
 kubectl get secret keycloakstack-sample-bootstrap-admin \
   -n iam -o jsonpath='{.data.password}' | base64 -d && echo
 ```
+
+An init container now runs `kc.sh bootstrap-admin user` before Keycloak starts,
+so the password from this secret is immediately valid for both CLI access and
+the admin console (no forced change on first login).
 
 To rotate:
 
@@ -159,18 +162,7 @@ to a catalog source.
 After publishing the manager image, bundle, and catalog, you can install the
 operator (and optionally a starter Keycloak stack) with a single manifest.
 
-1. For quick-start environments the manifest will create a self-signed TLS
-   secret automatically and seeds PostgreSQL with known credentials
-   (`keycloak` / `keycloak123`, `postgres` admin user / `admin123`). If you need
-   to replace them with your own certificates or database passwords, edit the
-   manifest before applying it (the helper script below can generate TLS
-   material you can paste into the secret stanza):
-
-   ```bash
-   ./scripts/dev-generate-openldap-tls.sh -n iam -r mas-iam
-   ```
-
-2. Apply the consolidated manifest (replace `<org>/<repo>` with this repository
+1. Apply the consolidated manifest (replace `<org>/<repo>` with this repository
    path, and substitute `iam` in the manifest if you plan to use a different
    namespace):
 
@@ -178,24 +170,24 @@ operator (and optionally a starter Keycloak stack) with a single manifest.
    oc apply -f https://raw.githubusercontent.com/<org>/<repo>/main/manifests/install-olm.yaml
    ```
 
-   The manifest installs the catalog source, operator group, subscription, and
-   creates a self-signed TLS secret and includes an example `KeycloakStack`
-   custom resource at the end. Download and edit the file locally first if you
-   need to customise the release name, replace the secret material, or remove the
-   sample CR.
+   The manifest installs the catalog source, operator group, subscription, an
+   in-cluster TLS generation job (which prints the generated truststore password
+   in its logs), and includes an example `KeycloakStack` custom
+   resource at the end. Download and edit the file locally first if you need to
+   customise the release name, replace the cert material, or remove the sample CR.
 
-   The Keycloak deployment now ships with an init container that makes the
-   bootstrap admin password permanent (`kc.sh set-password --temporary=false`)
-   so post-install automation (for example the LDAP configuration job) can log in
-   without manual intervention.
+   The Keycloak deployment now ships with an init container that reruns
+   `kc.sh bootstrap-admin user` before startup, so the password stored in the
+   bootstrap secret is immediately permanent and post-install automation (for
+   example the LDAP configuration job) can log in without manual intervention.
 
-3. Wait for the CSV in the target namespace to report `Succeeded`:
+2. Wait for the CSV in the target namespace to report `Succeeded`:
 
    ```bash
    oc get csv -n iam
    ```
 
-4. If you trimmed the sample from the manifest, apply your own configuration (or
+3. If you trimmed the sample from the manifest, apply your own configuration (or
    start from the default sample) once the operator is ready:
 
    ```bash
@@ -217,5 +209,9 @@ clean slate:
 Add `--force` to skip the confirmation prompt. The script deletes the
 `KeycloakStack` custom resource, related secrets (including the dev TLS
 material), the LDAP configuration job, the PostgreSQL PVC, and the
-namespace-scoped OLM objects (subscription/CSV). Reapplying
-`manifests/install-olm.yaml` restores the secret and operator stack.
+namespace-scoped OLM objects (subscription/CSV). Reapply
+`manifests/install-olm.yaml` to bring the stack back—the TLS bootstrap job will
+recreate the secret automatically (and print the new truststore password) and
+the bootstrap-admin init container will make the stored password permanent
+again. Run `scripts/dev-generate-openldap-tls.sh` only if you want to rotate the
+secret outside of that flow.

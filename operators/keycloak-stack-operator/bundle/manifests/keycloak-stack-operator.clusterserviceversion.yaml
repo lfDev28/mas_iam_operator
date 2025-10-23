@@ -886,7 +886,7 @@ metadata:
         }
       ]
     capabilities: Basic Install
-    createdAt: "2025-10-21T02:26:36Z"
+    createdAt: "2025-10-23T00:28:25Z"
     operators.operatorframework.io/builder: operator-sdk-v1.33.0
     operators.operatorframework.io/project_layout: helm.sdk.operatorframework.io/v1
   name: keycloak-stack-operator.v0.0.2
@@ -1044,7 +1044,7 @@ spec:
                 - --metrics-bind-address=127.0.0.1:8080
                 - --leader-elect
                 - --leader-election-id=keycloak-stack-operator
-                image: quay.io/lee_forster/mas-iam-operator:0.0.2
+                image: controller:latest
                 imagePullPolicy: Always
                 livenessProbe:
                   httpGet:

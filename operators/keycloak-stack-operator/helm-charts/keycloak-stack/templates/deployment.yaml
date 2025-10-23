@@ -5,7 +5,12 @@
 {{- $ldapTls := $ldapCfg.tls | default dict -}}
 {{- $ldapTlsEnabled := and $ldapCfg.tls $ldapCfg.tls.enabled -}}
 {{- $ldapTlsFile := default "ldap-truststore.p12" $ldapTls.truststoreFile -}}
-{{- $ldapTlsPassword := default "changeit" $ldapTls.truststorePassword -}}
+{{- $ldapTruststorePassword := default "changeit" $ldapCfg.truststorePassword -}}
+{{- $ldapTruststorePasswordSecret := default "" $ldapCfg.truststorePasswordSecret -}}
+{{- $ldapTruststorePasswordKey := default "password" $ldapCfg.truststorePasswordKey -}}
+{{- $ldapTlsPassword := default $ldapTruststorePassword $ldapTls.truststorePassword -}}
+{{- $ldapTlsPasswordSecret := default $ldapTruststorePasswordSecret $ldapTls.truststorePasswordSecret -}}
+{{- $ldapTlsPasswordKey := default $ldapTruststorePasswordKey $ldapTls.truststorePasswordKey -}}
 {{- $ldapTlsSecret := default (printf "%s-openldap-tls" (include "keycloak-stack.fullname" .)) $ldapTls.caSecret -}}
 {{- $ldapTlsCaKey := default "ca.crt" $ldapTls.caBundleKey -}}
 {{- $ldapTlsHostnamePolicy := default "ANY" $ldapTls.hostnameVerificationPolicy -}}
@@ -43,16 +48,16 @@ spec:
             - |
               set -euo pipefail
               if [[ -z "${KC_BOOTSTRAP_ADMIN_PASSWORD:-}" ]]; then
-                echo "Bootstrap admin password not provided; skipping flag reset."
+                echo "Bootstrap admin password not provided; skipping bootstrap-admin invocation."
                 exit 0
               fi
-              echo "Ensuring bootstrap admin password is marked permanent."
-              /opt/keycloak/bin/kc.sh set-password \
-                --realm "${KC_BOOTSTRAP_ADMIN_REALM:-master}" \
-                --user "${KC_BOOTSTRAP_ADMIN_USERNAME:-admin}" \
-                --new-password "${KC_BOOTSTRAP_ADMIN_PASSWORD}" \
-                --temporary=false
-              echo "Bootstrap admin password persisted."
+              echo "Ensuring bootstrap admin credentials are provisioned."
+              /opt/keycloak/bin/kc.sh bootstrap-admin user \
+                --no-prompt=true \
+                --optimized \
+                --username "${KC_BOOTSTRAP_ADMIN_USERNAME:-admin}" \
+                --password:env KC_BOOTSTRAP_ADMIN_PASSWORD
+              echo "Bootstrap admin credentials ready for use."
           env:
             - name: KC_BOOTSTRAP_ADMIN_REALM
               value: {{ default "master" .Values.keycloak.realmImport.realm | default "master" | quote }}
@@ -73,14 +78,37 @@ spec:
             - name: KC_BOOTSTRAP_ADMIN_PASSWORD
               value: {{ $bootstrap.password | quote }}
           {{- end }}
+            - name: KC_DB
+              value: postgres
+            - name: KC_DB_USERNAME
+              value: {{ .Values.postgresql.auth.username | quote }}
+            - name: KC_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $pgSecretName | quote }}
+                  key: {{ default "password" .Values.postgresql.auth.secretKeys.userPasswordKey | quote }}
+            - name: KC_DB_URL_HOST
+              value: {{ printf "%s-postgresql" .Release.Name | quote }}
+            - name: KC_DB_URL_PORT
+              value: "5432"
+            - name: KC_DB_URL_DATABASE
+              value: {{ .Values.postgresql.auth.database | quote }}
         {{- end }}
         {{- if $ldapTlsEnabled }}
         - name: ldap-truststore-setup
           image: "{{ .Values.keycloak.image.registry }}/{{ .Values.keycloak.image.repository }}:{{ .Values.keycloak.image.tag }}"
           imagePullPolicy: {{ .Values.keycloak.image.pullPolicy }}
           env:
+            {{- if $ldapTlsPasswordSecret }}
+            - name: TRUSTSTORE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $ldapTlsPasswordSecret | quote }}
+                  key: {{ $ldapTlsPasswordKey | quote }}
+            {{- else }}
             - name: TRUSTSTORE_PASSWORD
               value: {{ $ldapTlsPassword | quote }}
+            {{- end }}
           command:
             - /bin/bash
             - -ec
@@ -158,7 +186,14 @@ spec:
             - name: KC_SPI_TRUSTSTORE_FILE_FILE
               value: {{ printf "/opt/keycloak/conf/truststore/%s" $ldapTlsFile | quote }}
             - name: KC_SPI_TRUSTSTORE_FILE_PASSWORD
+              {{- if $ldapTlsPasswordSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $ldapTlsPasswordSecret | quote }}
+                  key: {{ $ldapTlsPasswordKey | quote }}
+              {{- else }}
               value: {{ $ldapTlsPassword | quote }}
+              {{- end }}
             - name: KC_SPI_TRUSTSTORE_FILE_HOSTNAME_VERIFICATION_POLICY
               value: {{ $ldapTlsHostnamePolicy | quote }}
             - name: KC_SPI_TRUSTSTORE_FILE_TYPE
