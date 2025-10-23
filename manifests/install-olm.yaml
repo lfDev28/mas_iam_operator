@@ -1,118 +1,160 @@
 # Apply this manifest to install the MAS IAM Operator via OLM.
 # Replace every occurrence of `iam` if you want to target a different namespace.
-# The first section creates a self-signed TLS secret suitable for development.
+# Development environments: this manifest now bootstraps LDAP TLS material automatically.
+# The job below recreates <release>-keycloak-openldap-tls with self-signed certificates.
 ---
 apiVersion: v1
-kind: Secret
+kind: ServiceAccount
 metadata:
-  name: keycloakstack-sample-keycloak-openldap-tls
+  name: keycloakstack-sample-openldap-tls-generator
+  namespace: iam
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: keycloakstack-sample-openldap-tls-generator
+  namespace: iam
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: keycloakstack-sample-openldap-tls-generator
+  namespace: iam
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: keycloakstack-sample-openldap-tls-generator
+subjects:
+- kind: ServiceAccount
+  name: keycloakstack-sample-openldap-tls-generator
+  namespace: iam
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: keycloakstack-sample-generate-openldap-tls
   namespace: iam
   labels:
-    app.kubernetes.io/name: keycloakstack-sample
     app.kubernetes.io/component: openldap
-  annotations:
-    mas.ibm.com/generated-by: mas-iam-dev
-    mas.ibm.com/description: Self-signed TLS material for the Keycloak/OpenLDAP integration (development use only).
-type: kubernetes.io/tls
-data:
-  ca.crt: |
-    LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURSRENDQWl3Q0NRRHNmSmZWWlJLaVBEQU5C
-    Z2txaGtpRzl3MEJBUXNGQURCa01Rc3dDUVlEVlFRR0V3SlYKVXpFTk1Bc0dBMVVFQ0F3RVZHVnpk
-    REVOTUFzR0ExVUVCd3dFVkdWemRERVFNQTRHQTFVRUNnd0hUVUZUSUVsQgpUVEVNTUFvR0ExVUVD
-    d3dEUkdWMk1SY3dGUVlEVlFRRERBNU5RVk1nU1VGTklFUmxkaUJEUVRBZUZ3MHlOVEV3Ck1qRXdO
-    VEExTlRSYUZ3MHlOakV3TWpFd05UQTFOVFJhTUdReEN6QUpCZ05WQkFZVEFsVlRNUTB3Q3dZRFZR
-    UUkKREFSVVpYTjBNUTB3Q3dZRFZRUUhEQVJVWlhOME1SQXdEZ1lEVlFRS0RBZE5RVk1nU1VGTk1R
-    d3dDZ1lEVlFRTApEQU5FWlhZeEZ6QVZCZ05WQkFNTURrMUJVeUJKUVUwZ1JHVjJJRU5CTUlJQklq
-    QU5CZ2txaGtpRzl3MEJBUUVGCkFBT0NBUThBTUlJQkNnS0NBUUVBb3lXSWJlRE5XdXplZmc3NWVV
-    ODMzYnZNUFZQVGVWc3ZlQnFxQlE0UklWZ1EKTlVvLzJWcm1BNFIrbmRJOG1qRktQTHdzU20vaEJO
-    VmtEMnNVV0xrQjVSSnh3UjJXelJDcGVtV1R4VUlpbDJLcQplSC93RHA2VTh1b1FrblRZb3lMZG8v
-    UDYwY3JqeDc0eFpqZmU2aXlVK0xUTC9qc1F6a2J0NXJ4ekR3ZW1rMWtHCnRKMFBCaDZlUEhNcG1B
-    RWR3TkFGZ25lRTdJb3lhQkJjL050UmlHcXNEZ2dMNk5Gc1VBNXYxdUN5YnZqMVpOTFEKT1g4WjN5
-    MEVuSjVWSTArYm1CMjYwMXRxa3NRc3FWVjdzcTFmY3hOOE16QmkzcmowUnJsUHpCYktWMFNJbTR0
-    cApQTFZTQnhEenJ4YzJRM1BkdGRkdjJpekhncFRNNy9aWVlabGFHdlJFWVFJREFRQUJNQTBHQ1Nx
-    R1NJYjNEUUVCCkN3VUFBNElCQVFDZ0xlbVJuMEdHMnpyQzBDbEdqTlRKc3VDeDNrVlFkZmxEcjJa
-    R0p6S0FMRjRNOGhFOHcxSFcKWW5UM3I5RllvM09wRGVaSDdlS0d0SmFDblZuYlJtSkt3bExlZ3Nq
-    QnN4clZ3a1Z2aU5PWDFrbHVNNFMrbi93bwp2dm9TRHpXNlQ5dEREaVRvR0dwSHB2YW9RVERSUmJL
-    SUxVVDM5M0RzUGxBVlpxOWdhMVl0b1k2L254OE12bG5tCk9jQjR2YnIrMmdrcjFrWWFhUVdJVGJv
-    WkdPREFSWEs1MnBmeEVJY25DYmFuN2tNZlZzUFRTL21MOWd1dEFsdFIKKzBJWFY4dmxqWTRCSmpl
-    dlZHRU1uWEZ1MWJkSGJRcWgzMlM2N2hvVWdxQ2c0cEoyRnFxVy8zeTNlRXVxN0V3MgpnZkFJQ2w1
-    d3E4QXBUdGZnUGtNRDY1dEdPaktVR25UKwotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
-  tls.crt: |
-    LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUVYakNDQTBhZ0F3SUJBZ0lKQUswa2dJdklS
-    ejd0TUEwR0NTcUdTSWIzRFFFQkN3VUFNR1F4Q3pBSkJnTlYKQkFZVEFsVlRNUTB3Q3dZRFZRUUlE
-    QVJVWlhOME1RMHdDd1lEVlFRSERBUlVaWE4wTVJBd0RnWURWUVFLREFkTgpRVk1nU1VGTk1Rd3dD
-    Z1lEVlFRTERBTkVaWFl4RnpBVkJnTlZCQU1NRGsxQlV5QkpRVTBnUkdWMklFTkJNQjRYCkRUSTFN
-    VEF5TVRBMU1EWXdORm9YRFRJMk1UQXlNVEExTURZd05Gb3dnWkl4Q3pBSkJnTlZCQVlUQWxWVE1R
-    MHcKQ3dZRFZRUUlEQVJVWlhOME1RMHdDd1lEVlFRSERBUlVaWE4wTVJBd0RnWURWUVFLREFkTlFW
-    TWdTVUZOTVF3dwpDZ1lEVlFRTERBTkVaWFl4UlRCREJnTlZCQU1NUEd0bGVXTnNiMkZyYzNSaFky
-    c3RjMkZ0Y0d4bExXdGxlV05zCmIyRnJMVzl3Wlc1c1pHRndMbWxoYlM1emRtTXVZMngxYzNSbGNp
-    NXNiMk5oYkRDQ0FTSXdEUVlKS29aSWh2Y04KQVFFQkJRQURnZ0VQQURDQ0FRb0NnZ0VCQU5GZDdv
-    M09IRGxVeFJBNXpSNW01N1lCY2VRQWtTNDE3TGU0UGdtVQpBaDBSaWlyaVVkQXYrdkhTV0NWK3Zl
-    dGQwZXRsRTRIclJBdS9TZ3ZUb1RhR2pzYXV6OU5oZDFobVFiNndvVWtIClY2eXc5TEtyNzRFdS9q
-    SElsYklJUnhWZWlmQU83K3k5YjF6MHByZFlib1pTZVpSb1QrTFRwanV1Z3NLUE5nT20KeTU2RXYx
-    d0FCUTZiNnVDY0ZzWENUYWRnQ1QrcGt4RW0vdTJBcDdPcS9CRlFMc3JvcTNwZktNY09UdjIwRWdQ
-    RwpSQWI1dWhhcXordVZUelZ6dHM2eDF2UjVmNHV6UmFsR0hFZHZyYmtLVWlUTDhNL1pyenhPbThl
-    Vlhsc25PMUtFCis3cU1SUUJLeUJBQ2ZwYXlZdU5DTUtVK29PQzBsQ2p0aFF6YzJHYTU3NTZGbGNF
-    Q0F3RUFBYU9CNHpDQjREQ0IKM1FZRFZSMFJCSUhWTUlIU2dpWnJaWGxqYkc5aGEzTjBZV05yTFhO
-    aGJYQnNaUzFyWlhsamJHOWhheTF2Y0dWdQpiR1JoY0lJcWEyVjVZMnh2WVd0emRHRmpheTF6WVcx
-    d2JHVXRhMlY1WTJ4dllXc3RiM0JsYm14a1lYQXVhV0Z0CmdpNXJaWGxqYkc5aGEzTjBZV05yTFhO
-    aGJYQnNaUzFyWlhsamJHOWhheTF2Y0dWdWJHUmhjQzVwWVcwdWMzWmoKZ2p4clpYbGpiRzloYTNO
-    MFlXTnJMWE5oYlhCc1pTMXJaWGxqYkc5aGF5MXZjR1Z1YkdSaGNDNXBZVzB1YzNaagpMbU5zZFhO
-    MFpYSXViRzlqWVd5Q0RteGtZWEF1WkdWMkxteHZZMkZzTUEwR0NTcUdTSWIzRFFFQkN3VUFBNElC
-    QVFBd1M4MUhiU3JsQzFmT0xJUkVqNW8yRmUzZlpFVW9rS1RRVld2VUtsSjhuditsNkU4MGZBQ0wz
-    Zm43TXZqOVpRRU5LaHF4T09haUt2bmpLN1daMGtRd0pWYWZhbUx5MXNFRHZuRmF4d3FlNEdnSGNy
-    Vlh0S2pjK3NjV2o0b29RHQo=
-  tls.key: |
-    LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCk1JSUV2QUlCQURBTkJna3Foa2lHOXcwQkFRRUZB
-    QVNDQktZd2dnU2lBZ0VBQW9JQkFRRFJYZTZOemh3NVZNVVEKT2MwZVp1ZTJBWEhrQUpFdU5leTN1
-    RDRKbEFJZEVZb3E0bEhRTC9yeDBsZ2xmcjNyWGRIclpST0I2MFFMdjBvTAowNkUyaG83R3JzL1RZ
-    WGRZWmtHK3NLRkpCMWVzc1BTeXErK0JMdjR4eUpXeUNFY1ZYb253RHUvc3ZXOWM5S2EzCldHNkdV
-    bm1VYUUvaTA2WTdyb0xDanpZRHBzdWVoTDljQUFVT20rcmduQmJGd2sybllBay9xWk1SSnY3dGdL
-    ZXoKcXZ3UlVDN0s2S3Q2WHlqSERrNzl0QklEeGtRRytib1dxcy9ybFU4MWM3Yk9zZGIwZVgrTHMw
-    V3BSaHhIYjYyNQpDbElreS9EUDJhODhUcHZIbFY1Ykp6dFNoUHU2akVVQVNzZ1FBbjZXc21MalFq
-    Q2xQcURndEpRbzdZVU0zTmhtCnVlK2VoWlhCQWdNQkFBRUNnZjgzbkx2QTd2NlFPL1FjV3o0ZzFU
-    UzNJNnNjNVFtclBLZWtKVXhWUHZ0UXZWZjIKRENldkpRK0RMRnc5bVd6WkdCS3FkQzY2VThPL1d4
-    QlFFK2ErbFA5WHh4ZHREbmFsQklSeUluaTA3VDVjb0tSZQowVXpOQTY2QmlzWTRnL3Bkc3I3eEJR
-    YTEyNXU1RlVNemNFbnJZL3puYnMzSmNtNjFhNlZRQ0xwUVBmM1lITytqCmpMbUdMRTZJcWVzcVFG
-    ZjM1RmVteDgwZ2hZT2krUkZJdzltam5FU2x6R0NleDNzUFZTcVl3WldLMkhTSjVwV2cKL3IyWC9s
-    QmNsbG90RU5EdEhELzlRSFlmUC82SHlnTXBHWmFuZVMyaGJGcXJiMWtCS3FCNjlCU3dPeVlGbmpy
-    dQp3YWxwcHZ1dTl6SXJabWtKdDF4ZDVTWkRyWndYTTNJR2FnVTBWTUVDZ1lFQThHTThpbFNVUU9x
-    Y053K0lPVXExCnlMdk0vRDBOY0c1NVpRYVZsQjdFOFo2UzE1WEZrYWUxUGVwcm1ndnhDUFVadjY2
-    UjdLVFYyVmMycERkSWs1L2UKZEV1K291SHRGZkpzVUVtL2w4L0p5Ukp0dGpYNFNIOUZOVGtOdUFj
-    a3VhQTlETXNMUTd6akRUdnBaM1FqbkxRYQpFNm45NExQbzRscFd4RGdJaHJBV0pJVUNnWUVBM3Zi
-    dlNZSHh0bHZCNzJwSy9QSmR5Y05tTGNQVFlMbHVCWGtDCkU1bzR3N3NreXNtb1JPZVVjems0dXB2
-    Y3hPcmpSM2k5Sk5NTEdpMnJVM3Q4SGJiRHl0L3k4RzRVMG5QeVEwVjEKRlp4T0ZJWnpqME5keWhr
-    emJqcEVrN09kRzREVnpMa1FHa2FsZTJLQjZCb05WZzdJc294V284eEJXRVlQV3R4bAo4ZVdWUHcw
-    Q2dZRUE3RjRYdEVrd01aaS9IQ0RvcUxUK2hDK3Rnc1NoaDFFSmlyM3JyR2FJN3JBbTRWYkNtdE1X
-    CkVwaURUMGk0ckQ4ZEgyNk95K3JVMzgyeXk4d1VVQndkaDZyRys3QTlDSnlEeG5xTnFyL0ZRVEll
-    c05EbW5wcU8KT2FRdENpdnovNVpCRVdoQlhrekgwVVo4M1ozRU9weVpHNGJHUFFHS1Y2L09xMGdS
-    a2lab3oyVUNnWUJLRE8wdwpGcTQyaUljQ2d1VGcyWVg0cXFMVzlFRFIwUVFQWVQ4bFQ0VW16SkxO
-    bnVmNTZvZk5OT1g0WkNlUVp3cVJCREtkCmRsSXJvWnRUSUtINkpHY21pL1pkajlIdWkzK2NoQWI4
-    NUdxeU9tMUsyVzdlM2p2TWtpR1FoSWpiUjVDNmE0UkQKbGM4RUNaVm5ocStETTJuSWt2OTdheTBR
-    cWtRVFF6dkFlU1YyU1FLQmdRRE9VdDZDeExzdUJpb0ovc2VyRXp4VgpTVk5zNmhoS3YreGZBMDM2
-    T2dkd1BLRWdsa2hGdTZCMFdDMzRIeHA1alM5UmxaVGl1c3kyUklpSzJUMVR3L3pNCmxVYll1RUtl
-    NFB4OVBDSDBGKzdsY0R3bGNWUkpiZlFvWld4Vk5yU3dsNmFMZ1MzTFY1WWxpZVFFTExkS2pCVVkK
-    SHNhVzRMV3FtMUl4NktRWHppc3RjQT09Ci0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS0K
-  ldap-truststore.p12: |
-    MIIEHAIBAzCCA+IGCSqGSIb3DQEHAaCCA9MEggPPMIIDyzCCA8cGCSqGSIb3DQEHBqCCA7gwggO0
-    AgEAMIIDrQYJKoZIhvcNAQcBMBwGCiqGSIb3DQEMAQYwDgQIUtjzIj3xgKkCAggAgIIDgCKNR/wu
-    tzcmyhplggiW+kYtC7Y/t98J8Ikk/TSXuASGEjCv+USgBtIwvpVM1rFkGmzTBf+9YTaBXd+ixdVN
-    4NY7/f3eEwH8n+ZDWvK9CaQ+3/LPkWDyX23H/6i1BqcJfqQmgDNsT52v8Ikhe8zlr/mcmTN99idS
-    74m58KqrRnp3Uoy+Nz3m5l3AJEBuvg60ShuIg5zgdtFvvCfuK1dBFXtGDchWZpjzZFC3/XxJwOQj
-    rnOYpT46oIhAjZAWz+5GP73wb7APKRFlgoklzxhtPXTow4x/mV9KLCqJKZQCD89j5z/VWcaJxxbf
-    CGDNrEkEmSHg4Zmy9qhlaFbXoYuvPV85SMIelip4APhnC5XEbIpuFhZtfvDZlzBnmZwNGSVAIhUz
-    t8ApB8evK6WkhvTWYOXukiuXakfG9UYa/hS8UK7uWPhkO2QlSI7CBXiewH4MJ0bYhY35oVXE32IH
-    8cdWWuLSsdhkqYpCLFYEb0dxEXPi7fCoIcfYYADuUxeZj2ZtFdJlE/2OCNugoQwYs2ntXawEjm+c
-    k0G/+RKyjeqV9vCJ+A1WzankLXEZmAyD5YXCv4lD6bZDRDxgWF1bXFOU9tGeRKY1rPVIpaOUGmTP
-    jBWOKExV2Mj6ZJY9f23qkAa9VVIxTT95MCwiJGq+5ND+pXcoqUjRbjcVmXG4H+C08zwPao6hST+V
-    ydEj70oPswUfI2I5I5agbG5VU4XNDi5YKS/usaWX7nNxxhM7H1ETXTbMX6N/0HJEG8QxVCRFETg9
-    pyknQ4Hf7Hit+WmwwV2OdUvB1r6X7dpHbBdLEZk4fuy6vT13i8MRGoyTitakeDa45iqLATjCD0dN
-    +pk0hv8lbi7167fYqLanZqGohEJoI7lh2dirbR9EoZUNU3jQS0/QYbRvPsdeY93FVTk6Z8jsjLad
-    BfzIoo98FoMi73yyFvJGKqT22w1RYI3tqU9a+F+pJpSK3xm6BJm48hHjzVdvm5mSrgd92hqb88Qa
-    LjJXrTnw2ftki7dAX1TKndnDXpT94IA9Z2lFYFleYQ0rlVdTj2an2bbjCZLM+njncFIQiQToQa+d
-    q6am6+KTNSXRoOFIAo7G+zL8LIA91PUMCBOrAk/AtXxw98e3ZPf0SKxs7MY7GL9bRReW/N4ioKH9
-    FN9ru7Kjm4LSd23mOj1bb9BbHP7zWR6qktfi9DIOtTKr3FlsMDEwITAJBgUrDgMCGgUABBRQkr8P
-    1/Tc5X+szzGj/QVmzWDitwQIEIMWhSmcNJYCAggA
+    app.kubernetes.io/instance: keycloakstack-sample
+    app.kubernetes.io/name: keycloak
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: openldap
+        app.kubernetes.io/instance: keycloakstack-sample
+        app.kubernetes.io/name: keycloak
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: keycloakstack-sample-openldap-tls-generator
+      containers:
+      - name: generate
+        image: quay.io/openshift/origin-cli:4.16
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: OPENLDAP_RELEASE
+          value: keycloakstack-sample
+        - name: LDAP_TRUSTSTORE_PASSWORD
+          value: ""
+        command:
+        - /bin/bash
+        - -ec
+        - |
+          set -euo pipefail
+
+          if ! command -v openssl >/dev/null 2>&1; then
+            if command -v microdnf >/dev/null 2>&1; then
+              microdnf install -y openssl >/dev/null 2>&1
+            else
+              echo "openssl is required but not available" >&2
+              exit 1
+            fi
+          fi
+
+          if command -v kubectl >/dev/null 2>&1; then
+            kubectl_bin=kubectl
+          elif command -v oc >/dev/null 2>&1; then
+            kubectl_bin=oc
+          else
+            echo "kubectl (or oc) is required but not available" >&2
+            exit 1
+          fi
+
+          namespace="${TARGET_NAMESPACE:-$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace)}"
+          release="${OPENLDAP_RELEASE:-keycloakstack-sample}"
+          truststore_password="${LDAP_TRUSTSTORE_PASSWORD:-}"
+          if [[ -z "${truststore_password}" || "${truststore_password}" == "random" ]]; then
+            truststore_password="$(head -c 24 /dev/urandom | LC_ALL=C tr -dc 'A-Za-z0-9')"
+          fi
+
+          service_host="${release}-keycloak-openldap"
+          svc_fqdn="${service_host}.${namespace}.svc"
+          svc_cluster_fqdn="${svc_fqdn}.cluster.local"
+          secret="${release}-keycloak-openldap-tls"
+
+          workdir="$(mktemp -d)"
+          cleanup() {
+            rm -rf "${workdir}"
+          }
+          trap cleanup EXIT
+          pushd "${workdir}" >/dev/null
+
+          openssl genrsa -out ca.key 4096
+          openssl req -x509 -new -key ca.key -sha256 -days 3650 \
+            -out ca.crt \
+            -subj "/CN=${release} OpenLDAP Dev CA"
+
+          openssl genrsa -out server.key 4096
+          openssl req -new -key server.key -out server.csr \
+            -subj "/CN=${svc_fqdn}"
+
+          cat > server.ext <<EOF
+          subjectAltName=DNS:${service_host},DNS:${svc_fqdn},DNS:${svc_cluster_fqdn}
+          EOF
+
+          openssl x509 -req -in server.csr \
+            -CA ca.crt -CAkey ca.key -CAcreateserial \
+            -out server.crt -days 730 -sha256 \
+            -extfile server.ext
+
+          openssl pkcs12 -export \
+            -in ca.crt \
+            -nokeys \
+            -out ldap-truststore.p12 \
+            -passout pass:"${truststore_password}"
+
+          api_server="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}"
+          token="$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)"
+          cacert="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+          kubectl_args=(--server "${api_server}" --token "${token}" --certificate-authority "${cacert}" --namespace "${namespace}")
+
+          "${kubectl_bin}" "${kubectl_args[@]}" delete secret "${secret}" --ignore-not-found
+          "${kubectl_bin}" "${kubectl_args[@]}" create secret generic "${secret}" \
+            --from-file=ca.crt=ca.crt \
+            --from-file=tls.crt=server.crt \
+            --from-file=tls.key=server.key \
+            --from-file=ldap-truststore.p12=ldap-truststore.p12 \
+            --from-literal=truststorePassword="${truststore_password}" \
+            --dry-run=client -o yaml | "${kubectl_bin}" "${kubectl_args[@]}" apply -f -
+
+          "${kubectl_bin}" "${kubectl_args[@]}" label secret "${secret}" \
+            app.kubernetes.io/name="${release}" \
+            app.kubernetes.io/component=openldap \
+            --overwrite
+
+          "${kubectl_bin}" "${kubectl_args[@]}" annotate secret "${secret}" \
+            mas.ibm.com/generated-by=mas-iam-dev \
+            mas.ibm.com/description="Self-signed TLS material for the Keycloak/OpenLDAP integration (development use only)." \
+            --overwrite
+
+          echo "Generated ${secret} in namespace ${namespace}."
+          echo "Truststore password: ${truststore_password}"
 ---
 apiVersion: operators.coreos.com/v1alpha1
 kind: CatalogSource
@@ -163,6 +205,8 @@ spec:
       tls:
         enabled: true
         caSecret: keycloakstack-sample-keycloak-openldap-tls
+        truststorePasswordSecret: keycloakstack-sample-keycloak-openldap-tls
+        truststorePasswordKey: truststorePassword
   openldap:
     enabled: true
   postgresql:

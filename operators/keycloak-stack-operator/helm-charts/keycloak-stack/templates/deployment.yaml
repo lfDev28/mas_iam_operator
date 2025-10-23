@@ -52,11 +52,24 @@ spec:
                 exit 0
               fi
               echo "Ensuring bootstrap admin credentials are provisioned."
-              /opt/keycloak/bin/kc.sh bootstrap-admin user \
+              set +e
+              output=$(/opt/keycloak/bin/kc.sh bootstrap-admin user \
                 --no-prompt=true \
-                --optimized \
                 --username "${KC_BOOTSTRAP_ADMIN_USERNAME:-admin}" \
-                --password:env KC_BOOTSTRAP_ADMIN_PASSWORD
+                --password:env KC_BOOTSTRAP_ADMIN_PASSWORD \
+                --verbose 2>&1)
+              rc=$?
+              set -e
+              if [[ "${rc}" -ne 0 ]]; then
+                printf '%s\n' "${output}"
+                if printf '%s\n' "${output}" | grep -qi "user with username exists"; then
+                  echo "Bootstrap admin user already present; continuing."
+                else
+                  exit "${rc}"
+                fi
+              else
+                printf '%s\n' "${output}"
+              fi
               echo "Bootstrap admin credentials ready for use."
           env:
             - name: KC_BOOTSTRAP_ADMIN_REALM
@@ -93,6 +106,8 @@ spec:
               value: "5432"
             - name: KC_DB_URL_DATABASE
               value: {{ .Values.postgresql.auth.database | quote }}
+            - name: KC_DB_URL
+              value: {{ printf "jdbc:postgresql://%s-postgresql:5432/%s" .Release.Name .Values.postgresql.auth.database | quote }}
         {{- end }}
         {{- if $ldapTlsEnabled }}
         - name: ldap-truststore-setup
@@ -176,6 +191,8 @@ spec:
               value: "5432"
             - name: KC_DB_URL_DATABASE
               value: {{ .Values.postgresql.auth.database | quote }}
+            - name: KC_DB_URL
+              value: {{ printf "jdbc:postgresql://%s-postgresql:5432/%s" .Release.Name .Values.postgresql.auth.database | quote }}
             {{- if $routeHost }}
             - name: KC_HOSTNAME
               value: {{ $routeHost | quote }}
