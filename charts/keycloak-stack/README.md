@@ -33,6 +33,10 @@ kubectl get secret <release>-bootstrap-admin \
   -o jsonpath='{.data.password}' | base64 -d && echo
 ```
 
+The deployment executes `kc.sh bootstrap-admin user` as an init container, so
+the password from this secret is immediately valid (no forced change on the
+first login) for both the admin console and CLI automation.
+
 Production options:
 
 1. **Let the chart manage the secret** (recommended for most clusters):
@@ -54,8 +58,16 @@ you must create the TLS secret referenced by both OpenLDAP and Keycloak. Use
 your preferred PKI, or for quick starts run the helper script:
 
 ```bash
-./scripts/dev-generate-openldap-tls.sh -n iam -r mas-iam
+./scripts/dev-generate-openldap-tls.sh -n iam -r <release>
 ```
+
+When you install via the MAS IAM operator’s consolidated manifest the same logic
+runs in-cluster (with a fresh random truststore password each time); use the
+script when driving the chart directly or when you need to rotate the secret
+manually. The Keycloak deployment reads the password from
+`keycloak.ldap.tls.truststorePasswordSecret` (defaulting to the TLS secret) and
+`keycloak.ldap.tls.truststorePasswordKey`, so no hard-coded value needs to live
+in your values file.
 
 The script generates a throw-away CA, server certificate/key, PKCS#12
 truststore, recreates the `<release>-keycloak-openldap-tls` secret, and prints
