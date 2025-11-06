@@ -1,0 +1,25 @@
+{{- if .Values.keycloak.route.enabled }}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ include "mas-iam-stack.fullname" . }}
+  labels:
+    {{- include "mas-iam-stack.labels" . | nindent 4 }}
+spec:
+  to:
+    kind: Service
+    name: {{ include "mas-iam-stack.fullname" . }}
+  port:
+    targetPort: http
+  {{- $routeHost := (include "mas-iam-stack.routeHost" .) | trim }}
+  {{- if $routeHost }}
+  host: {{ $routeHost }}
+  {{- end }}
+  {{- with .Values.keycloak.route.tls }}
+  tls:
+    termination: {{ .termination | default "edge" }}
+    {{- with .insecurePolicy }}
+    insecureEdgeTerminationPolicy: {{ . }}
+    {{- end }}
+  {{- end }}
+{{- end }}

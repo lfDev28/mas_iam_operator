@@ -1,6 +1,6 @@
 NAMESPACE ?= iam
 RELEASE   ?= mas-iam
-CHART     ?= charts/keycloak-stack
+CHART     ?= charts/mas-iam-stack
 
 VALUES_FLAGS := -f $(CHART)/values.yaml
 
@@ -17,7 +17,7 @@ status:
 	kubectl -n $(NAMESPACE) get pods,pvc
 
 health:
-	kubectl -n $(NAMESPACE) exec deploy/$(RELEASE)-keycloak -- sh -lc 'curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8080/health/ready'
+	kubectl -n $(NAMESPACE) exec deploy/$(RELEASE) -- sh -lc 'curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8080/health/ready'
 
 teardown:
 	-helm uninstall $(RELEASE) -n $(NAMESPACE)

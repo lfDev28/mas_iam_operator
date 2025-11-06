@@ -6,20 +6,20 @@ usage() {
   cat <<'EOF'
 Usage: reset-namespace.sh --namespace <ns> [--release <name>] [--force]
 
-Deletes Keycloak stack resources created by the MAS IAM operator so that the
+Deletes MAS IAM stack resources created by the MAS IAM operator so that the
 namespace can be re-used for fresh installs. The TLS secret required by LDAP is
 left intact so you do not need to regenerate it for each reset.
 
 Options:
-  -n, --namespace   Namespace that hosts the Keycloak stack (required)
-      --release     Helm release / KeycloakStack name (default: keycloakstack-sample)
+  -n, --namespace   Namespace that hosts the MAS IAM stack (required)
+      --release     Helm release / MasIamStack name (default: mas-iam-sample)
   -f, --force       Do not prompt for confirmation
   -h, --help        Show this message and exit
 EOF
 }
 
 namespace=""
-release="keycloakstack-sample"
+release="mas-iam-sample"
 force=false
 
 while [[ $# -gt 0 ]]; do
@@ -60,7 +60,7 @@ if ! command -v oc >/dev/null 2>&1; then
 fi
 
 if [[ "${force}" == false ]]; then
-  read -r -p "Delete Keycloak stack '${release}' resources in namespace '${namespace}'? [y/N] " reply
+  read -r -p "Delete MAS IAM stack '${release}' resources in namespace '${namespace}'? [y/N] " reply
   case "${reply}" in
     y|Y|yes|YES)
       ;;
@@ -77,15 +77,30 @@ delete_resource() {
 
   if oc get "${kind}" "${name}" -n "${namespace}" >/dev/null 2>&1; then
     echo "Deleting ${kind}/${name} in ${namespace}"
-    oc delete "${kind}" "${name}" -n "${namespace}" --ignore-not-found >/dev/null 2>&1 || true
+    oc delete "${kind}" "${name}" -n "${namespace}" --ignore-not-found --wait=false >/dev/null 2>&1 || true
   else
     echo "Skipping ${kind}/${name}: not found in ${namespace}"
   fi
 }
 
-echo "Cleaning Keycloak stack '${release}' in namespace '${namespace}'"
+clear_finalizers() {
+  local kind="$1"
+  local name="$2"
 
-# Remove the KeycloakStack custom resource first.
+  if oc get "${kind}" "${name}" -n "${namespace}" >/dev/null 2>&1; then
+    echo "Clearing finalizers for ${kind}/${name}"
+    oc patch "${kind}" "${name}" -n "${namespace}" --type merge -p '{"metadata":{"finalizers":[]}}' >/dev/null 2>&1 || true
+  fi
+}
+
+echo "Cleaning MAS IAM stack '${release}' in namespace '${namespace}'"
+
+# Remove the MasIamStack custom resource first (handles both current and legacy API groups).
+clear_finalizers masiamstacks.iam.mas.ibm.com "${release}"
+delete_resource masiamstacks.iam.mas.ibm.com "${release}"
+clear_finalizers keycloakstacks.iam.mas.ibm.com "${release}"
+delete_resource keycloakstacks.iam.mas.ibm.com "${release}"
+clear_finalizers keycloakstacks.iam.iam.mas.ibm.com "${release}"
 delete_resource keycloakstacks.iam.iam.mas.ibm.com "${release}"
 
 # Delete operator-managed secrets created for the release.
@@ -97,9 +112,10 @@ for secret in "${release_secrets[@]}"; do
 done
 
 # Remove any dev TLS secret that may not share the release prefix.
-delete_resource secret "keycloakstack-sample-keycloak-openldap-tls"
+delete_resource secret "mas-iam-sample-keycloak-openldap-tls"
 
 # Remove Jobs that may linger after the CR is deleted.
+delete_resource job "${release}-ldap-config"
 delete_resource job "${release}-keycloak-ldap-config"
 
 # Delete the PostgreSQL PVC (name matches StatefulSet volume claim).
@@ -111,8 +127,9 @@ delete_resource configmap "${release}-postgresql-configuration"
 delete_resource configmap "${release}-postgresql-scripts"
 
 # Clean up subscription and CSV if the operator was scoped to this namespace.
-subscription_name="keycloak-stack-operator"
+subscription_name="mas-iam-operator"
 delete_resource subscription "${subscription_name}"
+delete_resource subscription "keycloak-stack-operator"
 
 csv_selector="operators.coreos.com/${subscription_name}.${namespace}"
 mapfile -t csvs < <(oc get csv -n "${namespace}" -l "${csv_selector}" \
@@ -122,8 +139,17 @@ for csv in "${csvs[@]}"; do
   delete_resource csv "${csv}"
 done
 
+legacy_csv_selector="operators.coreos.com/keycloak-stack-operator.${namespace}"
+mapfile -t legacy_csvs < <(oc get csv -n "${namespace}" -l "${legacy_csv_selector}" \
+  -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)
+for csv in "${legacy_csvs[@]}"; do
+  [[ -n "${csv}" ]] || continue
+  delete_resource csv "${csv}"
+done
+
 # Delete catalog source if it lives alongside the operator (not the global marketplace).
 delete_resource catalogsource mas-iam-operator
+delete_resource catalogsource mas-iam-operator-dev
 
 echo "Namespace '${namespace}' cleanup complete."
 echo "Reapply manifests once prerequisites (e.g., LDAP TLS secret) are in place."

@@ -14,7 +14,7 @@ Arguments:
   release      Helm release name (for MAS this is often 'mas-iam').
   realm        Realm name to export.
   output-path  Optional local path for the exported JSON. Defaults to
-               charts/keycloak-stack/realm-config/<realm>-realm.json relative
+               charts/mas-iam-stack/realm-config/<realm>-realm.json relative
                to the repository root.
 USAGE
 }
@@ -32,7 +32,7 @@ fi
 NAMESPACE=$1
 RELEASE=$2
 REALM=$3
-OUTPUT=${4:-"charts/keycloak-stack/realm-config/${REALM}-realm.json"}
+OUTPUT=${4:-"charts/mas-iam-stack/realm-config/${REALM}-realm.json"}
 
 LABEL_SELECTOR="app.kubernetes.io/name=keycloak,app.kubernetes.io/instance=${RELEASE}"
 POD=$(kubectl get pods -n "${NAMESPACE}" -l "${LABEL_SELECTOR}" \

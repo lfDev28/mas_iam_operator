@@ -1,0 +1,31 @@
+# permissions for end users to edit masiamstacks.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: clusterrole
+    app.kubernetes.io/instance: masiamstack-editor-role
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: mas-iam-operator
+    app.kubernetes.io/part-of: mas-iam-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: masiamstack-editor-role
+rules:
+- apiGroups:
+  - iam.mas.ibm.com
+  resources:
+  - masiamstacks
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - iam.mas.ibm.com
+  resources:
+  - masiamstacks/status
+  verbs:
+  - get
