@@ -1,0 +1,6 @@
+# Use the 'create api' subcommand to add watches to this file.
+- group: iam.mas.ibm.com
+  version: v1alpha1
+  kind: MasIamStack
+  chart: helm-charts/mas-iam-stack
+#+kubebuilder:scaffold:watch

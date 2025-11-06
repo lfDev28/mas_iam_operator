@@ -1,3 +1,4 @@
 # Local development artifacts (not for source control)
 tls-artifacts/
-charts/keycloak-stack/tmpcharts-*/
+charts/mas-iam-stack/tmpcharts-*/
+operators/mas-iam-operator/helm-charts/mas-iam-stack/tmpcharts-*/

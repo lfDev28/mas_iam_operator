@@ -1,0 +1,74 @@
+dn: ou=users,dc=demo,dc=local
+objectClass: organizationalUnit
+ou: users
+
+# Groups branch
+dn: ou=groups,dc=demo,dc=local
+objectClass: organizationalUnit
+ou: groups
+
+# Demo groups
+dn: cn=admins,ou=groups,dc=demo,dc=local
+objectClass: groupOfUniqueNames
+cn: admins
+uniqueMember: cn=sysadmin,ou=users,dc=demo,dc=local
+uniqueMember: cn=jane.doe,ou=users,dc=demo,dc=local
+
+
+dn: cn=developers,ou=groups,dc=demo,dc=local
+objectClass: groupOfUniqueNames
+cn: developers
+uniqueMember: cn=jane.doe,ou=users,dc=demo,dc=local
+uniqueMember: cn=joe.bloggs,ou=users,dc=demo,dc=local
+
+
+dn: cn=viewers,ou=groups,dc=demo,dc=local
+objectClass: groupOfUniqueNames
+cn: viewers
+uniqueMember: cn=alex.manager,ou=users,dc=demo,dc=local
+uniqueMember: cn=joe.bloggs,ou=users,dc=demo,dc=local
+
+# Users
+
+## sysadmin
+dn: cn=sysadmin,ou=users,dc=demo,dc=local
+objectClass: inetOrgPerson
+objectClass: organizationalPerson
+objectClass: person
+cn: sysadmin
+sn: Admin
+uid: sysadmin
+mail: sysadmin@demo.local
+userPassword: @@PASSWORD{sysadmin}@@
+
+dn: cn=jane.doe,ou=users,dc=demo,dc=local
+objectClass: inetOrgPerson
+objectClass: organizationalPerson
+objectClass: person
+cn: jane.doe
+sn: Doe
+uid: jane.doe
+mail: jane.doe@demo.local
+userPassword: @@PASSWORD{jane.doe}@@
+
+
+dn: cn=joe.bloggs,ou=users,dc=demo,dc=local
+objectClass: inetOrgPerson
+objectClass: organizationalPerson
+objectClass: person
+cn: joe.bloggs
+sn: Bloggs
+uid: joe.bloggs
+mail: joe.bloggs@demo.local
+userPassword: @@PASSWORD{joe.bloggs}@@
+
+
+dn: cn=alex.manager,ou=users,dc=demo,dc=local
+objectClass: inetOrgPerson
+objectClass: organizationalPerson
+objectClass: person
+cn: alex.manager
+sn: Manager
+uid: alex.manager
+mail: alex.manager@demo.local
+userPassword: @@PASSWORD{alex.manager}@@

@@ -2,15 +2,15 @@
 
 set -euo pipefail
 
-CATALOG_IMG=${CATALOG_IMG:-quay.io/lee_forster/mas-iam-operator:catalog-0.0.2}
+CATALOG_IMG=${CATALOG_IMG:-quay.io/lee_forster/mas-iam-operator:catalog-0.0.5}
 CATALOG_NAME=${CATALOG_NAME:-mas-iam-operator-dev}
 CATALOG_NAMESPACE=${CATALOG_NAMESPACE:-openshift-marketplace}
 CATALOG_DISPLAY_NAME=${CATALOG_DISPLAY_NAME:-"MAS IAM Operator (dev)"}
 
 TARGET_NAMESPACE=${TARGET_NAMESPACE:-iam}
 OPERATOR_GROUP_NAME=${OPERATOR_GROUP_NAME:-iam-operator-group}
-SUBSCRIPTION_NAME=${SUBSCRIPTION_NAME:-keycloak-stack-operator}
-PACKAGE_NAME=${PACKAGE_NAME:-keycloak-stack-operator}
+SUBSCRIPTION_NAME=${SUBSCRIPTION_NAME:-mas-iam-operator}
+PACKAGE_NAME=${PACKAGE_NAME:-mas-iam-operator}
 CHANNEL=${CHANNEL:-alpha}
 INSTALL_PLAN_APPROVAL=${INSTALL_PLAN_APPROVAL:-Automatic}
 
@@ -117,6 +117,6 @@ echo "Operator installed. Current CSVs:"
 oc get csv -n "${TARGET_NAMESPACE}"
 
 echo "Next steps:"
-echo "  - Apply a KeycloakStack custom resource:"
-echo "      oc apply -f operators/keycloak-stack-operator/config/samples/iam_v1alpha1_keycloakstack.yaml"
+echo "  - Apply a MasIamStack custom resource:"
+echo "      oc apply -f operators/mas-iam-operator/config/samples/iam_v1alpha1_masiamstack.yaml"
 echo "  - Monitor pods and operator logs as needed."

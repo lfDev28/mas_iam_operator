@@ -1,0 +1,25 @@
+{{- if .Values.openldap.enabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mas-iam-stack.fullname" . }}-openldap
+  labels:
+    {{- include "mas-iam-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: openldap
+spec:
+  type: {{ .Values.openldap.service.type }}
+  selector:
+    {{- include "mas-iam-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: openldap
+  ports:
+    - name: ldap
+      port: {{ .Values.openldap.service.port }}
+      targetPort: ldap
+      protocol: TCP
+    {{- if .Values.openldap.service.tlsPort }}
+    - name: ldaps
+      port: {{ .Values.openldap.service.tlsPort }}
+      targetPort: ldaps
+      protocol: TCP
+    {{- end }}
+{{- end }}
