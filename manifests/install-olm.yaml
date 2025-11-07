@@ -212,7 +212,7 @@ metadata:
   namespace: openshift-marketplace
 spec:
   displayName: MAS IAM Operator
-  image: quay.io/lee_forster/mas-iam-operator:catalog-0.0.7
+  image: quay.io/lee_forster/mas-iam-operator:catalog-0.0.8
   sourceType: grpc
 ---
 apiVersion: operators.coreos.com/v1

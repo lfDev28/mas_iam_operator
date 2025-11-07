@@ -1,7 +1,7 @@
 apiVersion: v2
 name: mas-iam-stack
 type: application
-version: 0.1.3
+version: 0.1.4
 appVersion: "26.0.5"
 dependencies:
   - name: postgresql

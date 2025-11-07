@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-CATALOG_IMG=${CATALOG_IMG:-quay.io/lee_forster/mas-iam-operator:catalog-0.0.7}
+CATALOG_IMG=${CATALOG_IMG:-quay.io/lee_forster/mas-iam-operator:catalog-0.0.8}
 CATALOG_NAME=${CATALOG_NAME:-mas-iam-operator-dev}
 CATALOG_NAMESPACE=${CATALOG_NAMESPACE:-openshift-marketplace}
 CATALOG_DISPLAY_NAME=${CATALOG_DISPLAY_NAME:-"MAS IAM Operator (dev)"}
