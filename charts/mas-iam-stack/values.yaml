@@ -50,6 +50,7 @@ keycloak:
     baseDn: ""
     bindDn: ""
     bindCredentialSecret: ""
+    autoConfigureOnUpgrade: true
     bindCredentialKey: password
     usersDn: ""
     groupsDn: ""

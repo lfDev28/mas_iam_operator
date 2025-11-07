@@ -32,6 +32,7 @@ spec:
       tag: 26.0.5
     ldap:
       autoConfigure: true
+      autoConfigureOnUpgrade: false
       baseDn: dc=demo,dc=local
       bindCredentialKey: password
       bindCredentialSecret: ""
