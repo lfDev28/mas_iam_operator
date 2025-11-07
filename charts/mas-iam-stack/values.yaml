@@ -79,9 +79,9 @@ keycloak:
 postgresql:
   enabled: true
   image:
-    registry: docker.io
-    repository: bitnamilegacy/postgresql
-    tag: "17.6.0-debian-12-r4"
+    registry: quay.io
+    repository: lee_forster/mas-iam-operator
+    tag: "postgresql-17.6.0-debian-12-r4"
     pullPolicy: IfNotPresent
   auth:
     username: keycloak
