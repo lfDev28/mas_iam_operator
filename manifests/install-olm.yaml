@@ -212,7 +212,7 @@ metadata:
   namespace: openshift-marketplace
 spec:
   displayName: MAS IAM Operator
-  image: quay.io/lee_forster/mas-iam-operator:catalog-0.0.6
+  image: quay.io/lee_forster/mas-iam-operator:catalog-0.0.7
   sourceType: grpc
 ---
 apiVersion: operators.coreos.com/v1
@@ -247,6 +247,7 @@ spec:
   keycloak:
     ldap:
       autoConfigure: true
+      autoConfigureOnUpgrade: false
       # Populate with the name of the secret containing LDAP bind credentials.
       bindCredentialSecret: ""
       # Provide the ldaps:// endpoint for your LDAP server.

@@ -76,6 +76,7 @@
 {{- $uuidAttr := $ldap.uuidLDAPAttribute | default "entryUUID" -}}
 {{- $usernameAttr := $ldap.usernameLDAPAttribute | default "uid" -}}
 {{- $rdnAttr := $ldap.rdnLDAPAttribute | default "uid" -}}
+{{- $runOnUpgrade := default true $ldap.autoConfigureOnUpgrade -}}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -84,7 +85,7 @@ metadata:
     {{- include "mas-iam-stack.labels" . | nindent 4 }}
     app.kubernetes.io/component: keycloak-config
   annotations:
-    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook": post-install{{- if $runOnUpgrade }},post-upgrade{{- end }}
     "helm.sh/hook-delete-policy": before-hook-creation
 spec:
   backoffLimit: 3

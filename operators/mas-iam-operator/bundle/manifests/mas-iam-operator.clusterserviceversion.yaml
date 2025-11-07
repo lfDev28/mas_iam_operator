@@ -52,6 +52,7 @@ metadata:
               },
               "ldap": {
                 "autoConfigure": true,
+                "autoConfigureOnUpgrade": false,
                 "baseDn": "dc=demo,dc=local",
                 "bindCredentialKey": "password",
                 "bindCredentialSecret": "",
@@ -886,10 +887,10 @@ metadata:
         }
       ]
     capabilities: Basic Install
-    createdAt: "2025-11-07T01:05:40Z"
+    createdAt: "2025-11-07T01:53:35Z"
     operators.operatorframework.io/builder: operator-sdk-v1.33.0
     operators.operatorframework.io/project_layout: helm.sdk.operatorframework.io/v1
-  name: mas-iam-operator.v0.0.6
+  name: mas-iam-operator.v0.0.7
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -1045,7 +1046,7 @@ spec:
                 - --metrics-bind-address=127.0.0.1:8080
                 - --leader-elect
                 - --leader-election-id=mas-iam-operator
-                image: quay.io/lee_forster/mas-iam-operator:0.0.6
+                image: quay.io/lee_forster/mas-iam-operator:0.0.7
                 imagePullPolicy: Always
                 livenessProbe:
                   httpGet:
@@ -1133,4 +1134,4 @@ spec:
   provider:
     name: Provider Name
     url: https://your.domain
-  version: 0.0.6
+  version: 0.0.7
