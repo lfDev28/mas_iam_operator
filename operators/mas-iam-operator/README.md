@@ -223,3 +223,32 @@ recreate the secret automatically (and print the new truststore password) and
 the bootstrap-admin init container will make the stored password permanent
 again. Run `scripts/dev-generate-openldap-tls.sh` only if you want to rotate the
 secret outside of that flow.
+
+## Troubleshooting
+
+### "Test authentication" fails in the Keycloak console
+
+Keycloak never displays the stored bind credential for LDAP user storage
+providers, so the password field on the admin page is blank. The **Test
+authentication** button reuses the values currently shown in the form. If you
+click it without pasting the password, Keycloak attempts to bind with an empty
+credential and OpenLDAP responds with `LDAP: error code 49 - Invalid
+Credentials`.
+
+1. Retrieve the generated password from the secret created by the chart:
+   ```bash
+   oc get secret mas-iam-sample-openldap-admin \
+     -n iam -o jsonpath='{.data.password}' | base64 --decode
+   ```
+2. Paste the password into the **Bind credential** field before clicking **Test
+   authentication** or saving updates in the console.
+
+To validate the connection non-interactively, run the helper script (it executes
+`ldapwhoami` inside the OpenLDAP pod and prints the DN returned by the server):
+
+```bash
+scripts/test-openldap-bind.sh --namespace iam --release mas-iam-sample
+```
+
+Override `--base-dn` or `--bind-dn` if you customised the LDAP hierarchy in
+your `MasIamStack`.
