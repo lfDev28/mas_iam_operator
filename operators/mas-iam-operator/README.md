@@ -39,14 +39,14 @@ set `CONTAINER_ENGINE=podman` if you use Podman):
 
 ```bash
 cd operators/mas-iam-operator
-CONTAINER_ENGINE=podman IMG=quay.io/<org>/mas-iam-operator:0.0.9 make docker-build docker-push
+CONTAINER_ENGINE=podman IMG=quay.io/<org>/mas-iam-operator:0.0.10 make docker-build docker-push
 ```
 
 Deploy CRDs and the operator:
 
 ```bash
 make install     # installs the MasIamStack CRD
-IMG=quay.io/<org>/mas-iam-operator:0.0.9 make deploy
+IMG=quay.io/<org>/mas-iam-operator:0.0.10 make deploy
 ```
 
 Apply a sample CR (customise secrets and routing first):
@@ -150,18 +150,18 @@ make uninstall
 Generate and build an OLM bundle (the Makefile auto-detects Docker vs Podman, but you can override via `CONTAINER_ENGINE` if needed):
 
 ```bash
-VERSION=0.0.9 make bundle
-CONTAINER_ENGINE=podman VERSION=0.0.9 BUNDLE_IMG=quay.io/<org>/mas-iam-operator-bundle:0.0.9 make bundle-build bundle-push
+VERSION=0.0.10 make bundle
+CONTAINER_ENGINE=podman VERSION=0.0.10 BUNDLE_IMG=quay.io/<org>/mas-iam-operator-bundle:0.0.10 make bundle-build bundle-push
 ```
 
 Use `make catalog-build catalog-push` when you are ready to publish the operator
 to a catalog source.
 
 ```bash
-CONTAINER_ENGINE=podman VERSION=0.0.9 \
-  IMG=quay.io/<org>/mas-iam-operator:0.0.9 \
-  BUNDLE_IMG=quay.io/<org>/mas-iam-operator-bundle:0.0.9 \
-  CATALOG_IMG=quay.io/<org>/mas-iam-operator:catalog-0.0.9 \
+CONTAINER_ENGINE=podman VERSION=0.0.10 \
+  IMG=quay.io/<org>/mas-iam-operator:0.0.10 \
+  BUNDLE_IMG=quay.io/<org>/mas-iam-operator-bundle:0.0.10 \
+  CATALOG_IMG=quay.io/<org>/mas-iam-operator:catalog-0.0.10 \
   make docker-build docker-push bundle bundle-build bundle-push catalog-build catalog-push
 ```
 
@@ -253,14 +253,15 @@ scripts/test-openldap-bind.sh --namespace iam --release mas-iam-sample
 Override `--base-dn` or `--bind-dn` if you customised the LDAP hierarchy in
 your `MasIamStack`.
 
-### Docker Hub rate limits when pulling PostgreSQL
+### Docker Hub rate limits (PostgreSQL / OpenLDAP)
 
-Bitnami only publishes the PostgreSQL image required by the chart on Docker
-Hub. Pulling it anonymously quickly hits Hub's 500-pulls/day limit. To avoid
-throttling we now mirror the exact Bitnami build to Quay as
-`quay.io/lee_forster/mas-iam-operator:postgresql-17.6.0-debian-12-r4`, and the
-chart defaults point to that mirror. If you prefer to use your own registry,
-override the image block:
+Bitnami's PostgreSQL base image and Osixia's OpenLDAP image are only
+distributed via Docker Hub, so anonymous clusters quickly hit the 500 pulls/day
+quota. We mirror both artifacts to Quay as
+`quay.io/lee_forster/mas-iam-operator:postgresql-17.6.0-debian-12-r4` and
+`quay.io/lee_forster/mas-iam-operator:openldap-1.5.0`, and the default values
+now point to those mirrors. If you would rather host the bits yourself, override
+the image blocks before applying your `MasIamStack`:
 
 ```yaml
 spec:
@@ -269,10 +270,16 @@ spec:
       registry: quay.io
       repository: <org>/my-postgresql-mirror
       tag: postgresql-17.6.0-debian-12-r4
+
+  openldap:
+    image:
+      repository: quay.io/<org>/my-openldap-mirror
+      tag: openldap-1.5.0
 ```
 
-Just push the Bitnami bits to your registry with `podman pull`/`podman push`
-before applying the `MasIamStack`. Using a non-Docker Hub registry is strongly
+Mirror the upstream images once with `podman pull`/`podman push` (or your
+preferred tooling) before applying the `MasIamStack`. Using a non-Docker Hub
+registry is strongly
 recommended for shared clusters.
 
 ### LDAP auto-config job reruns every minute

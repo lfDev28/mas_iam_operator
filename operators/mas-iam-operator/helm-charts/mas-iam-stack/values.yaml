@@ -104,8 +104,8 @@ postgresql:
 openldap:
   enabled: true
   image:
-    repository: osixia/openldap
-    tag: "1.5.0"
+    repository: quay.io/lee_forster/mas-iam-operator
+    tag: "openldap-1.5.0"
     pullPolicy: IfNotPresent
   replicaCount: 1
   admin:
