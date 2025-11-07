@@ -76,7 +76,10 @@
 {{- $uuidAttr := $ldap.uuidLDAPAttribute | default "entryUUID" -}}
 {{- $usernameAttr := $ldap.usernameLDAPAttribute | default "uid" -}}
 {{- $rdnAttr := $ldap.rdnLDAPAttribute | default "uid" -}}
-{{- $runOnUpgrade := default true $ldap.autoConfigureOnUpgrade -}}
+{{- $runOnUpgrade := true -}}
+{{- if hasKey $ldap "autoConfigureOnUpgrade" -}}
+  {{- $runOnUpgrade = $ldap.autoConfigureOnUpgrade -}}
+{{- end -}}
 apiVersion: batch/v1
 kind: Job
 metadata:
