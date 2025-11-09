@@ -224,6 +224,32 @@ the bootstrap-admin init container will make the stored password permanent
 again. Run `scripts/dev-generate-openldap-tls.sh` only if you want to rotate the
 secret outside of that flow.
 
+If you cannot use the helper script, run the equivalent `oc` commands manually
+(adjust `RELEASE`/`NAMESPACE` if you customised them):
+
+```bash
+NAMESPACE=iam
+RELEASE=mas-iam-sample
+
+oc delete masiamstack "${RELEASE}" -n "${NAMESPACE}" --ignore-not-found
+oc delete keycloakstack "${RELEASE}" -n "${NAMESPACE}" --ignore-not-found || true
+oc get secret -n "${NAMESPACE}" --no-headers \
+  | awk -v r="${RELEASE}-" '$1 ~ r { print $1 }' \
+  | xargs -r -I {} oc delete secret {} -n "${NAMESPACE}"
+oc delete secret "${RELEASE}-keycloak-openldap-tls" -n "${NAMESPACE}" --ignore-not-found
+oc delete job "${RELEASE}-ldap-config" -n "${NAMESPACE}" --ignore-not-found
+oc delete job "${RELEASE}-keycloak-ldap-config" -n "${NAMESPACE}" --ignore-not-found
+oc delete pvc "data-${RELEASE}-postgresql-0" -n "${NAMESPACE}" --ignore-not-found
+oc delete configmap "${RELEASE}-postgresql-configuration" -n "${NAMESPACE}" --ignore-not-found
+oc delete configmap "${RELEASE}-postgresql-scripts" -n "${NAMESPACE}" --ignore-not-found
+oc delete subscription mas-iam-operator -n "${NAMESPACE}" --ignore-not-found
+oc delete csv -n "${NAMESPACE}" -l "operators.coreos.com/mas-iam-operator.${NAMESPACE}" --ignore-not-found
+oc delete catalogsource mas-iam-operator -n "${NAMESPACE}" --ignore-not-found || true
+```
+
+Recreate the namespace itself (`oc delete project <ns>; oc new-project <ns>`) if
+you need a completely fresh project, then reapply `manifests/install-olm.yaml`.
+
 ## Troubleshooting
 
 ### "Test authentication" fails in the Keycloak console

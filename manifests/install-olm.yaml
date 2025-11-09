@@ -1,7 +1,7 @@
 # Apply this manifest to install the MAS IAM Operator via OLM.
 # Replace every occurrence of `iam` if you want to target a different namespace.
 # Development environments: this manifest now bootstraps LDAP TLS material automatically.
-# The job below recreates <release>-openldap-tls with self-signed certificates.
+# The job below recreates <release>-keycloak-openldap-tls with self-signed certificates.
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
@@ -145,7 +145,7 @@ spec:
           service_host="${release}-openldap"
           svc_fqdn="${service_host}.${namespace}.svc"
           svc_cluster_fqdn="${svc_fqdn}.cluster.local"
-          secret="${release}-openldap-tls"
+          secret="${release}-keycloak-openldap-tls"
 
           workdir="$(mktemp -d)"
           cleanup() {
@@ -254,8 +254,8 @@ spec:
       connectionUrl: "ldaps://mas-iam-sample-openldap.iam.svc.cluster.local:636"
       tls:
         enabled: true
-        caSecret: mas-iam-sample-openldap-tls
-        truststorePasswordSecret: mas-iam-sample-openldap-tls
+        caSecret: mas-iam-sample-keycloak-openldap-tls
+        truststorePasswordSecret: mas-iam-sample-keycloak-openldap-tls
         truststorePasswordKey: truststorePassword
   openldap:
     enabled: true
