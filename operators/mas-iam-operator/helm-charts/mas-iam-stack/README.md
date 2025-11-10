@@ -51,6 +51,25 @@ Production options:
      -n <namespace>
    ```
 
+## Keycloak service account
+
+Keycloak runs under a dedicated service account so that SCC/RBAC assignments can
+be scoped to the identity instead of the namespace default. Configure it via:
+
+```yaml
+keycloak:
+  serviceAccount:
+    create: true
+    name: ""   # defaults to <release>-keycloak
+```
+
+When `create=true` (the default) the chart now checks for an existing service
+account with the resolved name. If one is found—for example, left behind after a
+failed install—the chart skips creating a new object and reuses the existing
+account. This prevents Helm from bailing out with “resource already exists”
+errors while still allowing you to pre-create or customise the account when
+needed.
+
 ## Preparing LDAP TLS material
 
 OpenLDAP is shipped with TLS enabled by default. Before installing the chart
