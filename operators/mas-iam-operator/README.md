@@ -202,8 +202,16 @@ operator (and optionally a starter MAS IAM stack) with a single manifest.
    oc apply -f operators/mas-iam-operator/config/samples/iam_v1alpha1_masiamstack.yaml
    ```
 
-Monitor `job/<release>-ldap-config` until it reports success—the job
-retries until Keycloak’s admin API becomes reachable.
+   Monitor `job/<release>-ldap-config` until it reports success—the job
+   retries until Keycloak’s admin API becomes reachable.
+
+   When the chart detects it is running on OpenShift (the
+   `security.openshift.io/v1/SecurityContextConstraints` API is present) it now
+   creates role bindings that grant both the Keycloak and OpenLDAP service
+   accounts the `anyuid` SCC (`system:openshift:scc:anyuid`). That mirrors the
+   manual `oc adm policy add-scc-to-user anyuid -z <sa>` commands we previously
+   had to run and ensures both workloads can write to their `/container`
+   directories on fresh installs.
 
 ### Resetting a development namespace
 

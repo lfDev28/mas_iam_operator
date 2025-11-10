@@ -38,6 +38,17 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 {{- end -}}
 
+{{- define "mas-iam-stack.keycloakServiceAccountName" -}}
+{{- $sa := .Values.keycloak.serviceAccount | default dict -}}
+{{- if $sa.name -}}
+  {{- $sa.name -}}
+{{- else if $sa.create -}}
+  {{- printf "%s-keycloak" (include "mas-iam-stack.fullname" .) -}}
+{{- else -}}
+  {{- printf "%s-keycloak" (include "mas-iam-stack.fullname" .) -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "mas-iam-stack.ldapBaseDN" -}}
 {{- $domain := . | default "" | trim -}}
 {{- if $domain -}}

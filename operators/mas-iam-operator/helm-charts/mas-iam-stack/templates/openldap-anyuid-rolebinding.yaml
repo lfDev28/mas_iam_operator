@@ -1,0 +1,20 @@
+{{- if and .Values.openldap.enabled (has "security.openshift.io/v1/SecurityContextConstraints" .Capabilities.APIVersions) -}}
+{{- $saName := default (printf "%s-openldap" (include "mas-iam-stack.fullname" .)) .Values.openldap.serviceAccount.name -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "mas-iam-stack.fullname" . }}-openldap-anyuid
+  labels:
+    {{- include "mas-iam-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: openldap
+  annotations:
+    security.openshift.io/scc: anyuid
+subjects:
+  - kind: ServiceAccount
+    name: {{ $saName }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:openshift:scc:anyuid
+{{- end }}

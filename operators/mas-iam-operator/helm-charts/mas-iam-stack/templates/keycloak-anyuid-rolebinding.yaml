@@ -1,0 +1,19 @@
+{{- if and (has "security.openshift.io/v1/SecurityContextConstraints" .Capabilities.APIVersions) (.Values.keycloak.enabled | default true) -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "mas-iam-stack.fullname" . }}-keycloak-anyuid
+  labels:
+    {{- include "mas-iam-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: keycloak
+  annotations:
+    security.openshift.io/scc: anyuid
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "mas-iam-stack.keycloakServiceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:openshift:scc:anyuid
+{{- end }}
