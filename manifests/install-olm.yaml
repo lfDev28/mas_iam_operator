@@ -53,12 +53,6 @@ metadata:
   name: mas-iam-sample-openldap-tls-generator
   namespace: iam
 ---
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: mas-iam-sample-route-tls-generator
-  namespace: iam
----
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -70,19 +64,6 @@ rules:
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: mas-iam-sample-route-tls-generator
-  namespace: iam
-rules:
-- apiGroups: ["iam.mas.ibm.com"]
-  resources: ["masiamstacks"]
-  verbs: ["get", "patch"]
-- apiGroups: ["route.openshift.io"]
-  resources: ["routes"]
-  verbs: ["get", "list", "watch"]
----
-apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: mas-iam-sample-openldap-tls-generator
@@ -94,20 +75,6 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: mas-iam-sample-openldap-tls-generator
-  namespace: iam
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: mas-iam-sample-route-tls-generator
-  namespace: iam
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: mas-iam-sample-route-tls-generator
-subjects:
-- kind: ServiceAccount
-  name: mas-iam-sample-route-tls-generator
   namespace: iam
 ---
 apiVersion: batch/v1
@@ -144,108 +111,6 @@ spec:
         - -ec
         - |
           set -euo pipefail
----
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: mas-iam-sample-generate-route-tls
-  namespace: iam
-  labels:
-    app.kubernetes.io/component: keycloak
-    app.kubernetes.io/instance: mas-iam-sample
-    app.kubernetes.io/name: keycloak
-spec:
-  ttlSecondsAfterFinished: 300
-  template:
-    metadata:
-      labels:
-        app.kubernetes.io/component: keycloak
-        app.kubernetes.io/instance: mas-iam-sample
-        app.kubernetes.io/name: keycloak
-    spec:
-      restartPolicy: OnFailure
-      serviceAccountName: mas-iam-sample-route-tls-generator
-      containers:
-      - name: generate
-        image: quay.io/openshift/origin-cli:4.16
-        imagePullPolicy: IfNotPresent
-        env:
-        - name: MASIAMSTACK_NAME
-          value: mas-iam-sample
-        command:
-        - /bin/bash
-        - -ec
-        - |
-          set -euo pipefail
-
-          if command -v kubectl >/dev/null 2>&1; then
-            kubectl_bin=kubectl
-          elif command -v oc >/dev/null 2>&1; then
-            kubectl_bin=oc
-          else
-            echo "kubectl (or oc) is required but not available" >&2
-            exit 1
-          fi
-
-          namespace="${TARGET_NAMESPACE:-$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace)}"
-          stack="${MASIAMSTACK_NAME:-mas-iam-sample}"
-          route_name="${stack}"
-
-          route_host=""
-          for attempt in $(seq 1 24); do
-            route_host=$("${kubectl_bin}" -n "${namespace}" get route "${route_name}" -o jsonpath='{.spec.host}' 2>/dev/null || true)
-            if [[ -n "${route_host}" ]]; then
-              break
-            fi
-            echo "Waiting for route ${route_name} host..."
-            sleep 5
-          done
-
-          if [[ -z "${route_host}" ]]; then
-            echo "Route host for ${route_name} not available." >&2
-            exit 1
-          fi
-
-          workdir="$(mktemp -d)"
-          cleanup() {
-            rm -rf "${workdir}"
-          }
-          trap cleanup EXIT
-          pushd "${workdir}" >/dev/null
-
-          cat > san.cnf <<EOF
-          subjectAltName=DNS:${route_host}
-          EOF
-
-          openssl req -new -newkey rsa:4096 -nodes \
-            -keyout tls.key -out tls.csr \
-            -subj "/CN=${route_host}"
-
-          openssl x509 -req -in tls.csr \
-            -signkey tls.key -out tls.crt \
-            -days 365 -sha256 -extfile san.cnf
-
-          cat > patch.yaml <<'EOF'
-          spec:
-            keycloak:
-              route:
-                tls:
-                  certificate: |-
-          EOF
-          sed 's/^/                    /' tls.crt >> patch.yaml
-          cat >> patch.yaml <<'EOF'
-                  key: |-
-          EOF
-          sed 's/^/                    /' tls.key >> patch.yaml
-
-          echo "Patching MasIamStack ${stack} with generated route TLS material"
-          "${kubectl_bin}" -n "${namespace}" patch masiamstack "${stack}" --type merge --patch "$(cat patch.yaml)"
-
-          popd >/dev/null
-
-          echo "Injected self-signed TLS material for route ${route_host}."
----
-
           if ! command -v openssl >/dev/null 2>&1; then
             if command -v microdnf >/dev/null 2>&1; then
               microdnf install -y openssl >/dev/null 2>&1
