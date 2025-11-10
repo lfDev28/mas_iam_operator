@@ -213,7 +213,14 @@ operator (and optionally a starter MAS IAM stack) with a single manifest.
    had to run and ensures both workloads can write to their `/container`
    directories on fresh installs.
 
-### Custom TLS for the Keycloak route
+     A post-install job (`mas-iam-sample-generate-route-tls`) now generates a
+   namespace-scoped self-signed certificate for the Keycloak route and patches the
+   `MasIamStack` with the resulting PEM. Browsers will still warn unless you
+   import the generated CA, but you no longer have to run `openssl` or `oc patch`
+   manually—the manifest leaves the CR ready for you to drop in a trusted cert
+   later (see below).
+ 
+ ### Custom TLS for the Keycloak route
 
 By default the Keycloak route (`https://<release>-<ns>.<apps-domain>`) uses the
 cluster ingress certificate. If your ingress wildcard is self-signed, browsers
