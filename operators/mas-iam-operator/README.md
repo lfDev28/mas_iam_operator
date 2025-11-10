@@ -213,6 +213,62 @@ operator (and optionally a starter MAS IAM stack) with a single manifest.
    had to run and ensures both workloads can write to their `/container`
    directories on fresh installs.
 
+### Custom TLS for the Keycloak route
+
+By default the Keycloak route (`https://<release>-<ns>.<apps-domain>`) uses the
+cluster ingress certificate. If your ingress wildcard is self-signed, browsers
+will show a warning. You can now inject a trusted certificate directly via the
+`MasIamStack` spec:
+
+```yaml
+spec:
+  keycloak:
+    route:
+      tls:
+        certificate: |-
+          -----BEGIN CERTIFICATE-----
+          ...
+          -----END CERTIFICATE-----
+        key: |-
+          -----BEGIN PRIVATE KEY-----
+          ...
+          -----END PRIVATE KEY-----
+        # Optional chain presented to clients
+        caCertificate: |-
+          -----BEGIN CERTIFICATE-----
+          ...
+          -----END CERTIFICATE-----
+```
+
+The `destinationCACertificate` field is also available if you need to present a
+custom CA toward the backend service. Update an existing stack with:
+
+```bash
+cat <<'EOF' > keycloak-route-tls-patch.yaml
+spec:
+  keycloak:
+    route:
+      tls:
+        certificate: |-
+          -----BEGIN CERTIFICATE-----
+          YOUR-CERT
+          -----END CERTIFICATE-----
+        key: |-
+          -----BEGIN PRIVATE KEY-----
+          YOUR-KEY
+          -----END PRIVATE KEY-----
+        caCertificate: |-
+          -----BEGIN CERTIFICATE-----
+          OPTIONAL-CHAIN
+          -----END CERTIFICATE-----
+EOF
+
+oc patch masiamstack mas-iam-sample -n iam --type merge --patch "$(cat keycloak-route-tls-patch.yaml)"
+```
+
+Reapply the patch whenever you rotate the certificate. The route will begin
+serving the supplied PEM immediately after the operator reconciles.
+
 ### Resetting a development namespace
 
 Use `scripts/reset-namespace.sh` to tear down an environment and start from a

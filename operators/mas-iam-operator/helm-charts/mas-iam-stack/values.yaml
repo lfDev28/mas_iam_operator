@@ -34,6 +34,10 @@ keycloak:
     tls:
       termination: edge
       insecurePolicy: Redirect
+      certificate: ""
+      key: ""
+      caCertificate: ""
+      destinationCACertificate: ""
   service:
     port: 8080
   realmImport:
