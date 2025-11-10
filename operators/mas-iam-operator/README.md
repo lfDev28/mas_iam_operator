@@ -39,14 +39,14 @@ set `CONTAINER_ENGINE=podman` if you use Podman):
 
 ```bash
 cd operators/mas-iam-operator
-CONTAINER_ENGINE=podman IMG=quay.io/<org>/mas-iam-operator:0.0.10 make docker-build docker-push
+CONTAINER_ENGINE=podman IMG=quay.io/<org>/mas-iam-operator:0.0.11 make docker-build docker-push
 ```
 
 Deploy CRDs and the operator:
 
 ```bash
 make install     # installs the MasIamStack CRD
-IMG=quay.io/<org>/mas-iam-operator:0.0.10 make deploy
+IMG=quay.io/<org>/mas-iam-operator:0.0.11 make deploy
 ```
 
 Apply a sample CR (customise secrets and routing first):
@@ -150,18 +150,18 @@ make uninstall
 Generate and build an OLM bundle (the Makefile auto-detects Docker vs Podman, but you can override via `CONTAINER_ENGINE` if needed):
 
 ```bash
-VERSION=0.0.10 make bundle
-CONTAINER_ENGINE=podman VERSION=0.0.10 BUNDLE_IMG=quay.io/<org>/mas-iam-operator-bundle:0.0.10 make bundle-build bundle-push
+VERSION=0.0.11 make bundle
+CONTAINER_ENGINE=podman VERSION=0.0.11 BUNDLE_IMG=quay.io/<org>/mas-iam-operator-bundle:0.0.11 make bundle-build bundle-push
 ```
 
 Use `make catalog-build catalog-push` when you are ready to publish the operator
 to a catalog source.
 
 ```bash
-CONTAINER_ENGINE=podman VERSION=0.0.10 \
-  IMG=quay.io/<org>/mas-iam-operator:0.0.10 \
-  BUNDLE_IMG=quay.io/<org>/mas-iam-operator-bundle:0.0.10 \
-  CATALOG_IMG=quay.io/<org>/mas-iam-operator:catalog-0.0.10 \
+CONTAINER_ENGINE=podman VERSION=0.0.11 \
+  IMG=quay.io/<org>/mas-iam-operator:0.0.11 \
+  BUNDLE_IMG=quay.io/<org>/mas-iam-operator-bundle:0.0.11 \
+  CATALOG_IMG=quay.io/<org>/mas-iam-operator:catalog-0.0.11 \
   make docker-build docker-push bundle bundle-build bundle-push catalog-build catalog-push
 ```
 

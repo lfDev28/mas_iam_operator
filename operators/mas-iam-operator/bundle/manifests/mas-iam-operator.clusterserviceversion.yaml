@@ -105,7 +105,11 @@ metadata:
                 "enabled": true,
                 "host": "",
                 "tls": {
+                  "caCertificate": "",
+                  "certificate": "",
+                  "destinationCACertificate": "",
                   "insecurePolicy": "Redirect",
+                  "key": "",
                   "termination": "edge"
                 }
               },
@@ -151,8 +155,8 @@ metadata:
               ],
               "image": {
                 "pullPolicy": "IfNotPresent",
-                "repository": "osixia/openldap",
-                "tag": "1.5.0"
+                "repository": "quay.io/lee_forster/mas-iam-operator",
+                "tag": "openldap-1.5.0-multi"
               },
               "nodeSelector": {},
               "persistence": {
@@ -379,9 +383,9 @@ metadata:
                 "digest": "",
                 "pullPolicy": "IfNotPresent",
                 "pullSecrets": [],
-                "registry": "docker.io",
-                "repository": "bitnamilegacy/postgresql",
-                "tag": "17.6.0-debian-12-r4"
+                "registry": "quay.io",
+                "repository": "lee_forster/mas-iam-operator",
+                "tag": "postgresql-17.6.0-debian-12-r4-multi"
               },
               "kubeVersion": "",
               "ldap": {
@@ -887,10 +891,10 @@ metadata:
         }
       ]
     capabilities: Basic Install
-    createdAt: "2025-11-07T03:13:35Z"
+    createdAt: "2025-11-10T03:29:17Z"
     operators.operatorframework.io/builder: operator-sdk-v1.33.0
     operators.operatorframework.io/project_layout: helm.sdk.operatorframework.io/v1
-  name: mas-iam-operator.v0.0.10
+  name: mas-iam-operator.v0.0.11
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -1046,7 +1050,7 @@ spec:
                 - --metrics-bind-address=127.0.0.1:8080
                 - --leader-elect
                 - --leader-election-id=mas-iam-operator
-                image: quay.io/lee_forster/mas-iam-operator:0.0.10
+                image: quay.io/lee_forster/mas-iam-operator:0.0.11
                 imagePullPolicy: Always
                 livenessProbe:
                   httpGet:
@@ -1134,4 +1138,4 @@ spec:
   provider:
     name: Provider Name
     url: https://your.domain
-  version: 0.0.10
+  version: 0.0.11

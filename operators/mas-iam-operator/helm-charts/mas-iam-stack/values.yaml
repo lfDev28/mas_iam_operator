@@ -88,7 +88,7 @@ postgresql:
   image:
     registry: quay.io
     repository: lee_forster/mas-iam-operator
-    tag: "postgresql-17.6.0-debian-12-r4"
+    tag: "postgresql-17.6.0-debian-12-r4-multi"
     pullPolicy: IfNotPresent
   auth:
     username: keycloak
@@ -112,7 +112,7 @@ openldap:
   enabled: true
   image:
     repository: quay.io/lee_forster/mas-iam-operator
-    tag: "openldap-1.5.0"
+    tag: "openldap-1.5.0-multi"
     pullPolicy: IfNotPresent
   replicaCount: 1
   admin:
