@@ -308,6 +308,36 @@ preferred tooling) before applying the `MasIamStack`. Using a non-Docker Hub
 registry is strongly
 recommended for shared clusters.
 
+### Refreshing the mirrored images with multi-arch manifests
+
+If you pull the upstream images on a single architecture and push them to Quay
+directly, only that architecture lands in the manifest. Clusters with a different
+CPU architecture will then hit an `exec format error` at container start-up.
+
+Use `scripts/mirror-dev-images.sh` to re-sync the mirrors while keeping the
+multi-architecture manifest list intact:
+
+```bash
+podman login docker.io
+podman login quay.io
+./scripts/mirror-dev-images.sh --dest quay.io/<org>/mas-iam-operator
+```
+
+The script calls `oc image mirror --keep-manifest-list` so both `linux/amd64`
+and `linux/arm64` artifacts reach the destination repository. The PostgreSQL
+entry is pinned to a manifest-list digest because Bitnami frequently prunes the
+versioned tags from Docker Hub; mirroring by digest keeps the image retrievable
+even after the tag disappears. Verify the result with:
+
+```bash
+oc image info --filter-by-os=linux/amd64 quay.io/<org>/mas-iam-operator:postgresql-17.6.0-debian-12-r4 >/dev/null
+oc image info --filter-by-os=linux/arm64 quay.io/<org>/mas-iam-operator:postgresql-17.6.0-debian-12-r4 >/dev/null
+```
+
+Repeat for the OpenLDAP tag. Once the manifest publishes both architectures,
+redeploy (`oc rollout restart statefulset/mas-iam-sample-postgresql`, etc.) so
+the pods pull the rebuilt images.
+
 ### LDAP auto-config job reruns every minute
 
 When the Helm-based operator reconciles a release it performs `helm upgrade`
