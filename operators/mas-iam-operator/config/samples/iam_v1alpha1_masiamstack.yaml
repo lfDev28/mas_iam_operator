@@ -80,6 +80,10 @@ spec:
       tls:
         insecurePolicy: Redirect
         termination: edge
+        certificate: ""
+        key: ""
+        caCertificate: ""
+        destinationCACertificate: ""
     service:
       port: 8080
   openldap:

@@ -15,11 +15,24 @@ spec:
   {{- if $routeHost }}
   host: {{ $routeHost }}
   {{- end }}
-  {{- with .Values.keycloak.route.tls }}
+  {{- $routeTls := .Values.keycloak.route.tls | default dict }}
   tls:
-    termination: {{ .termination | default "edge" }}
-    {{- with .insecurePolicy }}
-    insecureEdgeTerminationPolicy: {{ . }}
+    termination: {{ $routeTls.termination | default "edge" }}
+    insecureEdgeTerminationPolicy: {{ $routeTls.insecurePolicy | default "Redirect" }}
+    {{- with $routeTls.certificate }}
+    certificate: |-
+{{ . | nindent 6 }}
     {{- end }}
-  {{- end }}
+    {{- with $routeTls.key }}
+    key: |-
+{{ . | nindent 6 }}
+    {{- end }}
+    {{- with $routeTls.caCertificate }}
+    caCertificate: |-
+{{ . | nindent 6 }}
+    {{- end }}
+    {{- with $routeTls.destinationCACertificate }}
+    destinationCACertificate: |-
+{{ . | nindent 6 }}
+    {{- end }}
 {{- end }}
