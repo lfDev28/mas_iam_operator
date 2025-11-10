@@ -15,6 +15,7 @@
 {{- $ldapTlsCaKey := default "ca.crt" $ldapTls.caBundleKey -}}
 {{- $ldapTlsHostnamePolicy := default "ANY" $ldapTls.hostnameVerificationPolicy -}}
 {{- $pgSecretName := .Values.postgresql.auth.existingSecret | default (printf "%s-postgresql" .Release.Name) -}}
+{{- $keycloakServiceAccount := include "mas-iam-stack.keycloakServiceAccountName" . | trim -}}
 {{- if not $bootstrapSecretName -}}
   {{- fail "Set keycloak.bootstrapAdmin.secretName or enable keycloak.bootstrapAdmin.createSecret before deployment" -}}
 {{- end -}}
@@ -36,6 +37,7 @@ spec:
         {{- include "mas-iam-stack.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: keycloak
     spec:
+      serviceAccountName: {{ $keycloakServiceAccount }}
       {{- $hasBootstrapSecret := ne $bootstrapSecretName "" }}
       {{- $hasBootstrapInline := and $bootstrap.username $bootstrap.password }}
       {{- if or $hasBootstrapSecret $hasBootstrapInline $ldapTlsEnabled }}

@@ -42,6 +42,9 @@ keycloak:
     files:
       - file: realm-config/maximo-realm.json
         target: maximo-realm.json
+  serviceAccount:
+    create: true
+    name: ""
   ldap:
     autoConfigure: true
     realm: maximo
