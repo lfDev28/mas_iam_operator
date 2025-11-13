@@ -1,12 +1,17 @@
 # MAS IAM Dev Stack – User Setup Guide
 
-Hey team! I built this repo so support engineers have a quick way to spin up a
+Hey team! I built this repo so we have a quick way to spin up a
 Keycloak + OpenLDAP + PostgreSQL stack on OpenShift for SAML, SCIM, or LDAP
 testing. One manifest installs everything, the pods are already wired together,
-and you can jump straight to connecting MAS without hand-crafting identities.
+and you can jump straight to connecting MAS without worrying about 
+provisioning all of the resources and dealing with all of the challenges that come 
+with that.
 
 Use this guide to install the stack, grab the Keycloak admin secret, and follow
-IBM’s MAS SAML examples.
+the attached IBM documentation to configure SAML using Keycloak. OpenLDAP is
+already federated into Keycloak so the demo users appear immediately, but the
+raw LDAP endpoint and bind credentials are also available if you want MAS to
+talk straight to LDAP for SCIM or custom tests.
 
 ## Prerequisites
 
@@ -76,7 +81,8 @@ credentials from the previous step.
 ## 5. Understand what’s pre-provisioned
 
 - Keycloak 26 with a sample realm ready for MAS integration.
-- OpenLDAP seeded with demo users listed in the `MasIamStack` spec.
+- OpenLDAP seeded with demo users listed in the `MasIamStack` spec and already
+  wired into Keycloak’s user federation.
 - Bitnami PostgreSQL backing Keycloak.
 - TLS secret generation handled automatically by the Job (retrieve the
   truststore password with:
@@ -111,6 +117,27 @@ ldapsearch -x -H ldaps://mas-iam-sample-openldap:636 -D "cn=admin,dc=demo,dc=loc
 
 The admin password lives in the `mas-iam-sample-openldap-admin` secret. Use
 `oc get secret ... -o jsonpath='{.data.password}' | base64 -d` to retrieve it.
+Individual demo user passwords live in
+`mas-iam-sample-openldap-user-passwords` (keys match each username). Example:
+
+```bash
+oc get secret mas-iam-sample-openldap-user-passwords \
+  -n iam -o jsonpath='{.data.alex\.manager}' | base64 -d && echo
+```
+
+### Direct MAS-to-LDAP wiring (optional)
+
+If you want MAS (or another client) to authenticate directly against LDAP:
+
+- **Host / port:** `mas-iam-sample-openldap.iam.svc.cluster.local:636`
+- **Bind DN:** `cn=admin,dc=demo,dc=local`
+- **Bind password:** `oc get secret mas-iam-sample-openldap-admin -n iam -o jsonpath='{.data.password}' | base64 -d`
+- **TLS truststore / CA:** `mas-iam-sample-keycloak-openldap-tls` (contains
+  `ca.crt`, `tls.crt`, `tls.key`, `ldap-truststore.p12`)
+
+Import `ca.crt` wherever MAS (or your browser) needs to trust the OpenLDAP
+endpoint. The same credentials will apply when the SCIM service becomes
+available.
 
 ## 8. Resetting the namespace
 
