@@ -1,9 +1,0 @@
-apiVersion: v2
-name: mas-iam-stack
-type: application
-version: 0.1.6
-appVersion: "26.0.5"
-dependencies:
-  - name: postgresql
-    version: "15.x.x"
-    repository: "https://charts.bitnami.com/bitnami"

@@ -1,0 +1,68 @@
+{
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "Deduplicate Helm chart sources",
+      "description": "Adopt a single mas-iam-stack chart (prefer the operator copy), then remove the stray charts/mas-iam-stack tree or replace it with tooling (symlink, git submodule, or packaging script). Add CI/docs so future edits cannot drift.",
+      "priority": "high",
+      "status": "done",
+      "owner": "platform"
+    },
+    {
+      "id": "T2",
+      "title": "Fix operator RBAC for OpenShift",
+      "description": "Update config/rbac/role.yaml so the generated CSV grants access to RBAC (roles/rolebindings) and securitycontextconstraints. Regenerate bundle + manifests/install-olm.yaml to eliminate manual oc adm policy steps.",
+      "priority": "high",
+      "status": "done",
+      "owner": "platform"
+    },
+    {
+      "id": "T3",
+      "title": "Harden TLS bootstrap job",
+      "description": "Provide a purpose-built image containing openssl, restrict the Role to the target Secret, and remove plaintext password logging. Document how to retrieve the truststore password from the Secret instead of pod logs.",
+      "priority": "high",
+      "status": "done",
+      "owner": "security"
+    },
+    {
+      "id": "T4",
+      "title": "Split install manifest",
+      "description": "Break manifests/install-olm.yaml into (1) CRD+CatalogSource+Subscription and (2) sample MasIamStack + dev secrets. Update docs so users apply the sample only after the CSV is ready.",
+      "priority": "medium",
+      "status": "todo",
+      "owner": "docs"
+    },
+    {
+      "id": "T5",
+      "title": "Eliminate baked-in credentials",
+      "description": "Move Keycloak/Postgres/OpenLDAP passwords out of values.yaml and the sample CR. Require callers to supply Secret references and fail templates when inputs are missing.",
+      "priority": "high",
+      "status": "todo",
+      "owner": "platform"
+    },
+    {
+      "id": "T6",
+      "title": "Default OpenLDAP to secure posture",
+      "description": "Enable persistence, runAsNonRoot, fsGroup, and resource requests by default; require explicit opt-out. Document SCC requirements accordingly.",
+      "priority": "medium",
+      "status": "todo",
+      "owner": "platform"
+    },
+    {
+      "id": "T7",
+      "title": "Bring reset-namespace.sh in line with docs",
+      "description": "Either stop deleting mas-iam-sample-keycloak-openldap-tls or gate it behind --purge-tls, and update help text/tests.",
+      "priority": "medium",
+      "status": "todo",
+      "owner": "devex"
+    },
+    {
+      "id": "T8",
+      "title": "Repo hygiene",
+      "description": "Remove generated artifacts (bundle_tmp*, body.json, headers.txt, operators/.../database/index.db) and extend .gitignore so they don’t return.",
+      "priority": "medium",
+      "status": "todo",
+      "owner": "devex"
+    }
+  ]
+}
