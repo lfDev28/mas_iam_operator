@@ -1,10 +1,10 @@
 # MAS IAM Dev Stack – User Setup Guide
 
 Hey team! I built this repo so we have a quick way to spin up a
-Keycloak + OpenLDAP + PostgreSQL stack on OpenShift for SAML, SCIM, or LDAP
-testing. One manifest installs everything, the pods are already wired together,
-and you can jump straight to connecting MAS without worrying about 
-provisioning all of the resources and dealing with all of the challenges that come 
+SAML + LDAP resources on OpenShift for SAML, SCIM, or LDAP
+testing. One manifest installs everything, the pods are already wired together, SSL is configured
+as well as demo data for testing, so you can jump straight to connecting MAS without
+worrying about provisioning all of the resources and dealing with all of the challenges that come 
 with that.
 
 Use this guide to install the stack, grab the Keycloak admin secret, and follow
@@ -39,7 +39,14 @@ oc projects
 ## 2. Apply the consolidated manifest
 
 The manifest installs the OLM catalog source, OperatorGroup, Subscription, TLS
-bootstrap job, and a sample `MasIamStack` in the `iam` namespace.
+bootstrap job, and a sample `MasIamStack` in the `iam` namespace. Create the
+namespace first if it does not already exist:
+
+```bash
+oc new-project iam
+# or
+oc create namespace iam
+```
 
 ```bash
 oc apply -f https://raw.githubusercontent.com/lfDev28/mas_iam_operator/main/manifests/install-olm.yaml
@@ -183,5 +190,4 @@ Keycloak route shows as secure.
   mirror them, update the `IMG`/`BUNDLE_IMG`/`CATALOG_IMG` variables before
   running `make docker-build docker-push`.
 
-Have questions or hit an issue? File it in this repo and include the relevant
-pod logs (`oc logs -n iam <pod>`).
+If you have any question please let me know.
