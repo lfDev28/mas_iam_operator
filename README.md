@@ -1,11 +1,12 @@
 # MAS IAM Dev Stack – User Setup Guide
 
-This repository publishes a development-friendly Keycloak + OpenLDAP + PostgreSQL
-stack that mirrors the MAS IAM topology. The consolidated install manifest wires
-everything up on OpenShift so you can start testing MAS integrations quickly.
+Hey team! I built this repo so support engineers have a quick way to spin up a
+Keycloak + OpenLDAP + PostgreSQL stack on OpenShift for SAML, SCIM, or LDAP
+testing. One manifest installs everything, the pods are already wired together,
+and you can jump straight to connecting MAS without hand-crafting identities.
 
-Use this guide to install the stack, retrieve the Keycloak admin credentials,
-and connect MAS following IBM’s documented SAML examples.
+Use this guide to install the stack, grab the Keycloak admin secret, and follow
+IBM’s MAS SAML examples.
 
 ## Prerequisites
 
@@ -111,7 +112,22 @@ ldapsearch -x -H ldaps://mas-iam-sample-openldap:636 -D "cn=admin,dc=demo,dc=loc
 The admin password lives in the `mas-iam-sample-openldap-admin` secret. Use
 `oc get secret ... -o jsonpath='{.data.password}' | base64 -d` to retrieve it.
 
-## 8. Ingress certificates
+## 8. Resetting the namespace
+
+If you need to wipe the environment, run the helper script **from the repo
+root**:
+
+```bash
+curl -sS https://raw.githubusercontent.com/lfDev28/mas_iam_operator/main/scripts/reset-namespace.sh -o reset-namespace.sh
+chmod +x reset-namespace.sh
+./reset-namespace.sh --namespace iam --force
+```
+
+It removes the `MasIamStack`, job artifacts, PVCs, and operator subscription but
+leaves the TLS material unless you delete it separately. After the cleanup,
+reapply the install manifest from step 2.
+
+## 9. Ingress certificates
 
 OpenShift routes are signed by the cluster’s default ingress CA. If your browser
 doesn’t trust it, download the CA bundle and import it:
@@ -123,7 +139,7 @@ oc get configmap -n openshift-config-managed default-ingress-cert -o jsonpath='{
 Add `ingress-ca.crt` to your operating system or browser trust store so the
 Keycloak route shows as secure.
 
-## 9. Future enhancements
+## 10. Future enhancements
 
 - **SCIM server integration:** a SCIM-compatible provisioning service is in
   development so MAS can provision/deprovision users automatically.
@@ -133,8 +149,9 @@ Keycloak route shows as secure.
 ## Troubleshooting & Tips
 
 - Rerun the install manifest (`oc apply -f …`) after upgrades; it is idempotent.
-- To reset the environment, use `./scripts/reset-namespace.sh --namespace iam --force`,
-  then reapply the manifest.
+- Keep the bundled pods running by deleting failed jobs/pods before reapplying.
+- If `oc apply -f …` shows “resource … configured”, that’s expected—it’s
+  idempotent.
 - The Operator and bundle images referenced in the manifest live on Quay. If you
   mirror them, update the `IMG`/`BUNDLE_IMG`/`CATALOG_IMG` variables before
   running `make docker-build docker-push`.
