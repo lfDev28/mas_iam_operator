@@ -171,7 +171,7 @@ spec:
       serviceAccountName: mas-iam-sample-openldap-tls-generator
       containers:
       - name: generate
-        image: quay.io/openshift/origin-cli:4.14
+        image: quay.io/lee_forster/openldap-tls-generator:0.1.0
         imagePullPolicy: IfNotPresent
         securityContext:
           allowPrivilegeEscalation: false

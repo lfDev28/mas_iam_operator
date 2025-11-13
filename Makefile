@@ -1,10 +1,19 @@
-NAMESPACE ?= iam
-RELEASE   ?= mas-iam
-CHART     ?= charts/mas-iam-stack
+NAMESPACE        ?= iam
+RELEASE          ?= mas-iam
+CHART            ?= charts/mas-iam-stack
+CONTAINER_ENGINE ?= podman
+
+# OCI image configuration for helper artifacts (override on the CLI/ENV)
+TLS_IMG       ?= quay.io/example/openldap-tls-generator:0.1.0
+TLS_PLATFORM  ?= linux/amd64
+TLS_CONTEXT   ?= images/openldap-tls-generator
 
 VALUES_FLAGS := -f $(CHART)/values.yaml
 
-.PHONY: deps deploy status health teardown redeploy
+.PHONY: lint deps deploy status health teardown redeploy tls-image tls-push
+
+lint:
+	./scripts/verify-helm-chart.sh
 
 deps:
 	helm dependency update $(CHART)
@@ -25,3 +34,12 @@ teardown:
 	-kubectl -n $(NAMESPACE) wait --for=delete pvc -l app.kubernetes.io/instance=$(RELEASE),app.kubernetes.io/name=postgresql --timeout=120s
 
 redeploy: teardown deploy
+
+tls-image:
+	$(CONTAINER_ENGINE) build \
+		--platform $(TLS_PLATFORM) \
+		-t $(TLS_IMG) \
+		$(TLS_CONTEXT)
+
+tls-push: tls-image
+	$(CONTAINER_ENGINE) push $(TLS_IMG)

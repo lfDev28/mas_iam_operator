@@ -14,18 +14,67 @@ This directory contains a Helm-based operator scaffold generated with
 
 For the single-manifest install path, the YAML now includes a bootstrap job that
 creates the LDAP TLS secret automatically (self-signed, dev use only) and
-generates a random truststore password on each run. The helper script remains
-available if you need to regenerate the secret manually or outside the cluster:
+generates a random truststore password on each run. The password never appears
+in pod logs—retrieve it from the secret instead:
+
+```bash
+kubectl get secret mas-iam-sample-keycloak-openldap-tls \
+  -n iam -o jsonpath='{.data.truststorePassword}' | base64 -d && echo
+```
+
+The helper script remains available if you need to regenerate the secret
+manually or outside the cluster:
 
 ```bash
 ./scripts/dev-generate-openldap-tls.sh -n iam -r mas-iam-sample
 ```
 
+### TLS bootstrap image
+
+The consolidated install manifest references a lightweight helper image that
+generates self-signed TLS assets and writes the resulting secret through the
+Kubernetes API. The Dockerfile and helper script live in
+`images/openldap-tls-generator/`; the image only needs Bash, `openssl`, and
+`kubectl`, and it runs as UID 10001 with the `mas-iam-openldap-tls-generator`
+SCC. Use `make tls-image` / `make tls-push` from the repo root to build and
+publish the image:
+
+```bash
+# Override TLS_IMG if you use a different namespace
+TLS_IMG=quay.io/<org>/openldap-tls-generator:0.1.0 make tls-push
+```
+
+> The Makefile defaults to Podman (`CONTAINER_ENGINE=podman`). Set
+> `CONTAINER_ENGINE=docker` if you prefer Docker.
+
+After pushing, update `manifests/install-olm.yaml` so the Job pulls your image
+path. Keeping the helper in its own repository (for example,
+`quay.io/<org>/openldap-tls-generator`) avoids mixing operator and catalog
+images, keeps SBOM/vulnerability scans scoped to a single artifact, and makes it
+easy to delegate push access via a robot account with write privileges on just
+that repository.
+
+**Recommended Quay repo layout**
+
+| Purpose                     | Suggested repository / tag example                                   |
+|-----------------------------|-----------------------------------------------------------------------|
+| Operator manager binary     | `quay.io/<org>/mas-iam-operator:<version>`                            |
+| OLM bundle image            | `quay.io/<org>/mas-iam-operator-bundle:<version>`                     |
+| Catalog (index) image       | `quay.io/<org>/mas-iam-operator-catalog:<version>`                    |
+| TLS bootstrap helper image  | `quay.io/<org>/openldap-tls-generator:<version>`                      |
+
+Create a robot account per organization, grant it _write_ on the repositories it
+needs, and log in once via `podman login quay.io -u '<org>+robot' -p '<token>'`.
+All of the Makefile targets (`docker-build`, `bundle-push`, `tls-push`, etc.)
+then reuse those cached credentials.
+
 ## Layout
 
-- `helm-charts/mas-iam-stack`: snapshot of the Helm chart consumed by the
-  operator. Re-run `operator-sdk create api` if you need to refresh it from the
-  root chart.
+- `helm-charts/mas-iam-stack`: canonical Helm chart tree consumed by the
+  operator (the repo root symlinks `charts/mas-iam-stack` to this directory so
+  Helm workflows outside the operator continue to work). Edit the chart in one
+  place and run `make lint` from the repo root before pushing to confirm the
+  symlink stayed intact.
 - `config/`: kustomize overlays for CRDs, RBAC, manager deployment, samples, and
   bundle manifests.
 - `config/samples/iam_v1alpha1_masiamstack.yaml`: base specification for a
@@ -179,8 +228,8 @@ operator (and optionally a starter MAS IAM stack) with a single manifest.
    ```
 
    The manifest installs the catalog source, operator group, subscription, an
-   in-cluster TLS generation job (which prints the generated truststore password
-   in its logs), and includes an example `MasIamStack` custom
+   in-cluster TLS generation job (which stores the truststore password inside
+   the generated secret), and includes an example `MasIamStack` custom
    resource at the end. Download and edit the file locally first if you need to
    customise the release name, replace the cert material, or remove the sample CR.
 
@@ -283,10 +332,10 @@ Add `--force` to skip the confirmation prompt. The script deletes the
 material), the LDAP configuration job, the PostgreSQL PVC, and the
 namespace-scoped OLM objects (subscription/CSV). Reapply
 `manifests/install-olm.yaml` to bring the stack back—the TLS bootstrap job will
-recreate the secret automatically (and print the new truststore password) and
-the bootstrap-admin init container will make the stored password permanent
-again. Run `scripts/dev-generate-openldap-tls.sh` only if you want to rotate the
-secret outside of that flow.
+recreate the secret automatically (read the password from the secret as shown
+above) and the bootstrap-admin init container will make the stored password
+permanent again. Run `scripts/dev-generate-openldap-tls.sh` only if you want to
+rotate the secret outside of that flow.
 
 If you cannot use the helper script, run the equivalent `oc` commands manually
 (adjust `RELEASE`/`NAMESPACE` if you customised them):
