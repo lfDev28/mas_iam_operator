@@ -82,11 +82,18 @@ your preferred PKI, or for quick starts run the helper script:
 
 When you install through the consolidated operator manifest this secret is
 generated automatically by an in-cluster job (with a fresh random truststore
-password per install); use the script for manual chart deployments or to rotate
-the development secret on demand. The Keycloak deployment reads the password
-from `keycloak.ldap.tls.truststorePasswordSecret` (defaulting to the TLS secret)
-and `keycloak.ldap.tls.truststorePasswordKey`, so you do not need to hard-code
-the value in your chart configuration.
+password per install). Fetch the generated password by inspecting the secret:
+
+```bash
+kubectl get secret <release>-keycloak-openldap-tls \
+  -n <namespace> -o jsonpath='{.data.truststorePassword}' | base64 -d && echo
+```
+
+Use the helper script for manual chart deployments or to rotate the development
+secret on demand. The Keycloak deployment reads the password from
+`keycloak.ldap.tls.truststorePasswordSecret` (defaulting to the TLS secret) and
+`keycloak.ldap.tls.truststorePasswordKey`, so you do not need to hard-code the
+value in your chart configuration.
 
 The script generates a throw-away CA, server certificate/key, PKCS#12
 truststore, recreates the `<release>-keycloak-openldap-tls` secret, and prints
@@ -175,12 +182,11 @@ can produce the required files and secret for you.
 
 > **OpenShift note:** The default `osixia/openldap` image expects to start as
 > `root` in order to bootstrap the LDAP database before dropping privileges.
-> Grant the generated service account permission to use the `anyuid` SCC:
-> ```bash
-> oc adm policy add-scc-to-user anyuid system:serviceaccount:iam:mas-iam-keycloak-openldap
-> ```
-> (replace namespace and service account name if you override them). Without
-> this step the pod will remain in `CrashLoopBackOff` on OpenShift.
+> When the `security.openshift.io/v1/SecurityContextConstraints` API is present,
+> the chart now creates role bindings that attach both the Keycloak and OpenLDAP
+> service accounts to `system:openshift:scc:anyuid`, so no manual `oc adm policy`
+> commands are required. If you override the service account names the bindings
+> follow those overrides automatically.
 
 ### Auto-configuring the Keycloak federation
 

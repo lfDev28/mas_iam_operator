@@ -891,7 +891,7 @@ metadata:
         }
       ]
     capabilities: Basic Install
-    createdAt: "2025-11-10T03:29:17Z"
+    createdAt: "2025-11-10T23:25:22Z"
     operators.operatorframework.io/builder: operator-sdk-v1.33.0
     operators.operatorframework.io/project_layout: helm.sdk.operatorframework.io/v1
   name: mas-iam-operator.v0.0.11
@@ -985,6 +985,28 @@ spec:
           - routes
           verbs:
           - '*'
+        - apiGroups:
+          - rbac.authorization.k8s.io
+          resources:
+          - roles
+          - rolebindings
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - security.openshift.io
+          resources:
+          - securitycontextconstraints
+          verbs:
+          - use
+          - get
+          - list
+          - watch
         - apiGroups:
           - authentication.k8s.io
           resources:
