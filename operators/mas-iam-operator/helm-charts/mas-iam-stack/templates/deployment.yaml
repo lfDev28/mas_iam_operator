@@ -16,6 +16,7 @@
 {{- $ldapTlsHostnamePolicy := default "ANY" $ldapTls.hostnameVerificationPolicy -}}
 {{- $pgSecretName := .Values.postgresql.auth.existingSecret | default (printf "%s-postgresql" .Release.Name) -}}
 {{- $keycloakServiceAccount := include "mas-iam-stack.keycloakServiceAccountName" . | trim -}}
+{{- $scim := .Values.keycloak.scim | default dict -}}
 {{- if not $bootstrapSecretName -}}
   {{- fail "Set keycloak.bootstrapAdmin.secretName or enable keycloak.bootstrapAdmin.createSecret before deployment" -}}
 {{- end -}}
@@ -38,6 +39,10 @@ spec:
         app.kubernetes.io/component: keycloak
     spec:
       serviceAccountName: {{ $keycloakServiceAccount }}
+      {{- if .Values.keycloak.image.pullSecret }}
+      imagePullSecrets:
+        - name: {{ .Values.keycloak.image.pullSecret | quote }}
+      {{- end }}
       {{- $hasBootstrapSecret := ne $bootstrapSecretName "" }}
       {{- $hasBootstrapInline := and $bootstrap.username $bootstrap.password }}
       {{- if or $hasBootstrapSecret $hasBootstrapInline $ldapTlsEnabled }}
@@ -244,6 +249,26 @@ spec:
             {{- if and .Values.keycloak.realmImport.enabled .Values.keycloak.realmImport.overrideExisting }}
             - name: KC_IMPORT_STRATEGY
               value: OVERWRITE_EXISTING
+            {{- end }}
+            {{- if $scim.enabled }}
+            - name: SCIM_AUTHENTICATION_MODE
+              value: {{ default "KEYCLOAK" $scim.authenticationMode | quote }}
+            {{- if $scim.externalIssuer }}
+            - name: SCIM_EXTERNAL_ISSUER
+              value: {{ $scim.externalIssuer | quote }}
+            {{- end }}
+            {{- if $scim.externalAudience }}
+            - name: SCIM_EXTERNAL_AUDIENCE
+              value: {{ $scim.externalAudience | quote }}
+            {{- end }}
+            {{- if $scim.externalJwksUri }}
+            - name: SCIM_EXTERNAL_JWKS_URI
+              value: {{ $scim.externalJwksUri | quote }}
+            {{- end }}
+            - name: SCIM_LINK_IDP
+              value: {{ ternary "true" "false" (default false $scim.linkIdentityProvider) | quote }}
+            - name: SCIM_EMAIL_AS_USERNAME
+              value: {{ ternary "true" "false" (default false $scim.emailAsUsername) | quote }}
             {{- end }}
           ports:
             - name: http

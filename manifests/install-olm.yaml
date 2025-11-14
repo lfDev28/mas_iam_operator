@@ -317,6 +317,9 @@ metadata:
   namespace: iam
 spec:
   keycloak:
+    scim:
+      enabled: false
+      authenticationMode: KEYCLOAK
     ldap:
       autoConfigure: true
       autoConfigureOnUpgrade: false

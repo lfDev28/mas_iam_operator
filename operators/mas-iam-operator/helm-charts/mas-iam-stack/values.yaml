@@ -6,6 +6,7 @@ keycloak:
     repository: keycloak/keycloak
     tag: "26.0.5"
     pullPolicy: IfNotPresent
+    pullSecret: ""
   args:
     - start
   replicaCount: 1
@@ -18,6 +19,14 @@ keycloak:
       value: "false"
     - name: KC_PROXY_HEADERS
       value: xforwarded
+  scim:
+    enabled: false
+    authenticationMode: KEYCLOAK
+    externalIssuer: ""
+    externalAudience: ""
+    externalJwksUri: ""
+    linkIdentityProvider: false
+    emailAsUsername: false
   bootstrapAdmin:
     createSecret: true
     secretName: ""
