@@ -2,3 +2,4 @@
 tls-artifacts/
 charts/mas-iam-stack/tmpcharts-*/
 operators/mas-iam-operator/helm-charts/mas-iam-stack/tmpcharts-*/
+tmp-keycloak-scim/
