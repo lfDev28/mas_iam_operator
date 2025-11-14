@@ -111,7 +111,66 @@ Tips:
 3. When mapping attributes, reuse the LDAP-backed test users (e.g.,
    `alex.manager`, `jane.doe`) or create your own inside Keycloak.
 
-## 7. Working directly with LDAP
+## 7. SCIM API (preview)
+
+The repo ships a Keycloak image (see `images/keycloak-scim/`) that includes the
+Metatavu SCIM extension. To enable it:
+
+1. **Build & publish the Keycloak image with the SCIM provider**  
+   ```bash
+   SCIM_KEYCLOAK_IMG=quay.io/<org>/mas-iam-keycloak:scim-0.0.1 make scim-keycloak-push
+   ```
+
+2. **Update the `MasIamStack`** so Keycloak uses that image and turns on SCIM:
+   ```yaml
+   spec:
+     keycloak:
+       image:
+         registry: quay.io
+         repository: <org>/mas-iam-keycloak
+         tag: scim-0.0.1
+       scim:
+         enabled: true
+         authenticationMode: KEYCLOAK
+   ```
+
+3. **Seed the SCIM roles and client** once the Keycloak pod is running:
+   ```bash
+   ./scripts/configure-scim-client.sh \
+     --namespace iam \
+     --release mas-iam-sample \
+     --client-id scim-admin \
+     --client-secret <strong-secret>
+   ```
+   The script logs into the Keycloak admin API, creates the `scim-access` /
+   `scim-managed` roles, and configures a confidential client with service
+   accounts enabled. Store the generated client credentials in a Kubernetes
+   Secret so MAS (or other tools) can fetch them safely.
+
+4. **Call the SCIM endpoint** using the service account’s token (client credentials flow):
+
+```bash
+KC_ROUTE=$(oc get route mas-iam-sample -n iam -o jsonpath='{.spec.host}')
+SCIM_SECRET=<same secret passed to the script>
+TOKEN=$(curl -sk -d grant_type=client_credentials \
+  -d client_id=scim-admin \
+  -d client_secret="${SCIM_SECRET}" \
+  https://"${KC_ROUTE}"/realms/master/protocol/openid-connect/token | jq -r .access_token)
+
+curl -sk -H "Authorization: Bearer ${TOKEN}" \
+  https://"${KC_ROUTE}"/realms/master/scim/v2/Users?count=5 | jq .
+```
+
+[Switch to `EXTERNAL` mode](https://github.com/Metatavu/keycloak-scim-server)
+by editing `spec.keycloak.scim` in the `MasIamStack` (issuer, audience, and JWKS
+URI). Refer to the
+[extension README](https://github.com/Metatavu/keycloak-scim-server) for Azure
+Entra configuration details—the chart surfaces the required environment
+variables so you can match their instructions. Future work will automate the
+client/role bootstrap inside the chart; for now, the helper script keeps the
+steps consistent.
+
+## 8. Working directly with LDAP
 
 If you need to run `ldapsearch` or modify the directory, exec into the OpenLDAP
 pod:
@@ -146,7 +205,7 @@ Import `ca.crt` wherever MAS (or your browser) needs to trust the OpenLDAP
 endpoint. The same credentials will apply when the SCIM service becomes
 available.
 
-## 8. Resetting the namespace
+## 9. Resetting the namespace
 
 If you need to wipe the environment, run the helper script **from the repo
 root**:
@@ -161,7 +220,7 @@ It removes the `MasIamStack`, job artifacts, PVCs, and operator subscription but
 leaves the TLS material unless you delete it separately. After the cleanup,
 reapply the install manifest from step 2.
 
-## 9. Ingress certificates
+## 10. Ingress certificates
 
 OpenShift routes are signed by the cluster’s default ingress CA. If your browser
 doesn’t trust it, download the CA bundle and import it:
@@ -173,7 +232,7 @@ oc get configmap -n openshift-config-managed default-ingress-cert -o jsonpath='{
 Add `ingress-ca.crt` to your operating system or browser trust store so the
 Keycloak route shows as secure.
 
-## 10. Future enhancements
+## 11. Future enhancements
 
 - **SCIM server integration:** a SCIM-compatible provisioning service is in
   development so MAS can provision/deprovision users automatically.

@@ -12,6 +12,7 @@ Deliverable: a fresh bundle + install manifest that succeeds end-to-end on OpenS
 2. Remove hard-coded credentials from the chart/CR defaults and require caller-provided Secrets.
 3. Enable persistent/OpenShift-safe defaults for OpenLDAP (persistence, runAsNonRoot, requests, SCC guidance).
 4. Align `reset-namespace.sh` behavior with its documentation (or expose a flag for TLS purging).
+5. Automate SCIM client bootstrapping (roles + service account) once the extension flow stabilizes.
 
 Deliverable: opinionated defaults that follow security best practices and updated docs/scripts so day-two tasks are predictable.
 

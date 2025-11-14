@@ -224,6 +224,29 @@ into the container so the directory is populated on first start. The default
 configuration includes `ldap-seed/dev-base.ldif`; replace or extend this list
 to match your directory layout.
 
+### SCIM extension (Keycloak)
+
+Set `keycloak.scim.enabled=true` to expose the
+[Metatavu Keycloak SCIM server](https://github.com/Metatavu/keycloak-scim-server)
+endpoints. The chart injects the required environment variables:
+
+| Value                                   | Description                                                                 |
+|-----------------------------------------|-----------------------------------------------------------------------------|
+| `keycloak.scim.authenticationMode`      | `KEYCLOAK` (default) or `EXTERNAL` for JWTs issued outside Keycloak.        |
+| `keycloak.scim.externalIssuer`          | External token issuer (required when `authenticationMode=EXTERNAL`).        |
+| `keycloak.scim.externalAudience`        | Expected audience claim for external tokens.                                |
+| `keycloak.scim.externalJwksUri`         | JWKS endpoint used to validate external tokens.                             |
+| `keycloak.scim.linkIdentityProvider`    | Sets `SCIM_LINK_IDP` to `true`/`false`.                                     |
+| `keycloak.scim.emailAsUsername`         | Forces SCIM to treat email as username (`SCIM_EMAIL_AS_USERNAME`).          |
+
+> **Important:** The Keycloak image must include the SCIM provider JAR. Build
+> and push an image via `images/keycloak-scim/` (for example,
+> `SCIM_KEYCLOAK_IMG=quay.io/<org>/mas-iam-keycloak:scim-0.0.1 make scim-keycloak-push`)
+> and set `keycloak.image.repository`/`keycloak.image.tag` accordingly before
+> enabling this option.
+> Use `scripts/configure-scim-client.sh` to seed the `scim-access` /
+> `scim-managed` roles and a confidential client once Keycloak is running.
+
 ## Realm export workflow
 
 Use the helper script to pull an updated realm JSON from a running deployment.

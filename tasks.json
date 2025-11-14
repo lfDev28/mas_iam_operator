@@ -63,6 +63,14 @@
       "priority": "medium",
       "status": "todo",
       "owner": "devex"
+    },
+    {
+      "id": "T9",
+      "title": "SCIM server enablement",
+      "description": "Bundle the Keycloak SCIM extension, expose the Helm/CR knobs, and document how to seed the service-account roles + client credentials for MAS integrations.",
+      "priority": "high",
+      "status": "done",
+      "owner": "platform"
     }
   ]
 }
