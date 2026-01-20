@@ -77,7 +77,7 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: scim-bridge
-          image: "quay.io/<org>/scim-bridge:<tag>"
+          image: "quay.io/lee_forster/mas-iam-scim-bridge:scim-bridge-v0.1.0"
           imagePullPolicy: Always
           args:
             - "--bridge-mode=poll"
@@ -133,7 +133,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: keycloak-bootstrap
-          image: "quay.io/<org>/mas-iam-keycloak:<tag>"
+          image: "quay.io/lee_forster/mas-iam-keycloak:scim-bridge-v0.1.0"
           imagePullPolicy: IfNotPresent
           env:
             - name: HOME

@@ -204,6 +204,7 @@ oc apply -f https://raw.githubusercontent.com/<org>/<repo>/<tag>/manifests/scim-
 ```
 
 > Maintainers publish the rendered manifest using `scripts/scim-bridge-04-render-install-manifest.sh`. See `agents.md` for the release/publishing checklist.
+> The published manifest pins both the bridge image and the Keycloak bootstrap Job image to the same release tag.
 
 ### 4.1 Install from repo (dev / maintainer flow)
 
