@@ -1,0 +1,159 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: scim-bridge-route-cert
+  namespace: ${SCIM_BRIDGE_KEYCLOAK_ROUTE_NAMESPACE}
+  labels:
+    app.kubernetes.io/name: scim-bridge
+    app.kubernetes.io/component: keycloak-route-cert
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: scim-bridge-route-cert
+  namespace: ${SCIM_BRIDGE_KEYCLOAK_ROUTE_NAMESPACE}
+  labels:
+    app.kubernetes.io/name: scim-bridge
+    app.kubernetes.io/component: keycloak-route-cert
+rules:
+  - apiGroups: ["route.openshift.io"]
+    resources: ["routes"]
+    verbs: ["get", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames:
+      - "scim-bridge-ca"
+    verbs: ["get", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: scim-bridge-route-cert
+  namespace: ${SCIM_BRIDGE_KEYCLOAK_ROUTE_NAMESPACE}
+  labels:
+    app.kubernetes.io/name: scim-bridge
+    app.kubernetes.io/component: keycloak-route-cert
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: scim-bridge-route-cert
+subjects:
+  - kind: ServiceAccount
+    name: scim-bridge-route-cert
+    namespace: ${SCIM_BRIDGE_KEYCLOAK_ROUTE_NAMESPACE}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${SCIM_BRIDGE_KEYCLOAK_ROUTE_CERT_JOB_NAME}
+  namespace: ${SCIM_BRIDGE_KEYCLOAK_ROUTE_NAMESPACE}
+  labels:
+    app.kubernetes.io/name: scim-bridge
+    app.kubernetes.io/component: keycloak-route-cert
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: scim-bridge
+        app.kubernetes.io/component: keycloak-route-cert
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: scim-bridge-route-cert
+      containers:
+        - name: route-cert
+          image: "${SCIM_BRIDGE_KEYCLOAK_ROUTE_CERT_IMAGE}"
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: SCIM_BRIDGE_KEYCLOAK_ROUTE_NAMESPACE
+              value: "${SCIM_BRIDGE_KEYCLOAK_ROUTE_NAMESPACE}"
+            - name: SCIM_BRIDGE_KEYCLOAK_ROUTE_NAME
+              value: "${SCIM_BRIDGE_KEYCLOAK_ROUTE_NAME}"
+            - name: SCIM_BRIDGE_KEYCLOAK_ROUTE_CERT_DAYS
+              value: "${SCIM_BRIDGE_KEYCLOAK_ROUTE_CERT_DAYS}"
+            - name: SCIM_BRIDGE_KEYCLOAK_ROUTE_SERVICE
+              value: "${SCIM_BRIDGE_KEYCLOAK_ROUTE_SERVICE}"
+            - name: SCIM_BRIDGE_NAMESPACE
+              value: "${SCIM_BRIDGE_NAMESPACE}"
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              set -euo pipefail
+
+              route_namespace="${SCIM_BRIDGE_KEYCLOAK_ROUTE_NAMESPACE}"
+              route_name="${SCIM_BRIDGE_KEYCLOAK_ROUTE_NAME}"
+              bridge_namespace="${SCIM_BRIDGE_NAMESPACE}"
+              cert_days="${SCIM_BRIDGE_KEYCLOAK_ROUTE_CERT_DAYS}"
+              route_service="${SCIM_BRIDGE_KEYCLOAK_ROUTE_SERVICE}"
+
+              if [[ -z "${route_namespace}" || -z "${route_name}" ]]; then
+                echo "error: route namespace/name is required" >&2
+                exit 1
+              fi
+
+              if [[ -z "${route_service}" ]]; then
+                echo "error: SCIM_BRIDGE_KEYCLOAK_ROUTE_SERVICE is required" >&2
+                exit 1
+              fi
+
+              workdir="$(mktemp -d)"
+              cleanup() { rm -rf "${workdir}"; }
+              trap cleanup EXIT
+
+              {
+                echo "apiVersion: route.openshift.io/v1"
+                echo "kind: Route"
+                echo "metadata:"
+                echo "  name: ${route_name}"
+                echo "  namespace: ${route_namespace}"
+                echo "spec:"
+                echo "  to:"
+                echo "    kind: Service"
+                echo "    name: ${route_service}"
+                echo "  port:"
+                echo "    targetPort: http"
+                echo "  tls:"
+                echo "    termination: edge"
+                echo "    insecureEdgeTerminationPolicy: Redirect"
+              } >"${workdir}/route.yaml"
+
+              oc delete route -n "${route_namespace}" "${route_name}" --ignore-not-found >/dev/null 2>&1 || true
+              oc apply -f "${workdir}/route.yaml"
+
+              route_host="$(oc get route -n "${route_namespace}" "${route_name}" -o jsonpath='{.spec.host}' 2>/dev/null || true)"
+              if [[ -z "${route_host}" ]]; then
+                echo "error: failed to resolve generated host for route ${route_name}" >&2
+                exit 1
+              fi
+
+              cert_chain="${workdir}/route-chain.crt"
+              for _ in {1..30}; do
+                echo | openssl s_client -showcerts -servername "${route_host}" -connect "${route_host}:443" 2>/dev/null \
+                  | sed -n '/BEGIN CERTIFICATE/,/END CERTIFICATE/p' >"${cert_chain}" || true
+                if grep -q "BEGIN CERTIFICATE" "${cert_chain}"; then
+                  break
+                fi
+                sleep 5
+              done
+
+              if ! grep -q "BEGIN CERTIFICATE" "${cert_chain}"; then
+                echo "error: failed to fetch route certificate chain for ${route_host}" >&2
+                exit 1
+              fi
+
+              bundle_source="/etc/pki/tls/certs/ca-bundle.crt"
+              if [[ -f "${bundle_source}" ]]; then
+                cat "${bundle_source}" "${cert_chain}" >"${workdir}/ca-bundle.crt"
+              else
+                cp "${cert_chain}" "${workdir}/ca-bundle.crt"
+              fi
+
+              oc create secret generic scim-bridge-ca \
+                -n "${bridge_namespace}" \
+                --from-file=keycloak-ca.crt="${cert_chain}" \
+                --from-file=ca-bundle.crt="${workdir}/ca-bundle.crt" \
+                --dry-run=client -o yaml | oc apply --server-side -f -

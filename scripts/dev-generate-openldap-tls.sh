@@ -41,9 +41,12 @@ command -v kubectl >/dev/null 2>&1 || { echo "kubectl is required" >&2; exit 1; 
 command -v openssl >/dev/null 2>&1 || { echo "openssl is required" >&2; exit 1; }
 
 secret_name="${release}-keycloak-openldap-tls"
-service_host="${release}-keycloak-openldap"
+service_host="${release}-openldap"
+alt_service_host="${release}-keycloak-openldap"
 svc_fqdn="${service_host}.${namespace}.svc"
 svc_cluster_fqdn="${svc_fqdn}.cluster.local"
+alt_svc_fqdn="${alt_service_host}.${namespace}.svc"
+alt_svc_cluster_fqdn="${alt_svc_fqdn}.cluster.local"
 
 # Allow callers to request a random password by passing "-p random".
 if [[ "${truststore_password}" == "random" ]]; then
@@ -68,7 +71,7 @@ openssl req -new -key server.key -out server.csr \
   -subj "/CN=${svc_fqdn}"
 
 cat > server.ext <<EOF
-subjectAltName=DNS:${service_host},DNS:${svc_fqdn},DNS:${svc_cluster_fqdn}
+subjectAltName=DNS:${service_host},DNS:${svc_fqdn},DNS:${svc_cluster_fqdn},DNS:${alt_service_host},DNS:${alt_svc_fqdn},DNS:${alt_svc_cluster_fqdn}
 EOF
 
 openssl x509 -req -in server.csr \

@@ -8,6 +8,7 @@ SCIM_KEYCLOAK_PLATFORM ?= linux/amd64
 SCIM_KEYCLOAK_CONTEXT ?= images/keycloak-scim
 SCIM_REPO            ?= https://github.com/Metatavu/keycloak-scim-server.git
 SCIM_REF             ?= develop
+SCIM_BRIDGE_DIR      ?= services/scim-bridge
 
 # OCI image configuration for helper artifacts (override on the CLI/ENV)
 TLS_IMG       ?= quay.io/example/openldap-tls-generator:0.1.0
@@ -16,7 +17,7 @@ TLS_CONTEXT   ?= images/openldap-tls-generator
 
 VALUES_FLAGS := -f $(CHART)/values.yaml
 
-.PHONY: lint deps deploy status health teardown redeploy tls-image tls-push scim-keycloak-image scim-keycloak-push
+.PHONY: lint deps deploy status health teardown redeploy tls-image tls-push scim-keycloak-image scim-keycloak-push scim-bridge-build
 
 lint:
 	./scripts/verify-helm-chart.sh
@@ -61,3 +62,6 @@ scim-keycloak-image:
 
 scim-keycloak-push: scim-keycloak-image
 	$(CONTAINER_ENGINE) push $(SCIM_KEYCLOAK_IMG)
+
+scim-bridge-build:
+	cd $(SCIM_BRIDGE_DIR) && go build ./...

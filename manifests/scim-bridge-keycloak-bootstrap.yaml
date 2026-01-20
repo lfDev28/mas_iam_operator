@@ -1,0 +1,160 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${SCIM_BRIDGE_KEYCLOAK_BOOTSTRAP_JOB_NAME}
+  namespace: ${SCIM_BRIDGE_KEYCLOAK_NAMESPACE}
+  labels:
+    app.kubernetes.io/name: scim-bridge
+    app.kubernetes.io/component: keycloak-bootstrap
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: scim-bridge
+        app.kubernetes.io/component: keycloak-bootstrap
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: keycloak-bootstrap
+          image: "${SCIM_BRIDGE_KEYCLOAK_IMAGE}"
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: HOME
+              value: /tmp/kcadm
+            - name: KC_HOST
+              value: "http://${SCIM_BRIDGE_KEYCLOAK_SERVICE}:8080"
+            - name: SCIM_REALM
+              value: "${SCIM_BRIDGE_KEYCLOAK_REALM}"
+            - name: SCIM_CLIENT_ID
+              value: "${SCIM_BRIDGE_KEYCLOAK_CLIENT_ID}"
+            - name: SCIM_ASSIGN_MANAGED_ROLE
+              value: "${SCIM_BRIDGE_KEYCLOAK_ASSIGN_MANAGED_ROLE}"
+            - name: KC_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: "${SCIM_BRIDGE_KEYCLOAK_RELEASE}-bootstrap-admin"
+                  key: username
+            - name: KC_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: "${SCIM_BRIDGE_KEYCLOAK_RELEASE}-bootstrap-admin"
+                  key: password
+            - name: SCIM_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: scim-bridge-secret
+                  key: SCIM_BRIDGE_KEYCLOAK_CLIENT_SECRET
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              set -euo pipefail
+              mkdir -p "${HOME}/.keycloak"
+
+              if [[ -z "${SCIM_CLIENT_SECRET}" ]]; then
+                echo "error: SCIM_CLIENT_SECRET is empty; populate scim-bridge-secret.SCIM_BRIDGE_KEYCLOAK_CLIENT_SECRET" >&2
+                exit 1
+              fi
+
+              host_port="${KC_HOST#*://}"
+              if [[ "$host_port" == "$KC_HOST" ]]; then
+                host_port="$KC_HOST"
+              fi
+              host_port="${host_port%%/*}"
+              host="${host_port%%:*}"
+              port="${host_port##*:}"
+              if [[ "$port" == "$host_port" ]]; then
+                port="8080"
+              fi
+
+              echo "Waiting for Keycloak service ${host}:${port}..."
+              until (echo >"/dev/tcp/${host}/${port}") >/dev/null 2>&1; do
+                sleep 5
+              done
+
+              echo "Waiting for Keycloak admin API..."
+              until /opt/keycloak/bin/kcadm.sh config credentials \
+                --server "$KC_HOST" \
+                --realm master \
+                --user "$KC_ADMIN_USER" \
+                --password "$KC_ADMIN_PASSWORD" >/dev/null 2>&1; do
+                sleep 5
+              done
+
+              for role in scim-access scim-managed; do
+                /opt/keycloak/bin/kcadm.sh create roles -r "${SCIM_REALM}" -s "name=${role}" >/dev/null 2>&1 || true
+              done
+
+              client_uuid="$(
+                /opt/keycloak/bin/kcadm.sh get clients -r "${SCIM_REALM}" --fields clientId,id --format csv --noquotes 2>/dev/null \
+                  | tr -d '\r' \
+                  | { grep -F "${SCIM_CLIENT_ID}," || true; } \
+                  | cut -d, -f2 \
+                  | head -n1
+              )"
+
+              if [[ -z "${client_uuid}" ]]; then
+                /opt/keycloak/bin/kcadm.sh create clients -r "${SCIM_REALM}" \
+                  -s "clientId=${SCIM_CLIENT_ID}" \
+                  -s enabled=true \
+                  -s protocol=openid-connect \
+                  -s serviceAccountsEnabled=true \
+                  -s publicClient=false \
+                  -s standardFlowEnabled=false \
+                  -s directAccessGrantsEnabled=false \
+                  -s "secret=${SCIM_CLIENT_SECRET}" >/dev/null
+                client_uuid="$(
+                  /opt/keycloak/bin/kcadm.sh get clients -r "${SCIM_REALM}" --fields clientId,id --format csv --noquotes 2>/dev/null \
+                    | tr -d '\r' \
+                    | { grep -F "${SCIM_CLIENT_ID}," || true; } \
+                    | cut -d, -f2 \
+                    | head -n1
+                )"
+              else
+                /opt/keycloak/bin/kcadm.sh update "clients/${client_uuid}" -r "${SCIM_REALM}" \
+                  -s enabled=true \
+                  -s protocol=openid-connect \
+                  -s serviceAccountsEnabled=true \
+                  -s publicClient=false \
+                  -s standardFlowEnabled=false \
+                  -s directAccessGrantsEnabled=false \
+                  -s "secret=${SCIM_CLIENT_SECRET}" >/dev/null
+              fi
+
+              if [[ -z "${client_uuid}" ]]; then
+                echo "error: failed to resolve Keycloak client UUID after create/update" >&2
+                exit 1
+              fi
+
+              sa_id=""
+              for _ in {1..30}; do
+                sa_id="$(
+                  /opt/keycloak/bin/kcadm.sh get "clients/${client_uuid}/service-account-user" -r "${SCIM_REALM}" 2>/dev/null \
+                    | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
+                )"
+                [[ -n "$sa_id" ]] && break
+                sleep 2
+              done
+
+              if [[ -z "${sa_id}" ]]; then
+                echo "error: failed to resolve service account user ID for ${SCIM_CLIENT_ID}" >&2
+                exit 1
+              fi
+
+              /opt/keycloak/bin/kcadm.sh add-roles -r "${SCIM_REALM}" \
+                --uid "${sa_id}" \
+                --rolename scim-access >/dev/null 2>&1 || true
+
+              if [[ "${SCIM_ASSIGN_MANAGED_ROLE}" == "true" ]]; then
+                /opt/keycloak/bin/kcadm.sh add-roles -r "${SCIM_REALM}" \
+                  --uid "${sa_id}" \
+                  --rolename scim-managed >/dev/null 2>&1 || true
+              fi
+
+              for role in view-users query-users query-groups; do
+                /opt/keycloak/bin/kcadm.sh add-roles -r "${SCIM_REALM}" \
+                  --uid "${sa_id}" \
+                  --cclientid realm-management \
+                  --rolename "${role}" >/dev/null 2>&1 || true
+              done

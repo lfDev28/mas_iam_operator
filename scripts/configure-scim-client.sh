@@ -4,7 +4,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: configure-scim-client.sh --namespace <ns> --release <name> --client-id <id> --client-secret <secret>
+Usage: configure-scim-client.sh --namespace <ns> --release <name> --realm <realm> --client-id <id> --client-secret <secret>
 
 Creates the SCIM helper roles and configures a confidential client with service
 accounts enabled inside Keycloak. The script shell-execs into the Keycloak pod
@@ -20,6 +20,7 @@ EOF
 
 namespace="iam"
 release="mas-iam-sample"
+realm="maximo"
 client_id="scim-admin"
 client_secret=""
 
@@ -31,6 +32,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     -r|--release)
       release="${2-}"
+      shift 2
+      ;;
+    --realm)
+      realm="${2-}"
       shift 2
       ;;
     --client-id)
@@ -88,6 +93,7 @@ oc exec -n "${namespace}" "${pod}" -c keycloak -- env \
   ADMIN_PASS="${admin_pass}" \
   SCIM_CLIENT_ID="${client_id}" \
   SCIM_CLIENT_SECRET="${client_secret}" \
+  SCIM_REALM="${realm}" \
   bash <<'EOF'
 set -euo pipefail
 export HOME=/tmp/scim-config
@@ -97,11 +103,17 @@ mkdir -p "${HOME}/.keycloak"
   --realm master \
   --user "${ADMIN_USER}" \
   --password "${ADMIN_PASS}" >/tmp/kcadm.log 2>&1
-/opt/keycloak/bin/kcadm.sh create roles -r master -s name=scim-access >/tmp/scim-role.log 2>&1 || true
-/opt/keycloak/bin/kcadm.sh create roles -r master -s name=scim-managed >/tmp/scim-role.log 2>&1 || true
-client_uuid=$(/opt/keycloak/bin/kcadm.sh get clients -r master --fields clientId,id --format csv --noquotes | awk -F, -v target="${SCIM_CLIENT_ID}" '$1==target {print $2; exit}')
+/opt/keycloak/bin/kcadm.sh create roles -r "${SCIM_REALM}" -s name=scim-access >/tmp/scim-role.log 2>&1 || true
+/opt/keycloak/bin/kcadm.sh create roles -r "${SCIM_REALM}" -s name=scim-managed >/tmp/scim-role.log 2>&1 || true
+client_uuid=$(
+  /opt/keycloak/bin/kcadm.sh get clients -r "${SCIM_REALM}" --fields clientId,id --format csv --noquotes \
+    | tr -d '\r' \
+    | { grep -F "${SCIM_CLIENT_ID}," || true; } \
+    | cut -d, -f2 \
+    | head -n1
+)
 if [[ -z "${client_uuid}" ]]; then
-  /opt/keycloak/bin/kcadm.sh create clients -r master \
+  /opt/keycloak/bin/kcadm.sh create clients -r "${SCIM_REALM}" \
     -s clientId="${SCIM_CLIENT_ID}" \
     -s enabled=true \
     -s protocol=openid-connect \
@@ -110,13 +122,40 @@ if [[ -z "${client_uuid}" ]]; then
     -s standardFlowEnabled=false \
     -s directAccessGrantsEnabled=false \
     -s secret="${SCIM_CLIENT_SECRET}" >/tmp/scim-client.log 2>&1
-  client_uuid=$(/opt/keycloak/bin/kcadm.sh get clients -r master --fields clientId,id --format csv --noquotes | awk -F, -v target="${SCIM_CLIENT_ID}" '$1==target {print $2; exit}')
+  client_uuid=$(
+    /opt/keycloak/bin/kcadm.sh get clients -r "${SCIM_REALM}" --fields clientId,id --format csv --noquotes \
+      | tr -d '\r' \
+      | { grep -F "${SCIM_CLIENT_ID}," || true; } \
+      | cut -d, -f2 \
+      | head -n1
+  )
 else
-  /opt/keycloak/bin/kcadm.sh update clients/"${client_uuid}" -r master -s secret="${SCIM_CLIENT_SECRET}" >/tmp/scim-client.log 2>&1 || true
+  /opt/keycloak/bin/kcadm.sh update clients/"${client_uuid}" -r "${SCIM_REALM}" -s secret="${SCIM_CLIENT_SECRET}" >/tmp/scim-client.log 2>&1 || true
 fi
-/opt/keycloak/bin/kcadm.sh add-roles -r master \
-  --uusername "service-account-${SCIM_CLIENT_ID}" \
+sa_id=""
+for _ in {1..30}; do
+  sa_id=$(
+    /opt/keycloak/bin/kcadm.sh get "clients/${client_uuid}/service-account-user" -r "${SCIM_REALM}" 2>/dev/null \
+      | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
+  )
+  [[ -n "${sa_id}" ]] && break
+  sleep 2
+done
+if [[ -z "${sa_id}" ]]; then
+  echo "error: failed to resolve service account user ID for ${SCIM_CLIENT_ID}" >&2
+  exit 1
+fi
+
+/opt/keycloak/bin/kcadm.sh add-roles -r "${SCIM_REALM}" \
+  --uid "${sa_id}" \
   --rolename scim-access >/tmp/scim-role.log 2>&1 || true
+
+for role in view-users query-users query-groups; do
+  /opt/keycloak/bin/kcadm.sh add-roles -r "${SCIM_REALM}" \
+    --uid "${sa_id}" \
+    --cclientid realm-management \
+    --rolename "${role}" >/tmp/scim-role.log 2>&1 || true
+done
 EOF
 
 echo "SCIM client '${client_id}' configured. Store the following credentials securely:"

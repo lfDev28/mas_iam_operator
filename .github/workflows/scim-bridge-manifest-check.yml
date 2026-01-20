@@ -1,0 +1,29 @@
+name: scim-bridge-manifest-check
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  render-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install envsubst
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gettext-base
+
+      - name: Render install manifest
+        run: |
+          SCIM_BRIDGE_ENV_FILE=env/scim-bridge.env.release \
+          SCIM_BRIDGE_OUTPUT=/tmp/scim-bridge-install.yaml \
+          ./scripts/scim-bridge-04-render-install-manifest.sh
+
+      - name: Verify manifest is up to date
+        run: |
+          diff -u manifests/scim-bridge-install.yaml /tmp/scim-bridge-install.yaml

@@ -1,0 +1,75 @@
+name: scim-bridge-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Tag to use for quay image (e.g. v0.3.0)"
+        required: true
+  push:
+    tags:
+      - "scim-bridge-v*"
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install envsubst
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gettext-base
+
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [[ -n "${{ github.event.inputs.image_tag }}" ]]; then
+            echo "tag=${{ github.event.inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Render manifest (must match repo)
+        env:
+          SCIM_BRIDGE_IMAGE_REPO: ${{ vars.SCIM_BRIDGE_IMAGE_REPO }}
+        run: |
+          if [[ -z "${SCIM_BRIDGE_IMAGE_REPO}" ]]; then
+            echo "SCIM_BRIDGE_IMAGE_REPO repo variable is required (e.g. quay.io/my-org/scim-bridge)" >&2
+            exit 1
+          fi
+          SCIM_BRIDGE_IMAGE="${SCIM_BRIDGE_IMAGE_REPO}:${{ steps.tag.outputs.tag }}" \
+          SCIM_BRIDGE_ENV_FILE=env/scim-bridge.env.release \
+          SCIM_BRIDGE_OUTPUT=/tmp/scim-bridge-install.yaml \
+          ./scripts/scim-bridge-04-render-install-manifest.sh
+          diff -u manifests/scim-bridge-install.yaml /tmp/scim-bridge-install.yaml
+
+      - name: Log in to Quay
+        uses: docker/login-action@v3
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
+      - name: Build and push scim-bridge image
+        env:
+          SCIM_BRIDGE_IMAGE_REPO: ${{ vars.SCIM_BRIDGE_IMAGE_REPO }}
+        run: |
+          SCIM_BRIDGE_IMAGE="${SCIM_BRIDGE_IMAGE_REPO}:${{ steps.tag.outputs.tag }}" \
+          SCIM_BRIDGE_CONTAINER_CLI=docker \
+          ./scripts/scim-bridge-01-build-image.sh
+
+      - name: Upload install manifest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: scim-bridge-install-manifest
+          path: manifests/scim-bridge-install.yaml
+
+      - name: Attach manifest to GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: manifests/scim-bridge-install.yaml

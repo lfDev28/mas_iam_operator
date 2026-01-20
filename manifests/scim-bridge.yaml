@@ -1,0 +1,112 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: scim-bridge-config
+  namespace: ${SCIM_BRIDGE_NAMESPACE}
+data:
+  SCIM_BRIDGE_KEYCLOAK_BASE_URL: "${SCIM_BRIDGE_KEYCLOAK_BASE_URL}"
+  SCIM_BRIDGE_KEYCLOAK_REALM: "${SCIM_BRIDGE_KEYCLOAK_REALM}"
+  SCIM_BRIDGE_KEYCLOAK_CA_FILE: "${SCIM_BRIDGE_KEYCLOAK_CA_FILE}"
+  SCIM_BRIDGE_KEYCLOAK_INSECURE_SKIP_VERIFY: "${SCIM_BRIDGE_KEYCLOAK_INSECURE_SKIP_VERIFY}"
+  SCIM_BRIDGE_MAS_BASE_URL: "${SCIM_BRIDGE_MAS_BASE_URL}"
+  SCIM_BRIDGE_MAS_PROFILE_ID: "${SCIM_BRIDGE_MAS_PROFILE_ID}"
+  SCIM_BRIDGE_MAS_PROFILE_MAP: "${SCIM_BRIDGE_MAS_PROFILE_MAP}"
+  SCIM_BRIDGE_MAS_PROFILE_MAP_JSON: "${SCIM_BRIDGE_MAS_PROFILE_MAP_JSON}"
+  SCIM_BRIDGE_MAS_PROFILE_REQUIRE_LABEL: "${SCIM_BRIDGE_MAS_PROFILE_REQUIRE_LABEL}"
+  SCIM_BRIDGE_MAS_AUTH_TYPE: "${SCIM_BRIDGE_MAS_AUTH_TYPE}"
+  SCIM_BRIDGE_MAS_CA_FILE: "${SCIM_BRIDGE_MAS_CA_FILE}"
+  SCIM_BRIDGE_MAS_INSECURE_SKIP_VERIFY: "${SCIM_BRIDGE_MAS_INSECURE_SKIP_VERIFY}"
+  SCIM_BRIDGE_BRIDGE_MODE: "${SCIM_BRIDGE_BRIDGE_MODE}"
+  SCIM_BRIDGE_BRIDGE_POLL_INTERVAL: "${SCIM_BRIDGE_BRIDGE_POLL_INTERVAL}"
+  SCIM_BRIDGE_BRIDGE_STATE_BACKEND: "${SCIM_BRIDGE_BRIDGE_STATE_BACKEND}"
+  SCIM_BRIDGE_BRIDGE_STATE_PATH: "${SCIM_BRIDGE_BRIDGE_STATE_PATH}"
+  SCIM_BRIDGE_BRIDGE_ALLOW_UPDATES: "${SCIM_BRIDGE_BRIDGE_ALLOW_UPDATES}"
+  SCIM_BRIDGE_BRIDGE_DRY_RUN: "${SCIM_BRIDGE_BRIDGE_DRY_RUN}"
+  SCIM_BRIDGE_INCLUDE_USERNAMES: "${SCIM_BRIDGE_INCLUDE_USERNAMES}"
+  SCIM_BRIDGE_INCLUDE_USERNAME_PREFIX: "${SCIM_BRIDGE_INCLUDE_USERNAME_PREFIX}"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: scim-bridge-secret
+  namespace: ${SCIM_BRIDGE_NAMESPACE}
+type: Opaque
+stringData:
+  SCIM_BRIDGE_KEYCLOAK_CLIENT_ID: "${SCIM_BRIDGE_KEYCLOAK_CLIENT_ID}"
+  SCIM_BRIDGE_KEYCLOAK_CLIENT_SECRET: "${SCIM_BRIDGE_KEYCLOAK_CLIENT_SECRET}"
+  SCIM_BRIDGE_MAS_TOKEN: "${SCIM_BRIDGE_MAS_TOKEN}"
+  SCIM_BRIDGE_MAS_API_TOKEN_NAME: "${SCIM_BRIDGE_MAS_API_TOKEN_NAME}"
+  SCIM_BRIDGE_MAS_API_TOKEN_VALUE: "${SCIM_BRIDGE_MAS_API_TOKEN_VALUE}"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: scim-bridge-state
+  namespace: ${SCIM_BRIDGE_NAMESPACE}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: "${SCIM_BRIDGE_STORAGE_CLASS}"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scim-bridge
+  namespace: ${SCIM_BRIDGE_NAMESPACE}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  imagePullSecrets: ${SCIM_BRIDGE_IMAGE_PULL_SECRETS}
+  selector:
+    matchLabels:
+      app: scim-bridge
+  template:
+    metadata:
+      labels:
+        app: scim-bridge
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: scim-bridge
+          image: "${SCIM_BRIDGE_IMAGE}"
+          imagePullPolicy: Always
+          args:
+            - "--bridge-mode=poll"
+            - "--bridge-state-backend=filesystem"
+            - "--bridge-state-path=/var/lib/scim-bridge/state.json"
+          env:
+            - name: SSL_CERT_FILE
+              value: /etc/scim-bridge/certs/ca-bundle.crt
+            - name: SSL_CERT_DIR
+              value: /etc/scim-bridge/certs
+          envFrom:
+            - configMapRef:
+                name: scim-bridge-config
+            - secretRef:
+                name: scim-bridge-secret
+          volumeMounts:
+            - name: state
+              mountPath: /var/lib/scim-bridge
+            - name: ca-certs
+              mountPath: /etc/scim-bridge/certs
+              readOnly: true
+      volumes:
+        - name: state
+          persistentVolumeClaim:
+            claimName: scim-bridge-state
+        - name: ca-certs
+          projected:
+            sources:
+              - secret:
+                  name: scim-bridge-ca
+                  optional: true
+              - configMap:
+                  name: scim-bridge-ca
+                  optional: true
