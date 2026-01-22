@@ -4,15 +4,17 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: reset-namespace.sh --namespace <ns> [--release <name>] [--force]
+Usage: reset-namespace.sh --namespace <ns> [--release <name>] [--purge-tls] [--force]
 
 Deletes MAS IAM stack resources created by the MAS IAM operator so that the
 namespace can be re-used for fresh installs. The TLS secret required by LDAP is
-left intact so you do not need to regenerate it for each reset.
+left intact so you do not need to regenerate it for each reset (unless
+--purge-tls is used).
 
 Options:
   -n, --namespace   Namespace that hosts the MAS IAM stack (required)
       --release     Helm release / MasIamStack name (default: mas-iam-sample)
+      --purge-tls   Delete the OpenLDAP TLS secret as part of the reset
   -f, --force       Do not prompt for confirmation
   -h, --help        Show this message and exit
 EOF
@@ -21,6 +23,7 @@ EOF
 namespace=""
 release="mas-iam-sample"
 force=false
+purge_tls=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -31,6 +34,10 @@ while [[ $# -gt 0 ]]; do
     --release)
       release="${2-}"
       shift 2
+      ;;
+    --purge-tls)
+      purge_tls=true
+      shift
       ;;
     -f|--force)
       force=true
@@ -108,11 +115,17 @@ mapfile -t release_secrets < <(oc get secret -n "${namespace}" \
   -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null | grep "^${release}-" || true)
 
 for secret in "${release_secrets[@]}"; do
+  if [[ "${purge_tls}" == false && "${secret}" == "${release}-keycloak-openldap-tls" ]]; then
+    echo "Skipping secret/${secret}: preserve LDAP TLS material (use --purge-tls to delete)"
+    continue
+  fi
   delete_resource secret "${secret}"
 done
 
-# Remove any dev TLS secret that may not share the release prefix.
-delete_resource secret "mas-iam-sample-keycloak-openldap-tls"
+# Remove TLS material only when explicitly requested.
+if [[ "${purge_tls}" == true ]]; then
+  delete_resource secret "${release}-keycloak-openldap-tls"
+fi
 
 # Remove Jobs that may linger after the CR is deleted.
 delete_resource job "${release}-ldap-config"

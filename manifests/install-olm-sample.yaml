@@ -1,0 +1,253 @@
+# Sample MasIamStack custom resources for development installs.
+# Apply after the operator CSV is ready (Subscription installed).
+# Includes a dev-only OpenLDAP TLS generator job.
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mas-iam-sample-openldap-tls-generator
+  namespace: iam
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mas-iam-sample-openldap-tls-generator
+  namespace: iam
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mas-iam-sample-openldap-tls-generator
+  namespace: iam
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: mas-iam-sample-openldap-tls-generator
+subjects:
+- kind: ServiceAccount
+  name: mas-iam-sample-openldap-tls-generator
+  namespace: iam
+---
+apiVersion: security.openshift.io/v1
+kind: SecurityContextConstraints
+metadata:
+  name: mas-iam-openldap-tls-generator
+  annotations:
+    kubernetes.io/description: SCC scoped to the TLS generator job for dev installs.
+priority: 5
+allowPrivilegedContainer: false
+allowPrivilegeEscalation: true
+allowHostDirVolumePlugin: false
+allowHostIPC: false
+allowHostNetwork: false
+allowHostPID: false
+allowHostPorts: false
+allowedCapabilities: []
+defaultAddCapabilities: []
+requiredDropCapabilities:
+- MKNOD
+runAsUser:
+  type: RunAsAny
+seLinuxContext:
+  type: MustRunAs
+fsGroup:
+  type: RunAsAny
+supplementalGroups:
+  type: RunAsAny
+readOnlyRootFilesystem: false
+volumes:
+- configMap
+- csi
+- downwardAPI
+- emptyDir
+- ephemeral
+- persistentVolumeClaim
+- projected
+- secret
+users:
+- system:serviceaccount:iam:mas-iam-sample-openldap-tls-generator
+groups: []
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mas-iam-sample-generate-openldap-tls
+  namespace: iam
+  labels:
+    app.kubernetes.io/component: openldap
+    app.kubernetes.io/instance: mas-iam-sample
+    app.kubernetes.io/name: keycloak
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: openldap
+        app.kubernetes.io/instance: mas-iam-sample
+        app.kubernetes.io/name: keycloak
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: mas-iam-sample-openldap-tls-generator
+      containers:
+      - name: generate
+        image: quay.io/lee_forster/openldap-tls-generator:0.1.0
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 10001
+        env:
+        - name: OPENLDAP_RELEASE
+          value: mas-iam-sample
+        - name: LDAP_TRUSTSTORE_PASSWORD
+          value: ""
+        command:
+        - /bin/bash
+        - -ec
+        - |
+          set -euo pipefail
+          if ! command -v openssl >/dev/null 2>&1; then
+            echo "openssl is required but not available" >&2
+            exit 1
+          fi
+
+          if command -v kubectl >/dev/null 2>&1; then
+            kubectl_bin=kubectl
+          elif command -v oc >/dev/null 2>&1; then
+            kubectl_bin=oc
+          else
+            echo "kubectl (or oc) is required but not available" >&2
+            exit 1
+          fi
+
+          namespace="${TARGET_NAMESPACE:-$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace)}"
+          release="${OPENLDAP_RELEASE:-mas-iam-sample}"
+          truststore_password="${LDAP_TRUSTSTORE_PASSWORD:-}"
+          if [[ -z "${truststore_password}" || "${truststore_password}" == "random" ]]; then
+            while true; do
+              truststore_password="$(head -c 32 /dev/urandom | LC_ALL=C tr -dc 'A-Za-z0-9')"
+              if [[ ${#truststore_password} -ge 12 ]]; then
+                break
+              fi
+            done
+          fi
+
+          service_host="${release}-openldap"
+          svc_fqdn="${service_host}.${namespace}.svc"
+          svc_cluster_fqdn="${svc_fqdn}.cluster.local"
+          secret="${release}-keycloak-openldap-tls"
+
+          workdir="$(mktemp -d)"
+          cleanup() {
+            rm -rf "${workdir}"
+          }
+          trap cleanup EXIT
+          pushd "${workdir}" >/dev/null
+
+          openssl genrsa -out ca.key 4096
+          openssl req -x509 -new -key ca.key -sha256 -days 3650 \
+            -out ca.crt \
+            -subj "/CN=${release} OpenLDAP Dev CA"
+
+          openssl genrsa -out server.key 4096
+          openssl req -new -key server.key -out server.csr \
+            -subj "/CN=${svc_fqdn}"
+
+          cat > server.ext <<EOF
+          subjectAltName=DNS:${service_host},DNS:${svc_fqdn},DNS:${svc_cluster_fqdn}
+          EOF
+
+          openssl x509 -req -in server.csr \
+            -CA ca.crt -CAkey ca.key -CAcreateserial \
+            -out server.crt -days 730 -sha256 \
+            -extfile server.ext
+
+          openssl pkcs12 -export \
+            -in ca.crt \
+            -nokeys \
+            -out ldap-truststore.p12 \
+            -passout pass:"${truststore_password}"
+
+          api_server="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}"
+          token="$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)"
+          cacert="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+          kubectl_args=(--server "${api_server}" --token "${token}" --certificate-authority "${cacert}" --namespace "${namespace}")
+
+          "${kubectl_bin}" "${kubectl_args[@]}" delete secret "${secret}" --ignore-not-found
+          "${kubectl_bin}" "${kubectl_args[@]}" create secret generic "${secret}" \
+            --from-file=ca.crt=ca.crt \
+            --from-file=tls.crt=server.crt \
+            --from-file=tls.key=server.key \
+            --from-file=ldap-truststore.p12=ldap-truststore.p12 \
+            --from-literal=truststorePassword="${truststore_password}" \
+            --dry-run=client -o yaml | "${kubectl_bin}" "${kubectl_args[@]}" apply -f -
+
+          "${kubectl_bin}" "${kubectl_args[@]}" label secret "${secret}" \
+            app.kubernetes.io/name="${release}" \
+            app.kubernetes.io/component=openldap \
+            --overwrite
+
+          "${kubectl_bin}" "${kubectl_args[@]}" annotate secret "${secret}" \
+            mas.ibm.com/generated-by=mas-iam-dev \
+            mas.ibm.com/description="Self-signed TLS material for the Keycloak/OpenLDAP integration (development use only)." \
+            --overwrite
+
+          echo "Generated ${secret} in namespace ${namespace}."
+          echo "Retrieve the truststore password with:"
+          echo "  kubectl get secret ${secret} -n ${namespace} -o jsonpath='{.data.truststorePassword}' | base64 -d && echo"
+---
+# Optional: example MasIamStack custom resource once the operator CSV is ready.
+# Ensure the required LDAP TLS secret exists (see documentation) before applying.
+apiVersion: iam.mas.ibm.com/v1alpha1
+kind: MasIamStack
+metadata:
+  name: mas-iam-sample
+  namespace: iam
+spec:
+  # Create the referenced secrets before applying this sample:
+  # - mas-iam-sample-bootstrap-admin (username, password)
+  # - mas-iam-sample-openldap-admin (password, configPassword if enabled)
+  # - mas-iam-sample-openldap-user-passwords (one key per seeded user)
+  # - mas-iam-sample-postgresql (password, postgres-password, replication-password if used)
+  keycloak:
+    bootstrapAdmin:
+      createSecret: false
+      secretName: mas-iam-sample-bootstrap-admin
+    scim:
+      enabled: false
+      authenticationMode: KEYCLOAK
+    ldap:
+      autoConfigure: true
+      autoConfigureOnUpgrade: false
+      # Populate with the name of the secret containing LDAP bind credentials.
+      bindCredentialSecret: mas-iam-sample-openldap-admin
+      # Provide the ldaps:// endpoint for your LDAP server.
+      connectionUrl: "ldaps://mas-iam-sample-openldap.iam.svc.cluster.local:636"
+      tls:
+        enabled: true
+        caSecret: mas-iam-sample-keycloak-openldap-tls
+        truststorePasswordSecret: mas-iam-sample-keycloak-openldap-tls
+        truststorePasswordKey: truststorePassword
+  openldap:
+    enabled: true
+    admin:
+      createSecret: false
+      secretName: mas-iam-sample-openldap-admin
+    userPasswords:
+      createSecret: false
+      secretName: mas-iam-sample-openldap-user-passwords
+  postgresql:
+    auth:
+      existingSecret: mas-iam-sample-postgresql
+    global:
+      postgresql:
+        auth:
+          existingSecret: mas-iam-sample-postgresql
+    primary:
+      persistence:
+        storageClass: rook-ceph-block

@@ -8,10 +8,9 @@ spec:
     args:
     - start
     bootstrapAdmin:
-      createSecret: true
-      password: ""
+      createSecret: false
       passwordKey: password
-      secretName: ""
+      secretName: mas-iam-sample-bootstrap-admin
       username: admin
       usernameKey: username
     devMode:
@@ -35,7 +34,7 @@ spec:
       autoConfigureOnUpgrade: false
       baseDn: dc=demo,dc=local
       bindCredentialKey: password
-      bindCredentialSecret: ""
+      bindCredentialSecret: mas-iam-sample-openldap-admin
       bindDn: cn=admin,dc=demo,dc=local
       cachePolicy: DEFAULT
       changedSyncPeriod: 600
@@ -88,12 +87,10 @@ spec:
       port: 8080
   openldap:
     admin:
-      configPassword: ""
       configPasswordKey: configPassword
-      createSecret: true
-      password: ""
+      createSecret: false
       passwordKey: password
-      secretName: ""
+      secretName: mas-iam-sample-openldap-admin
     affinity: {}
     config:
       baseDN: dc=demo,dc=local
@@ -101,9 +98,9 @@ spec:
       enableConfigAdmin: false
       organisation: Demo Org
     containerSecurityContext:
-      enabled: false
-      runAsNonRoot: false
-      runAsUser: 0
+      enabled: true
+      runAsNonRoot: true
+      runAsUser: 1001
     enabled: true
     extraEnv:
     - name: CONTAINER_LOG_LEVEL
@@ -118,18 +115,27 @@ spec:
       tag: openldap-1.5.0-multi
     nodeSelector: {}
     persistence:
-      enabled: false
+      enabled: true
       size: 2Gi
       storageClass: ""
     podAnnotations: {}
     podLabels: {}
     podSecurityContext:
-      enabled: false
-      fsGroup: 0
+      enabled: true
+      fsGroup: 1001
     replicaCount: 1
-    resources: {}
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 100m
+        memory: 256Mi
     seedLDIFs:
     - file: ldap-seed/dev-base.ldif
+    userPasswords:
+      createSecret: false
+      secretName: mas-iam-sample-openldap-user-passwords
     service:
       port: 389
       tlsPort: 636
@@ -162,10 +168,7 @@ spec:
     auth:
       database: keycloak
       enablePostgresUser: true
-      existingSecret: ""
-      password: ""          # leave empty to let the chart generate and reuse a password
-      postgresPassword: ""  # leave empty to let the chart generate and reuse the postgres superuser password
-      replicationPassword: ""
+      existingSecret: mas-iam-sample-postgresql
       replicationUsername: ""
       secretKeys:
         adminPasswordKey: postgres-password

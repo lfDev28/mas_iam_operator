@@ -3,7 +3,7 @@
 {{- $admin := $openldap.admin -}}
 {{- $secretName := (include "mas-iam-stack.openldapAdminSecretName" .) | trim -}}
 {{- if not $secretName -}}
-  {{- fail "Set openldap.admin.secretName or enable openldap.admin.createSecret" -}}
+  {{- fail "Set openldap.admin.secretName before deploying OpenLDAP" -}}
 {{- end -}}
 {{- $tls := $openldap.tls | default dict -}}
 {{- $tlsEnabled := and $openldap.tls $openldap.tls.enabled -}}
@@ -22,9 +22,9 @@
 {{- $userPasswords := $openldap.userPasswords | default dict -}}
 {{- $passwordSecretName := "" -}}
 {{- if $loadCustomLdif -}}
-  {{- $passwordSecretName = $userPasswords.secretName | default (printf "%s-openldap-user-passwords" (include "mas-iam-stack.fullname" .)) -}}
+  {{- $passwordSecretName = $userPasswords.secretName -}}
   {{- if not $passwordSecretName -}}
-    {{- fail "Unable to resolve OpenLDAP user password secret name; set openldap.userPasswords.secretName or provide userPasswords configuration." -}}
+    {{- fail "openldap.userPasswords.secretName must be set when seed LDIFs are enabled" -}}
   {{- end -}}
 {{- end -}}
 {{- $saName := default (printf "%s-openldap" (include "mas-iam-stack.fullname" .)) $openldap.serviceAccount.name -}}

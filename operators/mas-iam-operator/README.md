@@ -47,7 +47,7 @@ TLS_IMG=quay.io/<org>/openldap-tls-generator:0.1.0 make tls-push
 > The Makefile defaults to Podman (`CONTAINER_ENGINE=podman`). Set
 > `CONTAINER_ENGINE=docker` if you prefer Docker.
 
-After pushing, update `manifests/install-olm.yaml` so the Job pulls your image
+After pushing, update `manifests/install-olm-sample.yaml` so the Job pulls your image
 path. Keeping the helper in its own repository (for example,
 `quay.io/<org>/openldap-tls-generator`) avoids mixing operator and catalog
 images, keeps SBOM/vulnerability scans scoped to a single artifact, and makes it
@@ -104,90 +104,34 @@ Apply a sample CR (customise secrets and routing first):
 kubectl apply -f config/samples/iam_v1alpha1_masiamstack.yaml
 ```
 
-> **Important:** populate database credentials before applying the sample.
-> Either reference an existing secret via `postgresql.auth.existingSecret`, or
-> set the inline `password`/`postgresPassword`/`replicationPassword` fields to
-> secure values (they default to empty strings in the sample).
+> **Important:** create the bootstrap admin, OpenLDAP admin/user password, and
+> database secrets before applying the sample. Set `keycloak.bootstrapAdmin.secretName`,
+> `openldap.admin.secretName`, `openldap.userPasswords.secretName`, and
+> `postgresql.auth.existingSecret` (plus matching `secretKeys` if you use non-default
+> key names).
 
 ### Bootstrap admin secret
 
-By default the chart keeps `keycloak.bootstrapAdmin.createSecret=true` and
-generates `<release>-bootstrap-admin` with a random 24-character password. The
-secret is reused on upgrades so the password remains stable. Retrieve it any
-time with:
+The chart now requires a pre-created secret referenced by
+`keycloak.bootstrapAdmin.secretName`. Create it before applying the CR:
 
 ```bash
-kubectl get secret mas-iam-sample-bootstrap-admin \
-  -n iam -o jsonpath='{.data.password}' | base64 -d && echo
-```
-
-An init container now runs `kc.sh bootstrap-admin user` before Keycloak starts,
-so the password from this secret is immediately valid for both CLI access and
-the admin console (no forced change on first login).
-
-To rotate:
-
-```bash
-# capture current password
-OLD_PASS=$(kubectl get secret mas-iam-sample-bootstrap-admin -n iam \
-  -o jsonpath='{.data.password}' | base64 -d)
-
-kubectl delete secret mas-iam-sample-bootstrap-admin -n iam
-kubectl rollout restart deployment/mas-iam-sample -n iam
-
-# fetch the regenerated password
-NEW_PASS=$(kubectl get secret mas-iam-sample-bootstrap-admin -n iam \
-  -o jsonpath='{.data.password}' | base64 -d)
-
-# update the existing admin account
-kubectl exec -n iam deploy/mas-iam-sample -- bash -lc '
-  export HOME=/tmp
-  /opt/keycloak/bin/kcadm.sh config credentials \
-    --server http://127.0.0.1:8080 \
-    --realm master \
-    --user admin \
-    --password '"${OLD_PASS}"' &&
-  /opt/keycloak/bin/kcadm.sh set-password \
-    -r master \
-    --username admin \
-    --new-password '"${NEW_PASS}"'
-'
-```
-
-If you prefer to manage credentials yourself, set
-`keycloak.bootstrapAdmin.createSecret=false`, populate `secretName`, and create
-the secret manually before applying the CR:
-
-```bash
-kubectl create secret generic mas-iam-keycloak-admin \
+kubectl create secret generic mas-iam-sample-bootstrap-admin \
   --from-literal=username=<admin-user> \
   --from-literal=password="$(openssl rand -base64 24)" \
   -n iam
 ```
 
-### PostgreSQL password reuse
+If you rotate the secret, restart the Keycloak deployment and update the admin
+password in Keycloak (the bootstrap init container does not overwrite existing
+users).
 
-The bundled Bitnami PostgreSQL chart stores generated passwords in its own
-secret and looks them up on upgrades. No action is required when you let the
-chart create the credentials (the default behaviour).
+### PostgreSQL credentials
 
-If you override `postgresql.auth.existingSecret` or set explicit password
-values, ensure the CR mirrors the secret so upgrades continue to reconcile.
-The following snippet copies the live secret values back into the CR:
-
-```bash
-PG_PASS=$(kubectl get secret mas-iam-sample-postgresql -n iam \
-  -o jsonpath='{.data.password}' | base64 --decode)
-PG_SUPER=$(kubectl get secret mas-iam-sample-postgresql -n iam \
-  -o jsonpath='{.data.postgres-password}' | base64 --decode)
-
-kubectl patch masiamstacks.iam.mas.ibm.com mas-iam-sample \
-  -n iam --type merge \
-  -p "{\"spec\":{\"postgresql\":{\"auth\":{\"password\":\"${PG_PASS}\",\"postgresPassword\":\"${PG_SUPER}\"}},\"global\":{\"postgresql\":{\"auth\":{\"password\":\"${PG_PASS}\",\"postgresPassword\":\"${PG_SUPER}\"}}}}}"
-```
-
-Without these values, reconciles will fail when the chart cannot locate the
-existing credentials.
+The operator requires an existing secret for PostgreSQL credentials. Create a
+secret that includes the standard Bitnami keys (`password`, `postgres-password`,
+and `replication-password` if you enable replication), then reference it via
+`postgresql.auth.existingSecret`.
 
 Remove the operator and CRDs:
 
@@ -217,9 +161,9 @@ CONTAINER_ENGINE=podman VERSION=0.0.11 \
 ### Installing via an operator catalog
 
 After publishing the manager image, bundle, and catalog, you can install the
-operator (and optionally a starter MAS IAM stack) with a single manifest.
+operator with a manifest, then apply the optional sample stack once the CSV is ready.
 
-1. Apply the consolidated manifest (replace `<org>/<repo>` with this repository
+1. Apply the operator manifest (replace `<org>/<repo>` with this repository
    path, and substitute `iam` in the manifest if you plan to use a different
    namespace):
 
@@ -227,16 +171,14 @@ operator (and optionally a starter MAS IAM stack) with a single manifest.
    oc apply -f https://raw.githubusercontent.com/<org>/<repo>/main/manifests/install-olm.yaml
    ```
 
-   The manifest installs the catalog source, operator group, subscription, an
-   in-cluster TLS generation job (which stores the truststore password inside
-   the generated secret), and includes an example `MasIamStack` custom
-   resource at the end. Download and edit the file locally first if you need to
-   customise the release name, replace the cert material, or remove the sample CR.
+   The manifest installs the CRD, catalog source, operator group, subscription,
+   and the required operator RBAC/SCC bindings.
 
-   The Keycloak deployment now ships with an init container that reruns
+   The Keycloak deployment ships with an init container that reruns
    `kc.sh bootstrap-admin user` before startup, so the password stored in the
-   bootstrap secret is immediately permanent and post-install automation (for
-   example the LDAP configuration job) can log in without manual intervention.
+   bootstrap secret you provide is immediately permanent and post-install
+   automation (for example the LDAP configuration job) can log in without manual
+   intervention.
 
 2. Wait for the CSV in the target namespace to report `Succeeded`:
 
@@ -244,23 +186,21 @@ operator (and optionally a starter MAS IAM stack) with a single manifest.
    oc get csv -n iam
    ```
 
-3. If you trimmed the sample from the manifest, apply your own configuration (or
-   start from the default sample) once the operator is ready:
+3. Apply the optional sample manifest (dev TLS job + example `MasIamStack`) once
+   the operator is ready:
 
    ```bash
-   oc apply -f operators/mas-iam-operator/config/samples/iam_v1alpha1_masiamstack.yaml
+   oc apply -f https://raw.githubusercontent.com/<org>/<repo>/main/manifests/install-olm-sample.yaml
    ```
 
    Monitor `job/<release>-ldap-config` until it reports success—the job
    retries until Keycloak’s admin API becomes reachable.
 
    When the chart detects it is running on OpenShift (the
-   `security.openshift.io/v1/SecurityContextConstraints` API is present) it now
-   creates role bindings that grant both the Keycloak and OpenLDAP service
-   accounts the `anyuid` SCC (`system:openshift:scc:anyuid`). That mirrors the
-   manual `oc adm policy add-scc-to-user anyuid -z <sa>` commands we previously
-   had to run and ensures both workloads can write to their `/container`
-   directories on fresh installs.
+   `security.openshift.io/v1/SecurityContextConstraints` API is present) it
+   creates a RoleBinding that grants the Keycloak service account the `anyuid`
+   SCC (`system:openshift:scc:anyuid`). For OpenLDAP, the RoleBinding is only
+   created when `openldap.containerSecurityContext.runAsNonRoot=false` (opt-out).
 
  ### Custom TLS for the Keycloak route
 
@@ -321,7 +261,7 @@ serving the supplied PEM immediately after the operator reconciles.
 ### Resetting a development namespace
 
 Use `scripts/reset-namespace.sh` to tear down an environment and start from a
-clean slate:
+clean slate (add `--purge-tls` if you want to delete the OpenLDAP TLS secret):
 
 ```bash
 ./scripts/reset-namespace.sh --namespace iam --release mas-iam-sample
@@ -331,11 +271,12 @@ Add `--force` to skip the confirmation prompt. The script deletes the
 `MasIamStack` custom resource, related secrets (including the dev TLS
 material), the LDAP configuration job, the PostgreSQL PVC, and the
 namespace-scoped OLM objects (subscription/CSV). Reapply
-`manifests/install-olm.yaml` to bring the stack back—the TLS bootstrap job will
-recreate the secret automatically (read the password from the secret as shown
-above) and the bootstrap-admin init container will make the stored password
-permanent again. Run `scripts/dev-generate-openldap-tls.sh` only if you want to
-rotate the secret outside of that flow.
+`manifests/install-olm.yaml` to reinstall the operator, recreate the required
+secrets (bootstrap admin, OpenLDAP admin/user passwords, PostgreSQL), then apply
+`manifests/install-olm-sample.yaml` to bring the sample stack back. The TLS
+bootstrap job will recreate the OpenLDAP TLS secret automatically; run
+`scripts/dev-generate-openldap-tls.sh` only if you want to rotate it outside of
+that flow.
 
 If you cannot use the helper script, run the equivalent `oc` commands manually
 (adjust `RELEASE`/`NAMESPACE` if you customised them):
@@ -349,7 +290,9 @@ oc delete keycloakstack "${RELEASE}" -n "${NAMESPACE}" --ignore-not-found || tru
 oc get secret -n "${NAMESPACE}" --no-headers \
   | awk -v r="${RELEASE}-" '$1 ~ r { print $1 }' \
   | xargs -r -I {} oc delete secret {} -n "${NAMESPACE}"
-oc delete secret "${RELEASE}-keycloak-openldap-tls" -n "${NAMESPACE}" --ignore-not-found
+if [[ "${PURGE_TLS:-false}" == "true" ]]; then
+  oc delete secret "${RELEASE}-keycloak-openldap-tls" -n "${NAMESPACE}" --ignore-not-found
+fi
 oc delete job "${RELEASE}-ldap-config" -n "${NAMESPACE}" --ignore-not-found
 oc delete job "${RELEASE}-keycloak-ldap-config" -n "${NAMESPACE}" --ignore-not-found
 oc delete pvc "data-${RELEASE}-postgresql-0" -n "${NAMESPACE}" --ignore-not-found
@@ -361,7 +304,8 @@ oc delete catalogsource mas-iam-operator -n "${NAMESPACE}" --ignore-not-found ||
 ```
 
 Recreate the namespace itself (`oc delete project <ns>; oc new-project <ns>`) if
-you need a completely fresh project, then reapply `manifests/install-olm.yaml`.
+you need a completely fresh project, then reapply `manifests/install-olm.yaml`
+and (optionally) `manifests/install-olm-sample.yaml`.
 
 ## Troubleshooting
 
@@ -374,7 +318,7 @@ click it without pasting the password, Keycloak attempts to bind with an empty
 credential and OpenLDAP responds with `LDAP: error code 49 - Invalid
 Credentials`.
 
-1. Retrieve the generated password from the secret created by the chart:
+1. Retrieve the password from your OpenLDAP admin secret:
    ```bash
    oc get secret mas-iam-sample-openldap-admin \
      -n iam -o jsonpath='{.data.password}' | base64 --decode

@@ -69,8 +69,6 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- $bootstrap := .Values.keycloak.bootstrapAdmin -}}
 {{- if $bootstrap.secretName -}}
   {{- $bootstrap.secretName -}}
-{{- else if $bootstrap.createSecret -}}
-  {{- printf "%s-bootstrap-admin" (include "mas-iam-stack.fullname" .) -}}
 {{- else -}}
   {{- "" -}}
 {{- end -}}
@@ -80,8 +78,6 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- $admin := .Values.openldap.admin -}}
 {{- if $admin.secretName -}}
   {{- $admin.secretName -}}
-{{- else if $admin.createSecret -}}
-  {{- printf "%s-openldap-admin" (include "mas-iam-stack.fullname" .) -}}
 {{- else -}}
   {{- "" -}}
 {{- end -}}

@@ -28,7 +28,7 @@ keycloak:
     linkIdentityProvider: false
     emailAsUsername: false
   bootstrapAdmin:
-    createSecret: true
+    createSecret: false
     secretName: ""
     usernameKey: username
     passwordKey: password
@@ -101,8 +101,10 @@ postgresql:
     pullPolicy: IfNotPresent
   auth:
     username: keycloak
-    password: keycloak123
     database: keycloak
+    existingSecret: ""
+    secretKeys:
+      userPasswordKey: password
   primary:
     persistence:
       enabled: true
@@ -125,7 +127,7 @@ openldap:
     pullPolicy: IfNotPresent
   replicaCount: 1
   admin:
-    createSecret: true
+    createSecret: false
     secretName: ""
     passwordKey: password
     password: ""
@@ -136,7 +138,7 @@ openldap:
     tlsPort: 636
     type: ClusterIP
   persistence:
-    enabled: false
+    enabled: true
     size: 2Gi
     storageClass: ""
   config:
@@ -145,24 +147,26 @@ openldap:
     baseDN: ""
     enableConfigAdmin: false
   podSecurityContext:
-    enabled: false
-    fsGroup: 0
+    enabled: true
+    fsGroup: 1001
   containerSecurityContext:
-    enabled: false
-    runAsNonRoot: false
-    runAsUser: 0
+    enabled: true
+    runAsNonRoot: true
+    runAsUser: 1001
   extraEnv: []
   userPasswords:
-    createSecret: true
+    createSecret: false
     secretName: ""
-    data:
-      sysadmin: "sysadmin"
-      jane.doe: "Passw0rd!"
-      joe.bloggs: "Passw0rd!"
-      alex.manager: "Passw0rd!"
+    data: {}
   podAnnotations: {}
   podLabels: {}
-  resources: {}
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
   nodeSelector: {}
   tolerations: []
   affinity: {}

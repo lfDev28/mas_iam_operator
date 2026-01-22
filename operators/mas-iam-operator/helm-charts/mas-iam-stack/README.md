@@ -7,49 +7,30 @@ sync with the running environment.
 
 ## Bootstrap admin credentials
 
-Bootstrap credentials live in a Kubernetes Secret. When
-`keycloak.bootstrapAdmin.createSecret=true` the chart will materialise the secret
-(default name `<release>-bootstrap-admin`), reusing the existing data on later
-upgrades. A 24‑character random password is generated automatically unless you
-explicitly provide `keycloak.bootstrapAdmin.password`, and the username defaults
-to `admin`.
+Bootstrap credentials live in a Kubernetes Secret. The chart now requires an
+existing secret referenced by `keycloak.bootstrapAdmin.secretName`.
 
 ```yaml
 keycloak:
   bootstrapAdmin:
-    createSecret: true
-    secretName: ""         # optional override; defaults to <release>-bootstrap-admin
+    createSecret: false
+    secretName: <secret-name>
     usernameKey: username
     passwordKey: password
-    username: admin        # override if you do not want the default
-    # password: <leave blank to auto-generate on first install>
 ```
 
-Retrieve the generated password at any time:
+Create the secret before installing:
 
 ```bash
-kubectl get secret <release>-bootstrap-admin \
-  -n <namespace> \
-  -o jsonpath='{.data.password}' | base64 -d && echo
+kubectl create secret generic mas-iam-keycloak-admin \
+  --from-literal=username=<admin-user> \
+  --from-literal=password=<strong-password> \
+  -n <namespace>
 ```
 
-The deployment executes `kc.sh bootstrap-admin user` as an init container, so
-the password from this secret is immediately valid (no forced change on the
-first login) for both the admin console and CLI automation.
-
-Production options:
-
-1. **Let the chart manage the secret** (recommended for most clusters):
-   keep `createSecret=true`, rotate the password by deleting the secret, and
-   capture it post-install with the command above.
-2. **Bring your own secret**: set `createSecret=false` and populate
-   `secretName`, `usernameKey`, and `passwordKey`. Create the secret beforehand:
-   ```bash
-   kubectl create secret generic mas-iam-keycloak-admin \
-     --from-literal=username=<admin-user> \
-     --from-literal=password=<strong-password> \
-     -n <namespace>
-   ```
+The deployment runs `kc.sh bootstrap-admin user` during startup; it does not
+overwrite existing users, so rotate the admin password with `kcadm.sh` if
+needed.
 
 ## Keycloak service account
 
@@ -106,29 +87,10 @@ same password is reflected in `keycloak.ldap.tls.truststorePassword`.
 ### Deploying OpenLDAP
 
 The chart can spin up an OpenLDAP instance when `openldap.enabled=true`. When
-`openldap.admin.createSecret=true` a secret named
-`<release>-keycloak-openldap-admin` (or the value of
-`openldap.admin.secretName`) is created and reused on upgrades. The admin
-password is randomly generated unless you set `openldap.admin.password`. If you
-enable the configuration admin interface (`openldap.config.enableConfigAdmin`)
-and do not provide `openldap.admin.configPassword`, the chart will generate a
-random value for that credential as well.
-
-Retrieve the generated password(s):
-
-```bash
-kubectl get secret <release>-keycloak-openldap-admin \
-  -n <namespace> \
-  -o jsonpath='{.data.password}' | base64 -d && echo
-
-# optional config password (only present when enableConfigAdmin=true)
-kubectl get secret <release>-keycloak-openldap-admin \
-  -n <namespace> \
-  -o jsonpath='{.data.configPassword}' | base64 -d && echo
-```
-
-Set `openldap.admin.createSecret=false` and `openldap.admin.secretName` if you
-prefer to manage the secret yourself.
+`openldap.admin.createSecret` is no longer supported. Create the admin secret
+yourself and reference it via `openldap.admin.secretName`. If you enable seed
+LDIFs, also provide `openldap.userPasswords.secretName` so the init container
+can substitute `@@PASSWORD{...}@@` placeholders.
 
 Key options:
 
@@ -136,9 +98,13 @@ Key options:
 openldap:
   enabled: true
   admin:
-    createSecret: true         # set false if you supply your own secret
-    secretName: ""             # optional override; defaults to <release>-keycloak-openldap-admin
+    createSecret: false
+    secretName: <admin-secret>
     passwordKey: password
+    configPasswordKey: configPassword
+  userPasswords:
+    createSecret: false
+    secretName: <seed-passwords-secret>
   config:
     organisation: "Example Inc."
     domain: "example.org"
@@ -152,6 +118,13 @@ openldap:
   serviceAccount:
     create: true
     name: mas-openldap
+
+By default OpenLDAP runs with persistence enabled, a non-root security context
+(runAsUser 1001, runAsNonRoot=true, fsGroup 1001), and resource requests/limits.
+To opt out, explicitly set `openldap.persistence.enabled=false`,
+`openldap.podSecurityContext.enabled=false`,
+`openldap.containerSecurityContext.enabled=false` (or `runAsNonRoot=false`), and
+override `openldap.resources` with `{}`.
 ```
 
 Seed LDIFs are optional; provide one or more LDIF files under the chart directory
@@ -180,13 +153,10 @@ them. Ensure the same CA bundle is mounted into Keycloak by setting
 If you are using self-signed material, `scripts/dev-generate-openldap-tls.sh`
 can produce the required files and secret for you.
 
-> **OpenShift note:** The default `osixia/openldap` image expects to start as
-> `root` in order to bootstrap the LDAP database before dropping privileges.
-> When the `security.openshift.io/v1/SecurityContextConstraints` API is present,
-> the chart now creates role bindings that attach both the Keycloak and OpenLDAP
-> service accounts to `system:openshift:scc:anyuid`, so no manual `oc adm policy`
-> commands are required. If you override the service account names the bindings
-> follow those overrides automatically.
+> **OpenShift note:** When `openldap.containerSecurityContext.runAsNonRoot=false`
+> (opt-out), the chart creates a RoleBinding to grant the OpenLDAP service
+> account `system:openshift:scc:anyuid`. With the secure defaults, that binding
+> is omitted and OpenLDAP should run under the default restricted SCC.
 
 ### Auto-configuring the Keycloak federation
 

@@ -1,4 +1,9 @@
-{{- if and .Values.openldap.enabled (has "security.openshift.io/v1/SecurityContextConstraints" .Capabilities.APIVersions) -}}
+{{- $ctx := .Values.openldap.containerSecurityContext | default dict -}}
+{{- $needsAnyuid := true -}}
+{{- if and (hasKey $ctx "enabled") $ctx.enabled (hasKey $ctx "runAsNonRoot") $ctx.runAsNonRoot -}}
+  {{- $needsAnyuid = false -}}
+{{- end -}}
+{{- if and .Values.openldap.enabled $needsAnyuid (has "security.openshift.io/v1/SecurityContextConstraints" .Capabilities.APIVersions) -}}
 {{- $saName := default (printf "%s-openldap" (include "mas-iam-stack.fullname" .)) .Values.openldap.serviceAccount.name -}}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

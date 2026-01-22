@@ -14,11 +14,14 @@
 {{- $ldapTlsSecret := default (printf "%s-keycloak-openldap-tls" (include "mas-iam-stack.fullname" .)) $ldapTls.caSecret -}}
 {{- $ldapTlsCaKey := default "ca.crt" $ldapTls.caBundleKey -}}
 {{- $ldapTlsHostnamePolicy := default "ANY" $ldapTls.hostnameVerificationPolicy -}}
-{{- $pgSecretName := .Values.postgresql.auth.existingSecret | default (printf "%s-postgresql" .Release.Name) -}}
+{{- $pgSecretName := .Values.postgresql.auth.existingSecret | default "" -}}
 {{- $keycloakServiceAccount := include "mas-iam-stack.keycloakServiceAccountName" . | trim -}}
 {{- $scim := .Values.keycloak.scim | default dict -}}
 {{- if not $bootstrapSecretName -}}
-  {{- fail "Set keycloak.bootstrapAdmin.secretName or enable keycloak.bootstrapAdmin.createSecret before deployment" -}}
+  {{- fail "Set keycloak.bootstrapAdmin.secretName before deployment" -}}
+{{- end -}}
+{{- if not $pgSecretName -}}
+  {{- fail "Set postgresql.auth.existingSecret before deployment" -}}
 {{- end -}}
 apiVersion: apps/v1
 kind: Deployment
@@ -44,10 +47,9 @@ spec:
         - name: {{ .Values.keycloak.image.pullSecret | quote }}
       {{- end }}
       {{- $hasBootstrapSecret := ne $bootstrapSecretName "" }}
-      {{- $hasBootstrapInline := and $bootstrap.username $bootstrap.password }}
-      {{- if or $hasBootstrapSecret $hasBootstrapInline $ldapTlsEnabled }}
+      {{- if or $hasBootstrapSecret $ldapTlsEnabled }}
       initContainers:
-        {{- if or $hasBootstrapSecret $hasBootstrapInline }}
+        {{- if $hasBootstrapSecret }}
         - name: bootstrap-admin-password
           image: "{{ .Values.keycloak.image.registry }}/{{ .Values.keycloak.image.repository }}:{{ .Values.keycloak.image.tag }}"
           imagePullPolicy: {{ .Values.keycloak.image.pullPolicy }}
@@ -83,7 +85,6 @@ spec:
           env:
             - name: KC_BOOTSTRAP_ADMIN_REALM
               value: {{ default "master" .Values.keycloak.realmImport.realm | default "master" | quote }}
-          {{- if $hasBootstrapSecret }}
             - name: KC_BOOTSTRAP_ADMIN_USERNAME
               valueFrom:
                 secretKeyRef:
@@ -94,12 +95,6 @@ spec:
                 secretKeyRef:
                   name: {{ $bootstrapSecretName | quote }}
                   key: {{ default "password" $bootstrap.passwordKey | quote }}
-          {{- else }}
-            - name: KC_BOOTSTRAP_ADMIN_USERNAME
-              value: {{ $bootstrap.username | quote }}
-            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
-              value: {{ $bootstrap.password | quote }}
-          {{- end }}
             - name: KC_DB
               value: postgres
             - name: KC_DB_USERNAME
@@ -189,7 +184,6 @@ spec:
             - name: {{ $env.name }}
               value: {{ $env.value | quote }}
             {{- end }}
-            {{- if $bootstrapSecretName }}
             - name: KC_BOOTSTRAP_ADMIN_USERNAME
               valueFrom:
                 secretKeyRef:
@@ -200,12 +194,6 @@ spec:
                 secretKeyRef:
                   name: {{ $bootstrapSecretName | quote }}
                   key: {{ default "password" $bootstrap.passwordKey | quote }}
-            {{- else if and $bootstrap.username $bootstrap.password }}
-            - name: KC_BOOTSTRAP_ADMIN_USERNAME
-              value: {{ $bootstrap.username | quote }}
-            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
-              value: {{ $bootstrap.password | quote }}
-            {{- end }}
             - name: KC_DB
               value: postgres
             - name: KC_DB_USERNAME

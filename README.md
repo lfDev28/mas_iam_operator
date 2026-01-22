@@ -217,8 +217,8 @@ chmod +x reset-namespace.sh
 ```
 
 It removes the `MasIamStack`, job artifacts, PVCs, and operator subscription but
-leaves the TLS material unless you delete it separately. After the cleanup,
-reapply the install manifest from step 2.
+leaves the TLS material unless you pass `--purge-tls` or delete it separately.
+After the cleanup, reapply the install manifest from step 2.
 
 ## 10. Ingress certificates
 
