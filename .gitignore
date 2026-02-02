@@ -5,3 +5,7 @@ operators/mas-iam-operator/helm-charts/mas-iam-stack/tmpcharts-*/
 tmp-keycloak-scim/
 env/scim-bridge.env.local
 .cache/
+bundle_tmp*
+body.json
+headers.txt
+operators/mas-iam-operator/database/index.db

@@ -96,6 +96,43 @@ Example profile body (from IBM docs, simplified):
 
 Later, you will map Keycloak’s `masProfile` labels to these MAS profile IDs.
 
+### 2.3 (Optional) Auto-create a demo profile during install
+
+If you want to avoid creating a profile manually, the bridge can bootstrap a
+**demo** profile on install using the same MAS API key you already provide.
+Enable it by setting these values in `scim-bridge-config` (or in
+`env/scim-bridge.env.local` before running the deploy script):
+
+- `SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_ENABLED=true`
+- `SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_ID=demo`
+- `SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WORKSPACE_ID=<your-workspace-id>`
+
+The bootstrap Job issues `POST /scim/v2/Profiles` with the following payload
+template (unless you override it via
+`SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_JSON`):
+
+```json
+{
+  "id": "demo",
+  "version": 1,
+  "identities": [
+    { "type": "local" },
+    { "id": "default-saml", "type": "saml", "samlId": "userName" }
+  ],
+  "entitlement": { "application": "PREMIUM", "admin": "ADMIN_PREMIUM" },
+  "workspaces": [
+    { "id": "<workspace-id>", "applications": ["manage", "iot", "monitor"] }
+  ]
+}
+```
+
+If you change the values after install, re-run the bootstrap Job:
+
+```bash
+oc delete job scim-bridge-mas-profile-bootstrap -n iam --ignore-not-found
+oc apply -f manifests/scim-bridge-install.yaml
+```
+
 ---
 
 ## 3. Keycloak side – realm, SCIM client, and `masProfile` attribute
@@ -231,6 +268,11 @@ Edit at least:
   - `SCIM_BRIDGE_MAS_BASE_URL` – e.g. `https://api.<mas-instance>.<domain>/scim/v2`
   - `SCIM_BRIDGE_MAS_PROFILE_ID` – default MAS profile ID (for users with no `masProfile` or when you only use one profile).
   - Optional: `SCIM_BRIDGE_MAS_PROFILE_MAP` – e.g. `users=test1,management=mgmt1`
+  - Optional (auto-profile bootstrap):
+    - `SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_ENABLED=true`
+    - `SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_ID=demo`
+    - `SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WORKSPACE_ID=<workspace-id>`
+    - `SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_JSON=...` (full profile JSON, overrides template)
   - `SCIM_BRIDGE_MAS_AUTH_TYPE=jwt` (if using `/v1/authenticate`).
   - MAS API key credentials:
     - `SCIM_BRIDGE_MAS_API_TOKEN_NAME`

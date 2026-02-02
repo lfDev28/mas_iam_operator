@@ -20,6 +20,11 @@ This sample Dockerfile and manifest run the bridge with a PVC-backed state file 
    oc delete job/scim-bridge-keycloak-bootstrap -n iam --ignore-not-found
    oc apply -f https://raw.githubusercontent.com/<org>/<repo>/<tag>/manifests/scim-bridge-install.yaml
    ```
+5) Optional: if you enabled MAS profile bootstrap, re-run that Job after editing the MAS API key:
+   ```bash
+   oc delete job/scim-bridge-mas-profile-bootstrap -n iam --ignore-not-found
+   oc apply -f https://raw.githubusercontent.com/<org>/<repo>/<tag>/manifests/scim-bridge-install.yaml
+   ```
 
 ### Option B: repo render + scripts (dev / maintainer flow)
 
@@ -38,6 +43,7 @@ This sample Dockerfile and manifest run the bridge with a PVC-backed state file 
    ./scripts/scim-bridge-02-deploy.sh
    ```
    By default, this also applies a one-shot Keycloak bootstrap Job (`manifests/scim-bridge-keycloak-bootstrap.yaml`) that creates/updates the `scim-admin` client in-cluster using `kcadm.sh`. Most users should not need to run `scripts/configure-scim-client.sh`.
+   If `SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_ENABLED=true`, the deploy script also applies a one-shot MAS profile bootstrap Job that creates the demo profile via `/scim/v2/Profiles`.
 4) Verify Deployment + MAS SCIM connectivity:
    ```bash
    ./scripts/scim-bridge-03-verify.sh
@@ -95,6 +101,7 @@ For inexperienced users, the recommended workflow is editing resources in the Op
   - `SCIM_BRIDGE_KEYCLOAK_BASE_URL` / `SCIM_BRIDGE_KEYCLOAK_REALM`
   - `SCIM_BRIDGE_MAS_BASE_URL`
   - `SCIM_BRIDGE_MAS_PROFILE_ID` / `SCIM_BRIDGE_MAS_PROFILE_MAP`
+  - `SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_ENABLED` / `SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_ID` / `SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WORKSPACE_ID`
 
 After updating values, restart the bridge:
 
@@ -106,5 +113,12 @@ If you rotated `SCIM_BRIDGE_KEYCLOAK_CLIENT_SECRET`, re-run the Keycloak bootstr
 
 ```bash
 oc delete job/scim-bridge-keycloak-bootstrap -n iam --ignore-not-found
+./scripts/scim-bridge-02-deploy.sh
+```
+
+If you enabled MAS profile bootstrap, re-run the Job so the profile is created:
+
+```bash
+oc delete job/scim-bridge-mas-profile-bootstrap -n iam --ignore-not-found
 ./scripts/scim-bridge-02-deploy.sh
 ```

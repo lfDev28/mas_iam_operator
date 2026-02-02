@@ -69,6 +69,21 @@ Every knob is exposed as both a flag and an env var (prefix `SCIM_BRIDGE_`). Exa
 
 Filtering knobs are optional; omitting them keeps the current “all users” behavior.
 
+### MAS profile bootstrap job (install manifests)
+
+When deploying via the Kubernetes manifests, you can optionally enable a one-shot
+Job that creates a demo MAS SCIM profile using the same MAS credentials stored in
+`scim-bridge-secret`. Set these in the ConfigMap before applying:
+
+- `SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_ENABLED=true`
+- `SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_ID=demo`
+- `SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WORKSPACE_ID=<workspace-id>`
+- Optional: `SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_JSON=<full profile JSON>`
+
+The Job uses `SCIM_BRIDGE_MAS_BASE_URL`, `SCIM_BRIDGE_MAS_AUTH_TYPE`,
+`SCIM_BRIDGE_MAS_CA_FILE`, and `SCIM_BRIDGE_MAS_INSECURE_SKIP_VERIFY` for the
+API calls. To re-run it, delete the Job and re-apply the manifest.
+
 ### MAS profile routing via `masProfile`
 
 - Each Keycloak user may carry a `masProfile` attribute (string) in realm `maximo`. The bridge reads the first value of `attributes.masProfile` returned by the Admin API.

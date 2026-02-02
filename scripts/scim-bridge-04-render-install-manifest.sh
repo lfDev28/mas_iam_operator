@@ -10,6 +10,7 @@
 #   - manifests/scim-bridge.yaml
 #   - manifests/scim-bridge-keycloak-bootstrap.yaml (optional)
 #   - manifests/scim-bridge-keycloak-route-cert.yaml (optional)
+#   - manifests/scim-bridge-mas-profile-bootstrap.yaml (optional)
 #
 # into one file suitable for `oc apply -f <raw-url>`.
 
@@ -58,6 +59,12 @@ SCIM_BRIDGE_MAS_PROFILE_MAP=${SCIM_BRIDGE_MAS_PROFILE_MAP:-}
 SCIM_BRIDGE_MAS_PROFILE_MAP_JSON=${SCIM_BRIDGE_MAS_PROFILE_MAP_JSON:-}
 SCIM_BRIDGE_MAS_PROFILE_REQUIRE_LABEL=${SCIM_BRIDGE_MAS_PROFILE_REQUIRE_LABEL:-false}
 SCIM_BRIDGE_MAS_INSECURE_SKIP_VERIFY=${SCIM_BRIDGE_MAS_INSECURE_SKIP_VERIFY:-false}
+SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_ENABLED=${SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_ENABLED:-false}
+SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_ID=${SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_ID:-demo}
+SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WORKSPACE_ID=${SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WORKSPACE_ID:-lfws}
+SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_JSON=${SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_JSON:-}
+SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_JOB_NAME=${SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_JOB_NAME:-scim-bridge-mas-profile-bootstrap}
+SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_IMAGE=${SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_IMAGE:-curlimages/curl:8.5.0}
 
 SCIM_BRIDGE_KEYCLOAK_CA_FILE=${SCIM_BRIDGE_KEYCLOAK_CA_FILE:-}
 SCIM_BRIDGE_KEYCLOAK_INSECURE_SKIP_VERIFY=${SCIM_BRIDGE_KEYCLOAK_INSECURE_SKIP_VERIFY:-false}
@@ -91,6 +98,7 @@ command -v envsubst >/dev/null 2>&1 || { echo "envsubst is required" >&2; exit 1
 MANIFEST_TEMPLATE="$ROOT_DIR/manifests/scim-bridge.yaml"
 BOOTSTRAP_TEMPLATE="$ROOT_DIR/manifests/scim-bridge-keycloak-bootstrap.yaml"
 ROUTE_CERT_TEMPLATE="$ROOT_DIR/manifests/scim-bridge-keycloak-route-cert.yaml"
+MAS_PROFILE_TEMPLATE="$ROOT_DIR/manifests/scim-bridge-mas-profile-bootstrap.yaml"
 
 tmp="$(mktemp)"
 trap 'rm -f "$tmp"' EXIT
@@ -111,6 +119,11 @@ fi
 if [[ "${SCIM_BRIDGE_KEYCLOAK_ROUTE_CERT_ENABLE}" == "true" && -f "$ROUTE_CERT_TEMPLATE" ]]; then
   echo -e "\n---" >>"$tmp"
   envsubst <"$ROUTE_CERT_TEMPLATE" >>"$tmp"
+fi
+
+if [[ -f "$MAS_PROFILE_TEMPLATE" ]]; then
+  echo -e "\n---" >>"$tmp"
+  envsubst <"$MAS_PROFILE_TEMPLATE" >>"$tmp"
 fi
 
 if [[ -z "${SCIM_BRIDGE_STORAGE_CLASS}" || "${SCIM_BRIDGE_STORAGE_CLASS}" == "CHANGEME" ]]; then

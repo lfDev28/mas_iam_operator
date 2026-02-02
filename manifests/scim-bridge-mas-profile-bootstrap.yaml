@@ -1,0 +1,143 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_JOB_NAME}
+  namespace: ${SCIM_BRIDGE_NAMESPACE}
+  labels:
+    app.kubernetes.io/name: scim-bridge
+    app.kubernetes.io/component: mas-profile-bootstrap
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: scim-bridge
+        app.kubernetes.io/component: mas-profile-bootstrap
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mas-profile-bootstrap
+          image: "${SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_IMAGE}"
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: scim-bridge-config
+            - secretRef:
+                name: scim-bridge-secret
+          volumeMounts:
+            - name: ca-certs
+              mountPath: /etc/scim-bridge/certs
+              readOnly: true
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              set -eu
+
+              if [ "${SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_ENABLED:-false}" != "true" ]; then
+                echo "MAS profile bootstrap disabled; skipping."
+                exit 0
+              fi
+
+              if [ -z "${SCIM_BRIDGE_MAS_BASE_URL:-}" ]; then
+                echo "error: SCIM_BRIDGE_MAS_BASE_URL is required" >&2
+                exit 1
+              fi
+
+              profile_id="${SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_ID:-}"
+              if [ -z "${profile_id}" ]; then
+                echo "error: SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_ID is required" >&2
+                exit 1
+              fi
+
+              base="${SCIM_BRIDGE_MAS_BASE_URL%/}"
+              auth_root="${base%/scim/v2}"
+              auth_url="${auth_root}/v1/authenticate"
+              profiles_url="${base}/Profiles"
+              profile_url="${profiles_url}/${profile_id}"
+
+              curl_args="-sS"
+              if [ "${SCIM_BRIDGE_MAS_INSECURE_SKIP_VERIFY:-false}" = "true" ]; then
+                curl_args="${curl_args} -k"
+              fi
+              if [ -n "${SCIM_BRIDGE_MAS_CA_FILE:-}" ]; then
+                curl_args="${curl_args} --cacert ${SCIM_BRIDGE_MAS_CA_FILE}"
+              fi
+
+              token="${SCIM_BRIDGE_MAS_TOKEN:-}"
+              auth_type="${SCIM_BRIDGE_MAS_AUTH_TYPE:-jwt}"
+              if [ -z "${token}" ]; then
+                if [ -z "${SCIM_BRIDGE_MAS_API_TOKEN_NAME:-}" ] || [ -z "${SCIM_BRIDGE_MAS_API_TOKEN_VALUE:-}" ]; then
+                  echo "error: set SCIM_BRIDGE_MAS_TOKEN or SCIM_BRIDGE_MAS_API_TOKEN_NAME/VALUE" >&2
+                  exit 1
+                fi
+                resp="$(curl ${curl_args} -u "${SCIM_BRIDGE_MAS_API_TOKEN_NAME}:${SCIM_BRIDGE_MAS_API_TOKEN_VALUE}" "${auth_url}")"
+                token="$(printf '%s' "${resp}" | sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')"
+                if [ -z "${token}" ]; then
+                  echo "error: failed to parse token from MAS auth response" >&2
+                  printf '%s\n' "${resp}" >&2
+                  exit 1
+                fi
+                auth_type="jwt"
+              fi
+
+              auth_header="Authorization: Bearer ${token}"
+              if [ "${auth_type}" = "api-key" ]; then
+                auth_header="Authorization: APIKey ${token}"
+              fi
+
+              payload="${SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_JSON:-}"
+              if [ -z "${payload}" ]; then
+                workspace_id="${SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WORKSPACE_ID:-}"
+                if [ -z "${workspace_id}" ]; then
+                  echo "error: SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WORKSPACE_ID is required when no JSON payload is provided" >&2
+                  exit 1
+                fi
+                payload="$(cat <<EOF
+{"id":"${profile_id}","version":1,"identities":[{"type":"local"},{"id":"default-saml","type":"saml","samlId":"userName"}],"entitlement":{"application":"PREMIUM","admin":"ADMIN_PREMIUM"},"workspaces":[{"id":"${workspace_id}","applications":["manage","iot","monitor"]}]}
+EOF
+)"
+              fi
+
+              echo "Checking for existing MAS profile ${profile_id}..."
+              status="$(curl ${curl_args} -o /tmp/profile.json -w "%{http_code}" -H "${auth_header}" "${profile_url}" || true)"
+              if [ "${status}" = "200" ]; then
+                echo "MAS profile ${profile_id} already exists."
+                exit 0
+              fi
+              if [ "${status}" != "404" ]; then
+                echo "error: unexpected status checking profile (${status})" >&2
+                cat /tmp/profile.json >&2 || true
+                exit 1
+              fi
+
+              echo "Creating MAS profile ${profile_id}..."
+              create_status="$(curl ${curl_args} -o /tmp/profile-create.json -w "%{http_code}" \
+                -H "${auth_header}" \
+                -H "Content-Type: application/scim+json" \
+                -X POST "${profiles_url}/" \
+                -d "${payload}" || true)"
+
+              case "${create_status}" in
+                200|201)
+                  echo "MAS profile ${profile_id} created."
+                  ;;
+                409)
+                  echo "MAS profile ${profile_id} already exists (conflict)."
+                  ;;
+                *)
+                  echo "error: failed to create MAS profile (${create_status})" >&2
+                  cat /tmp/profile-create.json >&2 || true
+                  exit 1
+                  ;;
+              esac
+      volumes:
+        - name: ca-certs
+          projected:
+            sources:
+              - secret:
+                  name: scim-bridge-ca
+                  optional: true
+              - configMap:
+                  name: scim-bridge-ca
+                  optional: true
