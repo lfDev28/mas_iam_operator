@@ -59,6 +59,13 @@ oc process -f https://raw.githubusercontent.com/<org>/<repo>/main/manifests/scim
 | oc apply -f -
 ```
 
+If your MAS API uses a custom CA (common in MAS environments), add:
+
+```bash
+  -p SCIM_BRIDGE_MAS_CA_BUNDLE="$(oc get route <mas-api-route> -n <mas-core-ns> -o jsonpath='{.spec.tls.caCertificate}')" \
+  -p SCIM_BRIDGE_MAS_CA_FILE=/etc/scim-bridge/certs/mas-ca.crt \
+```
+
 What this does:
 
 - Creates `scim-bridge-secret` with the MAS API key.

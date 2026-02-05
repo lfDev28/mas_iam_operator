@@ -114,6 +114,9 @@ spec:
                   name: scim-bridge-ca
                   optional: true
               - configMap:
+                  name: scim-bridge-mas-ca
+                  optional: true
+              - configMap:
                   name: scim-bridge-ca
                   optional: true
 
@@ -137,7 +140,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: keycloak-bootstrap
-          image: "quay.io/lee_forster/mas-iam-keycloak:scim-bridge-v0.1.0"
+          image: "quay.io/keycloak/keycloak:26.0.5"
           imagePullPolicy: IfNotPresent
           env:
             - name: HOME

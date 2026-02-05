@@ -112,5 +112,8 @@ spec:
                   name: scim-bridge-ca
                   optional: true
               - configMap:
+                  name: scim-bridge-mas-ca
+                  optional: true
+              - configMap:
                   name: scim-bridge-ca
                   optional: true

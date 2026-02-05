@@ -81,6 +81,8 @@ parameters:
     value: "false"
   - name: SCIM_BRIDGE_MAS_CA_FILE
     value: ""
+  - name: SCIM_BRIDGE_MAS_CA_BUNDLE
+    value: ""
 objects:
   - apiVersion: v1
     kind: ConfigMap
@@ -112,6 +114,13 @@ objects:
       SCIM_BRIDGE_BRIDGE_DRY_RUN: "${SCIM_BRIDGE_BRIDGE_DRY_RUN}"
       SCIM_BRIDGE_INCLUDE_USERNAMES: "${SCIM_BRIDGE_INCLUDE_USERNAMES}"
       SCIM_BRIDGE_INCLUDE_USERNAME_PREFIX: "${SCIM_BRIDGE_INCLUDE_USERNAME_PREFIX}"
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: scim-bridge-mas-ca
+      namespace: ${SCIM_BRIDGE_NAMESPACE}
+    data:
+      mas-ca.crt: "${SCIM_BRIDGE_MAS_CA_BUNDLE}"
   - apiVersion: v1
     kind: Secret
     metadata:
@@ -193,6 +202,9 @@ objects:
                 sources:
                   - secret:
                       name: scim-bridge-ca
+                      optional: true
+                  - configMap:
+                      name: scim-bridge-mas-ca
                       optional: true
                   - configMap:
                       name: scim-bridge-ca
@@ -475,6 +487,9 @@ objects:
                 sources:
                   - secret:
                       name: scim-bridge-ca
+                      optional: true
+                  - configMap:
+                      name: scim-bridge-mas-ca
                       optional: true
                   - configMap:
                       name: scim-bridge-ca

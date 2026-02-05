@@ -102,7 +102,7 @@ The Deployment runs the bridge with filesystem state enabled; the PVC `scim-brid
 
 ### TLS and CA bundles
 
-- For production, mount a CA bundle into the pod (for example, Secret/ConfigMap `scim-bridge-ca`) at `/etc/scim-bridge/certs` and set:
+- For production, mount a CA bundle into the pod (for example, Secret `scim-bridge-ca` or ConfigMap `scim-bridge-mas-ca`) at `/etc/scim-bridge/certs` and set:
   - `SCIM_BRIDGE_MAS_CA_FILE=/etc/scim-bridge/certs/mas-ca.crt`
   - `SCIM_BRIDGE_KEYCLOAK_CA_FILE=/etc/scim-bridge/certs/keycloak-ca.crt`
 - `SCIM_BRIDGE_MAS_INSECURE_SKIP_VERIFY` and `SCIM_BRIDGE_KEYCLOAK_INSECURE_SKIP_VERIFY` are **dev-only**. Prefer trusted CAs in prod.
