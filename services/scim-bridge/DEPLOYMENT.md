@@ -4,26 +4,43 @@ This sample Dockerfile and manifest run the bridge with a PVC-backed state file 
 
 ## Quick workflow (iam namespace)
 
-### Option A: published manifest (recommended for operators)
+### Option A: published template (recommended for operators)
 
-1) Apply the published manifest (from a release tag):
+1) Process the template with your MAS credentials:
    ```bash
-   oc apply -f https://raw.githubusercontent.com/<org>/<repo>/<tag>/manifests/scim-bridge-install.yaml
-   ```
-2) Edit `scim-bridge-secret` + `scim-bridge-config` in the OpenShift console with your MAS and Keycloak values.
-3) Restart the bridge:
+   oc process -f https://raw.githubusercontent.com/<org>/<repo>/<tag>/manifests/scim-bridge-install-template.yaml \
+     -p SCIM_BRIDGE_MAS_BASE_URL=https://api.<mas-instance>.<domain>/scim/v2 \
+     -p SCIM_BRIDGE_MAS_API_TOKEN_NAME=<your-mas-api-key-name> \
+     -p SCIM_BRIDGE_MAS_API_TOKEN_VALUE=<your-mas-api-key-value> \
+     -p SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WORKSPACE_ID=<workspace-id> \
+| oc apply -f -
+```
+   The template uses a fixed Keycloak client secret (`maxadmin`) by default.
+   Override `SCIM_BRIDGE_KEYCLOAK_CLIENT_SECRET` if you need a different value.
+2) (Optional) Edit `scim-bridge-secret` + `scim-bridge-config` in the OpenShift console if you need to override defaults.
+3) Restart the bridge if you changed values:
    ```bash
    oc rollout restart deployment/scim-bridge -n iam
    ```
 4) Re-run the Keycloak bootstrap Job after changing the client secret:
    ```bash
    oc delete job/scim-bridge-keycloak-bootstrap -n iam --ignore-not-found
-   oc apply -f https://raw.githubusercontent.com/<org>/<repo>/<tag>/manifests/scim-bridge-install.yaml
+   oc process -f https://raw.githubusercontent.com/<org>/<repo>/<tag>/manifests/scim-bridge-install-template.yaml \
+     -p SCIM_BRIDGE_MAS_BASE_URL=https://api.<mas-instance>.<domain>/scim/v2 \
+     -p SCIM_BRIDGE_MAS_API_TOKEN_NAME=<your-mas-api-key-name> \
+     -p SCIM_BRIDGE_MAS_API_TOKEN_VALUE=<your-mas-api-key-value> \
+     -p SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WORKSPACE_ID=<workspace-id> \
+   | oc apply -f -
    ```
 5) Optional: if you enabled MAS profile bootstrap, re-run that Job after editing the MAS API key:
    ```bash
    oc delete job/scim-bridge-mas-profile-bootstrap -n iam --ignore-not-found
-   oc apply -f https://raw.githubusercontent.com/<org>/<repo>/<tag>/manifests/scim-bridge-install.yaml
+   oc process -f https://raw.githubusercontent.com/<org>/<repo>/<tag>/manifests/scim-bridge-install-template.yaml \
+     -p SCIM_BRIDGE_MAS_BASE_URL=https://api.<mas-instance>.<domain>/scim/v2 \
+     -p SCIM_BRIDGE_MAS_API_TOKEN_NAME=<your-mas-api-key-name> \
+     -p SCIM_BRIDGE_MAS_API_TOKEN_VALUE=<your-mas-api-key-value> \
+     -p SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WORKSPACE_ID=<workspace-id> \
+   | oc apply -f -
    ```
 
 ### Option B: repo render + scripts (dev / maintainer flow)
@@ -59,7 +76,8 @@ SCIM_BRIDGE_OUTPUT=manifests/scim-bridge-install.yaml \
 ./scripts/scim-bridge-04-render-install-manifest.sh
 ```
 
-Commit `manifests/scim-bridge-install.yaml` (or attach it to the release) after setting the correct Quay image tag and defaults in the env file.
+Commit `manifests/scim-bridge-install.yaml` **and** `manifests/scim-bridge-install-template.yaml`
+(or attach them to the release) after setting the correct Quay image tag and defaults in the env file.
 
 The Deployment runs the bridge with filesystem state enabled; the PVC `scim-bridge-state` mounts at `/var/lib/scim-bridge` so the correlation file persists across pod restarts. Overrides via `SCIM_BRIDGE_*` env vars align with the bridge CLI flags and can be set either in the env file or directly in the shell.
 

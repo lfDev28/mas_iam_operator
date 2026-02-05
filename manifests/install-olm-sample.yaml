@@ -201,6 +201,50 @@ spec:
           echo "Retrieve the truststore password with:"
           echo "  kubectl get secret ${secret} -n ${namespace} -o jsonpath='{.data.truststorePassword}' | base64 -d && echo"
 ---
+# Demo-only credentials (fixed password). Replace for non-dev installs.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mas-iam-sample-bootstrap-admin
+  namespace: iam
+type: Opaque
+stringData:
+  username: admin
+  password: maxadmin
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mas-iam-sample-openldap-admin
+  namespace: iam
+type: Opaque
+stringData:
+  password: maxadmin
+  configPassword: maxadmin
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mas-iam-sample-openldap-user-passwords
+  namespace: iam
+type: Opaque
+stringData:
+  sysadmin: maxadmin
+  jane.doe: maxadmin
+  joe.bloggs: maxadmin
+  alex.manager: maxadmin
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mas-iam-sample-postgresql
+  namespace: iam
+type: Opaque
+stringData:
+  password: maxadmin
+  postgres-password: maxadmin
+  replication-password: maxadmin
+---
 # Optional: example MasIamStack custom resource once the operator CSV is ready.
 # Ensure the required LDAP TLS secret exists (see documentation) before applying.
 apiVersion: iam.mas.ibm.com/v1alpha1

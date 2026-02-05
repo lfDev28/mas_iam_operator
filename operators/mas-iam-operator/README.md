@@ -98,17 +98,16 @@ make install     # installs the MasIamStack CRD
 IMG=quay.io/<org>/mas-iam-operator:0.0.11 make deploy
 ```
 
-Apply a sample CR (customise secrets and routing first):
+Apply a sample CR (dev-only secrets included):
 
 ```bash
 kubectl apply -f config/samples/iam_v1alpha1_masiamstack.yaml
 ```
 
-> **Important:** create the bootstrap admin, OpenLDAP admin/user password, and
-> database secrets before applying the sample. Set `keycloak.bootstrapAdmin.secretName`,
-> `openldap.admin.secretName`, `openldap.userPasswords.secretName`, and
-> `postgresql.auth.existingSecret` (plus matching `secretKeys` if you use non-default
-> key names).
+> **Important:** `manifests/install-olm-sample.yaml` now includes demo secrets
+> (password `maxadmin`) so the sample can be applied in one step. Do **not** use
+> these defaults in production—create your own secrets and apply a custom
+> `MasIamStack` instead.
 
 ### Bootstrap admin secret
 
@@ -122,6 +121,9 @@ kubectl create secret generic mas-iam-sample-bootstrap-admin \
   -n iam
 ```
 
+> For the dev sample manifest, the secret is created automatically with
+> password `maxadmin`.
+
 If you rotate the secret, restart the Keycloak deployment and update the admin
 password in Keycloak (the bootstrap init container does not overwrite existing
 users).
@@ -132,6 +134,9 @@ The operator requires an existing secret for PostgreSQL credentials. Create a
 secret that includes the standard Bitnami keys (`password`, `postgres-password`,
 and `replication-password` if you enable replication), then reference it via
 `postgresql.auth.existingSecret`.
+
+> For the dev sample manifest, the PostgreSQL secret is created automatically
+> with password `maxadmin`.
 
 Remove the operator and CRDs:
 
@@ -271,12 +276,13 @@ Add `--force` to skip the confirmation prompt. The script deletes the
 `MasIamStack` custom resource, related secrets (including the dev TLS
 material), the LDAP configuration job, the PostgreSQL PVC, and the
 namespace-scoped OLM objects (subscription/CSV). Reapply
-`manifests/install-olm.yaml` to reinstall the operator, recreate the required
-secrets (bootstrap admin, OpenLDAP admin/user passwords, PostgreSQL), then apply
-`manifests/install-olm-sample.yaml` to bring the sample stack back. The TLS
-bootstrap job will recreate the OpenLDAP TLS secret automatically; run
+`manifests/install-olm.yaml` to reinstall the operator, then apply
+`manifests/install-olm-sample.yaml` to bring the sample stack back. The sample
+manifest creates demo secrets (password `maxadmin`) and the TLS bootstrap job
+will recreate the OpenLDAP TLS secret automatically; run
 `scripts/dev-generate-openldap-tls.sh` only if you want to rotate it outside of
-that flow.
+that flow. For production, recreate your own secrets instead of using the demo
+defaults.
 
 If you cannot use the helper script, run the equivalent `oc` commands manually
 (adjust `RELEASE`/`NAMESPACE` if you customised them):

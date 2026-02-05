@@ -36,11 +36,15 @@ oc whoami
 oc projects
 ```
 
-## 2. Apply the consolidated manifest
+## 2. Apply the operator and sample manifests
 
-The manifest installs the OLM catalog source, OperatorGroup, Subscription, TLS
-bootstrap job, and a sample `MasIamStack` in the `iam` namespace. Create the
-namespace first if it does not already exist:
+The install flow is now split:
+
+- `manifests/install-olm.yaml` installs the operator (CRD + CatalogSource + Subscription).
+- `manifests/install-olm-sample.yaml` applies a dev TLS job and a sample `MasIamStack`
+  plus demo secrets.
+
+Create the namespace first if it does not already exist:
 
 ```bash
 oc new-project iam
@@ -50,6 +54,7 @@ oc create namespace iam
 
 ```bash
 oc apply -f https://raw.githubusercontent.com/lfDev28/mas_iam_operator/main/manifests/install-olm.yaml
+oc apply -f https://raw.githubusercontent.com/lfDev28/mas_iam_operator/main/manifests/install-olm-sample.yaml
 ```
 
 Watch the namespace until every pod is running or completed:
@@ -63,8 +68,8 @@ You should see the Operator, Keycloak, OpenLDAP, PostgreSQL, and the two jobs
 
 ## 3. Retrieve the Keycloak admin credentials
 
-The chart creates `<release>-bootstrap-admin` (defaults to
-`mas-iam-sample-bootstrap-admin`) with a random password. Export it with:
+The sample manifest creates demo secrets with password `maxadmin` (Keycloak,
+OpenLDAP, PostgreSQL). Retrieve the Keycloak admin credentials with:
 
 ```bash
 oc get secret mas-iam-sample-bootstrap-admin \
@@ -94,8 +99,8 @@ credentials from the previous step.
 - TLS secret generation handled automatically by the Job (retrieve the
   truststore password with:
   `oc get secret mas-iam-sample-keycloak-openldap-tls -n iam -o jsonpath='{.data.truststorePassword}' | base64 -d && echo`).
-- Keycloak/OpenLDAP service accounts already bound to the `anyuid` SCC—no extra
-  `oc adm policy` commands are required.
+- Keycloak is bound to the `anyuid` SCC automatically. OpenLDAP only requires
+  `anyuid` if you disable its default non-root security context.
 
 ## 6. Import or configure MAS clients
 

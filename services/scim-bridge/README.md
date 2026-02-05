@@ -45,6 +45,17 @@ go run ./cmd/scim-bridge ... --bridge-mode event
 
 Every knob is exposed as both a flag and an env var (prefix `SCIM_BRIDGE_`). Examples:
 
+Quick install (OpenShift Template, recommended):
+
+```bash
+oc process -f https://raw.githubusercontent.com/<org>/<repo>/main/manifests/scim-bridge-install-template.yaml \
+  -p SCIM_BRIDGE_MAS_BASE_URL=https://api.<mas-instance>.<domain>/scim/v2 \
+  -p SCIM_BRIDGE_MAS_API_TOKEN_NAME=<your-mas-api-key-name> \
+  -p SCIM_BRIDGE_MAS_API_TOKEN_VALUE=<your-mas-api-key-value> \
+  -p SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WORKSPACE_ID=<workspace-id> \
+| oc apply -f -
+```
+
 | Flag | Env var | Description |
 | ---- | ------- | ----------- |
 | `--keycloak-base-url` | `SCIM_BRIDGE_KEYCLOAK_BASE_URL` | Keycloak Admin REST root used for user/group queries. |

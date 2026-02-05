@@ -5,8 +5,9 @@
 
 This guide focuses on the “happy path” for inexperienced OpenShift users:
 
-- You **apply** a manifest (via the provided script).
-- You **fill in values** in a single Secret (MAS + Keycloak credentials).
+- You run a **single `oc process | oc apply` command** (no local scripts required).
+- You only supply **MAS API credentials** and a **workspace ID**.
+- The installer auto‑creates a demo MAS SCIM profile and bootstraps the Keycloak client.
 - You set a simple Keycloak user attribute (`masProfile`) to choose which MAS SCIM profile each user should land in.
 
 ---
@@ -41,7 +42,48 @@ https://www.ibm.com/docs/en/masv-and-l/cd?topic=synchronization-user-scim-20
 
 ---
 
-## 2. MAS side – create SCIM profile(s) and API credentials
+## 2. One-command install (OpenShift Template)
+
+This is the fastest way to test the bridge. It requires **only**:
+
+- MAS SCIM base URL
+- MAS API key name/value
+- MAS workspace ID (for the demo profile)
+
+```bash
+oc process -f https://raw.githubusercontent.com/<org>/<repo>/main/manifests/scim-bridge-install-template.yaml \
+  -p SCIM_BRIDGE_MAS_BASE_URL=https://api.<mas-instance>.<domain>/scim/v2 \
+  -p SCIM_BRIDGE_MAS_API_TOKEN_NAME=<your-mas-api-key-name> \
+  -p SCIM_BRIDGE_MAS_API_TOKEN_VALUE=<your-mas-api-key-value> \
+  -p SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WORKSPACE_ID=<workspace-id> \
+| oc apply -f -
+```
+
+What this does:
+
+- Creates `scim-bridge-secret` with the MAS API key.
+- Bootstraps the Keycloak `scim-admin` client via Job.
+- Creates a demo MAS SCIM profile (`id=demo`) via Job.
+- Deploys the SCIM bridge.
+
+> **Demo defaults:** the template uses a fixed Keycloak client secret
+> (`maxadmin`) and assumes the default Keycloak service name
+> `mas-iam-sample`. Override these parameters for production.
+
+If you need to re-run the bootstrap Jobs after updating secrets:
+
+```bash
+oc delete job scim-bridge-keycloak-bootstrap -n iam --ignore-not-found
+oc delete job scim-bridge-mas-profile-bootstrap -n iam --ignore-not-found
+oc process -f https://raw.githubusercontent.com/<org>/<repo>/main/manifests/scim-bridge-install-template.yaml \
+  -p SCIM_BRIDGE_MAS_BASE_URL=https://api.<mas-instance>.<domain>/scim/v2 \
+  -p SCIM_BRIDGE_MAS_API_TOKEN_NAME=<your-mas-api-key-name> \
+  -p SCIM_BRIDGE_MAS_API_TOKEN_VALUE=<your-mas-api-key-value> \
+  -p SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WORKSPACE_ID=<workspace-id> \
+| oc apply -f -
+```
+
+## 3. MAS side – create SCIM profile(s) and API credentials
 
 ### 2.1 Create a MAS API key
 
@@ -130,18 +172,23 @@ If you change the values after install, re-run the bootstrap Job:
 
 ```bash
 oc delete job scim-bridge-mas-profile-bootstrap -n iam --ignore-not-found
-oc apply -f manifests/scim-bridge-install.yaml
+oc process -f https://raw.githubusercontent.com/<org>/<repo>/main/manifests/scim-bridge-install-template.yaml \
+  -p SCIM_BRIDGE_MAS_BASE_URL=https://api.<mas-instance>.<domain>/scim/v2 \
+  -p SCIM_BRIDGE_MAS_API_TOKEN_NAME=<your-mas-api-key-name> \
+  -p SCIM_BRIDGE_MAS_API_TOKEN_VALUE=<your-mas-api-key-value> \
+  -p SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WORKSPACE_ID=<workspace-id> \
+| oc apply -f -
 ```
 
 ---
 
-## 3. Keycloak side – realm, SCIM client, and `masProfile` attribute
+## 4. Keycloak side – realm, SCIM client, and `masProfile` attribute
 
-### 3.1 SCIM client bootstrap (automatic)
+### 4.1 SCIM client bootstrap (automatic)
 
 Assuming MAS is already integrated with Keycloak (for example, realm `maximo`), the SCIM bridge install flow bootstraps the Keycloak service client automatically by applying a one-shot Kubernetes Job.
 
-By default, `./scripts/scim-bridge-02-deploy.sh` will:
+By default, the **OpenShift Template** (or `./scripts/scim-bridge-02-deploy.sh` for dev) will:
 
 - Create/update `Secret/scim-bridge-secret` with `SCIM_BRIDGE_KEYCLOAK_CLIENT_ID` and `SCIM_BRIDGE_KEYCLOAK_CLIENT_SECRET`.
 - Apply `manifests/scim-bridge-keycloak-bootstrap.yaml` in the Keycloak namespace, using the existing `<release>-bootstrap-admin` Secret.
@@ -152,7 +199,7 @@ By default, `./scripts/scim-bridge-02-deploy.sh` will:
 
 Normal users should not need to touch `kcadm.sh` or run `scripts/configure-scim-client.sh`.
 
-### 3.2 Add `masProfile` user attribute
+### 4.2 Add `masProfile` user attribute
 
 To let the bridge route users into different MAS SCIM profiles, set `masProfile` on the users you care about:
 
@@ -173,7 +220,7 @@ Later, the bridge will map:
 
 using configuration, not hardcoded logic.
 
-### 3.3 OpenLDAP reference (for MAS external registry setup)
+### 4.3 OpenLDAP reference (for MAS external registry setup)
 
 If you are wiring MAS to an external LDAP registry for identity sync, the sample OpenLDAP deployed by the MAS IAM stack uses:
 
@@ -187,7 +234,7 @@ If you need the CA bundle for the OpenLDAP TLS cert, it is stored in the OpenLDA
 
 ---
 
-## 4. Install the SCIM bridge on OpenShift
+## 5. Install the SCIM bridge on OpenShift
 
 This repo ships:
 
@@ -198,25 +245,29 @@ This repo ships:
 
 There are two supported install flows:
 
-- **Recommended for operators:** apply a published, fully‑rendered manifest (raw URL) and then edit Secrets/ConfigMaps in the OpenShift console.
+- **Recommended for operators:** `oc process` the published OpenShift Template and pass only MAS API values.
 - **Dev/maintainer flow:** render from `env/scim-bridge.env.local` and apply via the repo scripts.
 
-### 4.0 Install via published manifest (recommended)
+### 5.0 Install via published template (recommended)
 
-1) Apply the published manifest from a tag/release:
+1) Process the template with your MAS values:
 
 ```bash
-oc apply -f https://raw.githubusercontent.com/<org>/<repo>/<tag>/manifests/scim-bridge-install.yaml
+oc process -f https://raw.githubusercontent.com/<org>/<repo>/<tag>/manifests/scim-bridge-install-template.yaml \
+  -p SCIM_BRIDGE_MAS_BASE_URL=https://api.<mas-instance>.<domain>/scim/v2 \
+  -p SCIM_BRIDGE_MAS_API_TOKEN_NAME=<your-mas-api-key-name> \
+  -p SCIM_BRIDGE_MAS_API_TOKEN_VALUE=<your-mas-api-key-value> \
+  -p SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WORKSPACE_ID=<workspace-id> \
+| oc apply -f -
 ```
 
 If the image is in a private registry, create an image pull secret and add it to the Deployment (`spec.template.spec.imagePullSecrets`) before starting the pod.
 
-2) In the OpenShift console, edit:
+2) (Optional) In the OpenShift console, edit:
 
 - `Secret/scim-bridge-secret`
   - `SCIM_BRIDGE_MAS_API_TOKEN_NAME`
   - `SCIM_BRIDGE_MAS_API_TOKEN_VALUE`
-  - `SCIM_BRIDGE_KEYCLOAK_CLIENT_ID` (optional override; default `scim-admin`)
   - `SCIM_BRIDGE_KEYCLOAK_CLIENT_SECRET`
 - `ConfigMap/scim-bridge-config`
   - `SCIM_BRIDGE_KEYCLOAK_BASE_URL`
@@ -225,7 +276,7 @@ If the image is in a private registry, create an image pull secret and add it to
   - `SCIM_BRIDGE_MAS_PROFILE_ID`
   - `SCIM_BRIDGE_MAS_PROFILE_MAP` (optional)
 - `PersistentVolumeClaim/scim-bridge-state`
-  - Ensure `storageClassName` matches your cluster’s default (the published manifest uses `CHANGEME` as a placeholder).
+  - Ensure your cluster has a default StorageClass (or edit the PVC if you need a specific class).
 
 3) Restart the bridge:
 
@@ -237,11 +288,16 @@ oc rollout restart deployment/scim-bridge -n iam
 
 ```bash
 oc delete job/scim-bridge-keycloak-bootstrap -n iam --ignore-not-found
-oc apply -f https://raw.githubusercontent.com/<org>/<repo>/<tag>/manifests/scim-bridge-install.yaml
+oc process -f https://raw.githubusercontent.com/<org>/<repo>/<tag>/manifests/scim-bridge-install-template.yaml \
+  -p SCIM_BRIDGE_MAS_BASE_URL=https://api.<mas-instance>.<domain>/scim/v2 \
+  -p SCIM_BRIDGE_MAS_API_TOKEN_NAME=<your-mas-api-key-name> \
+  -p SCIM_BRIDGE_MAS_API_TOKEN_VALUE=<your-mas-api-key-value> \
+  -p SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WORKSPACE_ID=<workspace-id> \
+| oc apply -f -
 ```
 
-> Maintainers publish the rendered manifest using `scripts/scim-bridge-04-render-install-manifest.sh`. See `agents.md` for the release/publishing checklist.
-> The published manifest pins both the bridge image and the Keycloak bootstrap Job image to the same release tag.
+> Maintainers publish the rendered manifest and the OpenShift template. See `agents.md` for the release/publishing checklist.
+> The published template pins both the bridge image and the Keycloak bootstrap Job image to the same release tag.
 
 ### 4.1 Install from repo (dev / maintainer flow)
 
@@ -339,7 +395,7 @@ oc rollout restart deployment/scim-bridge -n iam
 
 ---
 
-## 5. Managing MAS / Keycloak credentials via Secrets
+## 6. Managing MAS / Keycloak credentials via Secrets
 
 Once deployed, most day‑to‑day changes are:
 
@@ -412,7 +468,7 @@ oc delete job/scim-bridge-keycloak-bootstrap -n iam --ignore-not-found
 
 ---
 
-## 6. Verifying end‑to‑end behavior
+## 7. Verifying end‑to‑end behavior
 
 ### 6.1 Basic connectivity
 
@@ -442,7 +498,7 @@ This will:
 
 ---
 
-## 7. Where to learn more about MAS SCIM profiles
+## 8. Where to learn more about MAS SCIM profiles
 
 For deeper control over:
 
@@ -490,7 +546,7 @@ Advanced users can still customize images, manifests, and mappings via the under
 
 ---
 
-## 8. Automatic Keycloak client bootstrap via manifests
+## 9. Automatic Keycloak client bootstrap via manifests
 
 By default, this repo provisions the `scim-admin` client and roles via an in-cluster Kubernetes Job:
 
@@ -519,7 +575,7 @@ If you choose a manual path, you must keep `Secret/scim-bridge-secret` (`SCIM_BR
 
 ---
 
-## 9. TLS and backfill quick notes
+## 10. TLS and backfill quick notes
 
 ### 9.1 TLS / CA bundles (recommended for production)
 

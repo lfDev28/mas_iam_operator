@@ -72,12 +72,15 @@ spec:
                   exit 1
                 fi
                 resp="$(curl ${curl_args} -u "${SCIM_BRIDGE_MAS_API_TOKEN_NAME}:${SCIM_BRIDGE_MAS_API_TOKEN_VALUE}" "${auth_url}")"
-                token="$(printf '%s' "${resp}" | sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')"
-                if [ -z "${token}" ]; then
-                  echo "error: failed to parse token from MAS auth response" >&2
-                  printf '%s\n' "${resp}" >&2
-                  exit 1
-                fi
+                token="$(printf '%s' "${resp}" | tr -d '\r\n' | sed 's/.*"token"[[:space:]]*:[[:space:]]*"//; s/".*//')"
+                case "${token}" in
+                  *.*.*) ;;
+                  *)
+                    echo "error: failed to parse token from MAS auth response" >&2
+                    echo "response length: ${#resp}" >&2
+                    exit 1
+                    ;;
+                esac
                 auth_type="jwt"
               fi
 
@@ -93,10 +96,7 @@ spec:
                   echo "error: SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WORKSPACE_ID is required when no JSON payload is provided" >&2
                   exit 1
                 fi
-                payload="$(cat <<EOF
-{"id":"${profile_id}","version":1,"identities":[{"type":"local"},{"id":"default-saml","type":"saml","samlId":"userName"}],"entitlement":{"application":"PREMIUM","admin":"ADMIN_PREMIUM"},"workspaces":[{"id":"${workspace_id}","applications":["manage","iot","monitor"]}]}
-EOF
-)"
+                payload="$(printf '{"id":"%s","version":1,"identities":[{"type":"local"},{"id":"default-saml","type":"saml","samlId":"userName"}],"entitlement":{"application":"PREMIUM","admin":"ADMIN_PREMIUM"},"workspaces":[{"id":"%s","applications":["manage","iot","monitor"]}]}' "${profile_id}" "${workspace_id}")"
               fi
 
               echo "Checking for existing MAS profile ${profile_id}..."
@@ -115,7 +115,7 @@ EOF
               create_status="$(curl ${curl_args} -o /tmp/profile-create.json -w "%{http_code}" \
                 -H "${auth_header}" \
                 -H "Content-Type: application/scim+json" \
-                -X POST "${profiles_url}/" \
+                -X POST "${profiles_url}" \
                 -d "${payload}" || true)"
 
               case "${create_status}" in

@@ -130,8 +130,10 @@ spec:
               sa_id=""
               for _ in {1..30}; do
                 sa_id="$(
-                  /opt/keycloak/bin/kcadm.sh get "clients/${client_uuid}/service-account-user" -r "${SCIM_REALM}" 2>/dev/null \
-                    | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
+                  /opt/keycloak/bin/kcadm.sh get users -r "${SCIM_REALM}" -q "username=service-account-${SCIM_CLIENT_ID}" \
+                    --fields id --format csv --noquotes 2>/dev/null \
+                    | tr -d '\r' \
+                    | head -n1
                 )"
                 [[ -n "$sa_id" ]] && break
                 sleep 2
@@ -139,6 +141,7 @@ spec:
 
               if [[ -z "${sa_id}" ]]; then
                 echo "error: failed to resolve service account user ID for ${SCIM_CLIENT_ID}" >&2
+                /opt/keycloak/bin/kcadm.sh get users -r "${SCIM_REALM}" -q "username=service-account-${SCIM_CLIENT_ID}" || true
                 exit 1
               fi
 

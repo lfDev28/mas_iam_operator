@@ -12,7 +12,7 @@ data:
   SCIM_BRIDGE_KEYCLOAK_CA_FILE: "/etc/scim-bridge/certs/keycloak-ca.crt"
   SCIM_BRIDGE_KEYCLOAK_INSECURE_SKIP_VERIFY: "false"
   SCIM_BRIDGE_MAS_BASE_URL: "https://api.<mas-instance>.<domain>/scim/v2"
-  SCIM_BRIDGE_MAS_PROFILE_ID: "test1"
+  SCIM_BRIDGE_MAS_PROFILE_ID: "demo"
   SCIM_BRIDGE_MAS_PROFILE_MAP: ""
   SCIM_BRIDGE_MAS_PROFILE_MAP_JSON: ""
   SCIM_BRIDGE_MAS_PROFILE_REQUIRE_LABEL: "false"
@@ -250,8 +250,10 @@ spec:
               sa_id=""
               for _ in {1..30}; do
                 sa_id="$(
-                  /opt/keycloak/bin/kcadm.sh get "clients//service-account-user" -r "" 2>/dev/null \
-                    | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
+                  /opt/keycloak/bin/kcadm.sh get users -r "" -q "username=service-account-" \
+                    --fields id --format csv --noquotes 2>/dev/null \
+                    | tr -d '\r' \
+                    | head -n1
                 )"
                 [[ -n "" ]] && break
                 sleep 2
@@ -259,6 +261,7 @@ spec:
 
               if [[ -z "" ]]; then
                 echo "error: failed to resolve service account user ID for " >&2
+                /opt/keycloak/bin/kcadm.sh get users -r "" -q "username=service-account-" || true
                 exit 1
               fi
 
@@ -515,12 +518,15 @@ spec:
                   exit 1
                 fi
                 resp="$(curl  -u "CHANGEME:CHANGEME" "")"
-                token="$(printf '%s' "" | sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')"
-                if [ -z "" ]; then
-                  echo "error: failed to parse token from MAS auth response" >&2
-                  printf '%s\n' "" >&2
-                  exit 1
-                fi
+                token="$(printf '%s' "" | tr -d '\r\n' | sed 's/.*"token"[[:space:]]*:[[:space:]]*"//; s/".*//')"
+                case "" in
+                  *.*.*) ;;
+                  *)
+                    echo "error: failed to parse token from MAS auth response" >&2
+                    echo "response length: ${#resp}" >&2
+                    exit 1
+                    ;;
+                esac
                 auth_type="jwt"
               fi
 
@@ -536,10 +542,7 @@ spec:
                   echo "error: SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WORKSPACE_ID is required when no JSON payload is provided" >&2
                   exit 1
                 fi
-                payload="$(cat <<EOF
-{"id":"","version":1,"identities":[{"type":"local"},{"id":"default-saml","type":"saml","samlId":"userName"}],"entitlement":{"application":"PREMIUM","admin":"ADMIN_PREMIUM"},"workspaces":[{"id":"","applications":["manage","iot","monitor"]}]}
-EOF
-)"
+                payload="$(printf '{"id":"%s","version":1,"identities":[{"type":"local"},{"id":"default-saml","type":"saml","samlId":"userName"}],"entitlement":{"application":"PREMIUM","admin":"ADMIN_PREMIUM"},"workspaces":[{"id":"%s","applications":["manage","iot","monitor"]}]}' "" "")"
               fi
 
               echo "Checking for existing MAS profile ..."
@@ -558,7 +561,7 @@ EOF
               create_status="$(curl  -o /tmp/profile-create.json -w "%{http_code}" \
                 -H "" \
                 -H "Content-Type: application/scim+json" \
-                -X POST "/" \
+                -X POST "" \
                 -d "" || true)"
 
               case "" in
