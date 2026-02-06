@@ -87,6 +87,35 @@ The Deployment runs the bridge with filesystem state enabled; the PVC `scim-brid
 - Labels are mapped via `SCIM_BRIDGE_MAS_PROFILE_MAP`/`JSON` to MAS profile IDs. Missing/unmapped labels fall back to `SCIM_BRIDGE_MAS_PROFILE_ID` unless `SCIM_BRIDGE_MAS_PROFILE_REQUIRE_LABEL=true`, in which case the user is skipped.
 - If the stored state entry’s `profileID` differs from the derived mapping, the bridge marks the entry `status="error"` so operators can clean it up before continuing.
 
+### Retrying sticky errors (state-tools sidecar)
+
+The bridge persists per-user errors into the PVC-backed state file (`/var/lib/scim-bridge/state.json`).
+If an entry is marked `status="error"`, the bridge will skip it until an operator clears that state.
+
+The Deployment includes a small sidecar container named `state-tools` with a helper script mounted at
+`/opt/scim-bridge-tools/retry-errors`.
+
+1) Open a terminal to the `state-tools` container in the `scim-bridge` pod.
+2) List current errors:
+   ```bash
+   /opt/scim-bridge-tools/retry-errors --list
+   ```
+3) Clear errors so they will be retried on the next poll:
+   ```bash
+   # Clear all error entries (default mode deletes those state entries)
+   /opt/scim-bridge-tools/retry-errors --all-errors
+
+   # Or clear a specific username
+   /opt/scim-bridge-tools/retry-errors --username jane.doe
+
+   # Alternative: keep the state entry but clear lastError + set status=ok
+   /opt/scim-bridge-tools/retry-errors --all-errors --mode reset
+   ```
+4) Restart the bridge so it reloads state from disk:
+   ```bash
+   oc rollout restart deployment/scim-bridge -n iam
+   ```
+
 ### Polling interval and run-once mode
 
 - `SCIM_BRIDGE_BRIDGE_POLL_INTERVAL` / `--bridge-poll-interval` accepts standard Go durations (e.g., `30s`, `1m`, `5m`). Recommended: dev 30–60s; prod 5–10m.

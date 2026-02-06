@@ -451,6 +451,26 @@ oc get secret scim-bridge-secret -n iam -o jsonpath='{.data.SCIM_BRIDGE_KEYCLOAK
 
 Be careful when changing mappings for users that already exist in MAS: see the main SCIM bridge spec for how profile changes interact with state (`status="error"` vs re-create).
 
+### 5.2.1 Clearing sticky state errors (after fixing credentials/outages)
+
+If MAS returns a transient error (for example, an expired API token) the bridge will persist the error into its state file and then skip that user until you clear the state entry.
+
+The Deployment includes a `state-tools` sidecar container with a helper script:
+
+1. Open a terminal to the `state-tools` container in the `scim-bridge` pod.
+2. Clear error entries:
+   ```bash
+   # Clear all error entries
+   /opt/scim-bridge-tools/retry-errors --all-errors
+
+   # Or clear a specific username
+   /opt/scim-bridge-tools/retry-errors --username jane.doe
+   ```
+3. Restart the bridge:
+   ```bash
+   oc rollout restart deployment/scim-bridge -n iam
+   ```
+
 ### 5.3 Updating Keycloak / MAS URLs and realm
 
 For non-secret values (URLs, realm, default profile), edit `ConfigMap/scim-bridge-config`:
