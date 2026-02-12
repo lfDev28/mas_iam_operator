@@ -6,6 +6,7 @@ Early scaffolding for the Keycloak → Maximo Application Suite SCIM provisionin
 
 If you are installing the bridge into an OpenShift cluster, use the repo-level flow and manifests:
 
+- Single-file runbook (recommended entrypoint): `../../docs/INSTALL-ALL-IN-ONE.md`
 - Install guide: `../../docs/scim-bridge-install.md`
 - Published manifest (recommended for operators): `manifests/scim-bridge-install.yaml` in the repo or release tag
 - Deployment helper (dev/maintainers): `../../scripts/scim-bridge-02-deploy.sh`

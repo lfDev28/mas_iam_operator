@@ -13,6 +13,12 @@ already federated into Keycloak so the demo users appear immediately, but the
 raw LDAP endpoint and bind credentials are also available if you want MAS to
 talk straight to LDAP for SCIM or custom tests.
 
+## Single-file install runbook
+
+Use `docs/INSTALL-ALL-IN-ONE.md` for the full end-to-end install flow in one place
+(operator, sample stack, SCIM bridge, required placeholders, verification, and
+day-2 recovery commands).
+
 ## Prerequisites
 
 - Access to an OpenShift cluster with cluster-admin or a project where you can

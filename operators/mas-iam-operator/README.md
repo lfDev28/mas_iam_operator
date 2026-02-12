@@ -5,6 +5,8 @@ This directory contains a Helm-based operator scaffold generated with
 
 ## Prerequisites
 
+- For a one-file end-to-end install flow (operator + sample stack + SCIM bridge),
+  see `../../docs/INSTALL-ALL-IN-ONE.md`.
 - Docker (or another OCI image build tool)
 - `kubectl`
 - `kustomize` v5.0+
