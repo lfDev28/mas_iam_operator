@@ -1,6 +1,6 @@
 # SCIM Provisioning Bridge
 
-Early scaffolding for the Keycloak → Maximo Application Suite SCIM provisioning bridge. See `../../specs/scim-provisioning-bridge.md` for the full problem statement and roadmap.
+SCIM provisioning bridge for Keycloak -> Maximo Application Suite (MAS), with install templates and in-cluster bootstrap jobs.
 
 ## Installing on OpenShift (recommended)
 

@@ -307,7 +307,7 @@ oc process -f https://raw.githubusercontent.com/<org>/<repo>/<tag>/manifests/sci
 | oc apply -f -
 ```
 
-> Maintainers publish the rendered manifest and the OpenShift template. See `agents.md` for the release/publishing checklist.
+> Maintainers publish the rendered manifest and the OpenShift template as part of the release process.
 > The published template pins both the bridge image and the Keycloak bootstrap Job image to the same release tag.
 
 ### 4.1 Install from repo (dev / maintainer flow)
