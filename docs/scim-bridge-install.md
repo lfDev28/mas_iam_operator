@@ -457,7 +457,8 @@ Be careful when changing mappings for users that already exist in MAS: see the m
 
 ### 5.2.1 Clearing sticky state errors (after fixing credentials/outages)
 
-If MAS returns a transient error (for example, an expired API token) the bridge will persist the error into its state file and then skip that user until you clear the state entry.
+When `SCIM_BRIDGE_MAS_API_TOKEN_NAME` / `SCIM_BRIDGE_MAS_API_TOKEN_VALUE` are configured, MAS `401` responses are auto-retried after the bridge refreshes its token via `/v1/authenticate`.
+Other persistent MAS errors are written into the state file and skipped until you clear those entries.
 
 The Deployment includes a `state-tools` sidecar container with a helper script:
 

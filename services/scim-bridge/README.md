@@ -110,6 +110,7 @@ API calls. To re-run it, delete the Job and re-apply the manifest.
 ## Current behavior
 
 - `poll` (default) obtains a client-credentials token, lists a page of users from Keycloak’s Admin REST API, feeds them into the reconciliation planner, and logs whether each user maps to a `create` (no stored MAS ID) or `update` (stored correlation exists). It then either (a) simulates the MAS SCIM call when `--bridge-dry-run` is true (default) or (b) issues real POST/PUT requests against MAS and updates the correlation store with the returned IDs.
+- When using `SCIM_BRIDGE_MAS_API_TOKEN_NAME` / `SCIM_BRIDGE_MAS_API_TOKEN_VALUE`, a MAS `401` triggers automatic token refresh (`/v1/authenticate`) and one retry of the current cycle.
 - On MAS create conflicts (409), the bridge searches SCIM (`externalId` preferred, `userName` fallback) within the user’s MAS profile and adopts the existing MAS user when exactly one match is found. Zero or multiple matches mark the entry `status="error"` to avoid repeated failures.
 - Updates issue SCIM PATCH requests with only the changed attributes (userName, given/family name, primary email, active). When no snapshot is available or MAS returns 404, the bridge falls back to PUT with the full document. No-op diffs are skipped.
 - `event` simply logs a warning placeholder; future work will hook up the Keycloak event-listener SPI.

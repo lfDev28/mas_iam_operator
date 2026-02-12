@@ -27,9 +27,17 @@ type Executor struct {
 	allowUpdates bool
 }
 
+// ErrMASUnauthorized indicates MAS returned 401 and the caller may refresh credentials.
+var ErrMASUnauthorized = errors.New("mas unauthorized")
+
 // NewExecutor wires a new action executor.
 func NewExecutor(masClient MASClient, store state.Store, dryRun bool, allowUpdates bool, logger Logger) *Executor {
 	return &Executor{mas: masClient, store: store, dryRun: dryRun, allowUpdates: allowUpdates, logger: logger}
+}
+
+// SetMASClient swaps the runtime MAS client (used after token refresh).
+func (e *Executor) SetMASClient(masClient MASClient) {
+	e.mas = masClient
 }
 
 // Execute currently simulates the result of an action and updates correlation
@@ -58,6 +66,9 @@ func (e *Executor) Execute(ctx context.Context, action Action) error {
 		if err != nil {
 			var respErr *mas.ResponseError
 			if errors.As(err, &respErr) {
+				if respErr.StatusCode == 401 {
+					return wrapMASUnauthorized(err)
+				}
 				if respErr.StatusCode == 409 {
 					return e.handleConflict(ctx, action, payload)
 				}
@@ -106,11 +117,17 @@ func (e *Executor) handleConflict(ctx context.Context, action Action, payload ma
 	filter := fmt.Sprintf(`externalId eq "%s"`, action.User.ID)
 	users, err := e.mas.SearchUsers(ctx, action.ProfileID, filter)
 	if err != nil {
+		if isMASUnauthorizedResponse(err) {
+			return wrapMASUnauthorized(err)
+		}
 		// Attempt fallback by username if externalId search failed (e.g., unsupported)
 		e.logger.Error("MAS search by externalId failed, retrying by username", "error", err, "username", action.User.Username, "mas_profile_id", action.ProfileID)
 		filter = fmt.Sprintf(`userName eq "%s"`, action.User.Username)
 		users, err = e.mas.SearchUsers(ctx, action.ProfileID, filter)
 		if err != nil {
+			if isMASUnauthorizedResponse(err) {
+				return wrapMASUnauthorized(err)
+			}
 			e.logger.Error("MAS search failed after conflict", "username", action.User.Username, "id", action.User.ID, "mas_profile_id", action.ProfileID, "error", err)
 			return nil
 		}
@@ -121,6 +138,9 @@ func (e *Executor) handleConflict(ctx context.Context, action Action, payload ma
 		filter = fmt.Sprintf(`userName eq "%s"`, action.User.Username)
 		fallbackUsers, fallbackErr := e.mas.SearchUsers(ctx, action.ProfileID, filter)
 		if fallbackErr != nil {
+			if isMASUnauthorizedResponse(fallbackErr) {
+				return wrapMASUnauthorized(fallbackErr)
+			}
 			e.logger.Error("MAS search by username failed after conflict", "username", action.User.Username, "id", action.User.ID, "mas_profile_id", action.ProfileID, "error", fallbackErr)
 		} else {
 			users = fallbackUsers
@@ -190,6 +210,9 @@ func (e *Executor) updateWithPatch(ctx context.Context, action Action, payload m
 			return e.performPut(ctx, action, payload)
 		}
 		if errors.As(err, &respErr) {
+			if respErr.StatusCode == 401 {
+				return wrapMASUnauthorized(err)
+			}
 			e.logger.Error("MAS patch failed", "username", action.User.Username, "mas_id", action.ExistingMAS, "status", respErr.Status, "status_code", respErr.StatusCode, "response_body", respErr.Body, "mas_profile_label", action.ProfileLabel, "mas_profile_id", action.ProfileID)
 			saveErr := e.store.Save(ctx, action.User.ID, state.Entry{
 				MASID:       action.ExistingMAS,
@@ -220,6 +243,9 @@ func (e *Executor) performPut(ctx context.Context, action Action, payload mas.Us
 	if err := e.mas.UpdateUser(ctx, action.ProfileID, action.ExistingMAS, payload); err != nil {
 		var respErr *mas.ResponseError
 		if errors.As(err, &respErr) {
+			if respErr.StatusCode == 401 {
+				return wrapMASUnauthorized(err)
+			}
 			e.logger.Error("MAS update failed", "username", action.User.Username, "mas_id", action.ExistingMAS, "status", respErr.Status, "status_code", respErr.StatusCode, "response_body", respErr.Body, "mas_profile_label", action.ProfileLabel, "mas_profile_id", action.ProfileID)
 			saveErr := e.store.Save(ctx, action.User.ID, state.Entry{
 				MASID:       action.ExistingMAS,
@@ -243,4 +269,13 @@ func (e *Executor) performPut(ctx context.Context, action Action, payload mas.Us
 		Username:    action.User.Username,
 		LastApplied: snapshotFromPayload(payload, action.ProfileID),
 	})
+}
+
+func isMASUnauthorizedResponse(err error) bool {
+	var respErr *mas.ResponseError
+	return errors.As(err, &respErr) && respErr.StatusCode == 401
+}
+
+func wrapMASUnauthorized(err error) error {
+	return fmt.Errorf("%w: %v", ErrMASUnauthorized, err)
 }

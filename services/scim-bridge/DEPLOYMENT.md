@@ -92,6 +92,8 @@ The Deployment runs the bridge with filesystem state enabled; the PVC `scim-brid
 
 The bridge persists per-user errors into the PVC-backed state file (`/var/lib/scim-bridge/state.json`).
 If an entry is marked `status="error"`, the bridge will skip it until an operator clears that state.
+When MAS auth is configured via `SCIM_BRIDGE_MAS_API_TOKEN_NAME` / `SCIM_BRIDGE_MAS_API_TOKEN_VALUE`,
+`401` responses are retried automatically after token refresh; use `retry-errors` for non-auth errors.
 
 The Deployment includes a small sidecar container named `state-tools` with a helper script mounted at
 `/opt/scim-bridge-tools/retry-errors`.

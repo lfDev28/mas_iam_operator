@@ -171,6 +171,22 @@ func TestExecutorCreatePersistentErrorMarksState(t *testing.T) {
 	}
 }
 
+func TestExecutorCreateUnauthorizedReturnsRetryableError(t *testing.T) {
+	respErr := &mas.ResponseError{StatusCode: 401, Status: "401 Unauthorized", Body: "expired"}
+	store, _ := state.NewStore("memory", state.Options{DefaultProfileID: "p"})
+	fake := &fakeMAS{createErr: respErr}
+	exec := NewExecutor(fake, store, false, true, stubLogger{})
+
+	action := Action{Type: ActionCreate, User: keycloak.User{ID: "kc1", Username: "alice"}, ProfileID: "p"}
+	err := exec.Execute(context.Background(), action)
+	if !errors.Is(err, ErrMASUnauthorized) {
+		t.Fatalf("expected ErrMASUnauthorized, got %v", err)
+	}
+	if _, ok, _ := store.Lookup(context.Background(), "kc1"); ok {
+		t.Fatalf("did not expect state entry on unauthorized create")
+	}
+}
+
 func TestExecutorUpdateUsesPatchForChanges(t *testing.T) {
 	store, _ := state.NewStore("memory", state.Options{DefaultProfileID: "p"})
 	_ = store.Save(context.Background(), "kc1", state.Entry{
@@ -256,5 +272,31 @@ func TestExecutorUpdatePatch404FallsBackToPut(t *testing.T) {
 	}
 	if fake.patchCalls != 1 || fake.updateCalled != 1 {
 		t.Fatalf("expected patch then put fallback, got patch=%d put=%d", fake.patchCalls, fake.updateCalled)
+	}
+}
+
+func TestExecutorUpdateUnauthorizedReturnsRetryableError(t *testing.T) {
+	store, _ := state.NewStore("memory", state.Options{DefaultProfileID: "p"})
+	snap := state.Snapshot{UserName: "alice", HasActive: true, Active: true, ProfileID: "p"}
+	_ = store.Save(context.Background(), "kc1", state.Entry{
+		MASID: "mas1", ProfileID: "p", Status: state.StatusOK, Username: "alice", LastApplied: snap,
+	})
+	fake := &fakeMAS{patchErr: &mas.ResponseError{StatusCode: 401, Status: "401 Unauthorized", Body: "expired"}}
+	exec := NewExecutor(fake, store, false, true, stubLogger{})
+
+	action := Action{
+		Type:             ActionUpdate,
+		User:             keycloak.User{ID: "kc1", Username: "alice", Enabled: false},
+		ExistingMAS:      "mas1",
+		ProfileID:        "p",
+		StateLastApplied: snap,
+	}
+	err := exec.Execute(context.Background(), action)
+	if !errors.Is(err, ErrMASUnauthorized) {
+		t.Fatalf("expected ErrMASUnauthorized, got %v", err)
+	}
+	entry, ok, _ := store.Lookup(context.Background(), "kc1")
+	if !ok || entry.Status != state.StatusOK {
+		t.Fatalf("expected state unchanged on unauthorized update, got %+v ok=%v", entry, ok)
 	}
 }
