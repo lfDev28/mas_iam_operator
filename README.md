@@ -1,225 +1,210 @@
 # MAS IAM Dev Stack – User Setup Guide
 
-Hey team! I built this repo so we have a quick way to spin up a
-SAML + LDAP resources on OpenShift for SAML, SCIM, or LDAP
-testing. One manifest installs everything, the pods are already wired together, SSL is configured
-as well as demo data for testing, so you can jump straight to connecting MAS without
-worrying about provisioning all of the resources and dealing with all of the challenges that come 
-with that.
 
-Use this guide to install the stack, grab the Keycloak admin secret, and follow
-the attached IBM documentation to configure SAML using Keycloak. OpenLDAP is
-already federated into Keycloak so the demo users appear immediately, but the
-raw LDAP endpoint and bind credentials are also available if you want MAS to
-talk straight to LDAP for SCIM or custom tests.
+This is the single copy/paste guide for installing all components on a cluster:
 
-## Single-file install runbook
+1. MAS IAM operator (OLM)
+2. Sample MAS IAM stack (Keycloak + OpenLDAP + PostgreSQL)
+3. SCIM bridge (Keycloak -> MAS)
 
-Use `docs/INSTALL-ALL-IN-ONE.md` for the full end-to-end install flow in one place
-(operator, sample stack, SCIM bridge, required placeholders, verification, and
-day-2 recovery commands).
+All required placeholders are called out below.
 
-## Prerequisites
+## 0) Prerequisites
 
-- Access to an OpenShift cluster with cluster-admin or a project where you can
-  create namespaces, Operators, and pods.
-- The `oc` CLI. On macOS: `brew install openshift-cli`. Other platforms:
-  <https://docs.openshift.com/container-platform/4.15/cli_reference/openshift_cli/getting-started-cli.html>
-- A kubeadmin or personal API token for `oc login`.
-- Optional: trust the OpenShift ingress CA if you plan to access the Keycloak
-  route from outside the cluster (see “Ingress certificates” below).
+- `oc` CLI installed and logged into target cluster.
+- Namespace `iam` available (or choose another namespace and replace it in commands/manifests).
+- MAS API key (name + value) with SCIM permissions.
+- MAS workspace ID (for demo profile bootstrap).
 
-## 1. Log in with `oc`
+## 1) Cluster login and namespace
 
 ```bash
 oc login --server https://api.<cluster-domain>:6443 --token <your-token>
-```
-
-Confirm you can query the cluster:
-
-```bash
 oc whoami
-oc projects
+oc new-project iam || oc project iam
 ```
 
-## 2. Apply the operator and sample manifests
+## 2) Install operator components
 
-The install flow is now split:
-
-- `manifests/install-olm.yaml` installs the operator (CRD + CatalogSource + Subscription).
-- `manifests/install-olm-sample.yaml` applies a dev TLS job and a sample `MasIamStack`
-  plus demo secrets.
-
-Create the namespace first if it does not already exist:
-
-```bash
-oc new-project iam
-# or
-oc create namespace iam
-```
+Apply operator-only resources:
 
 ```bash
 oc apply -f https://raw.githubusercontent.com/lfDev28/mas_iam_operator/main/manifests/install-olm.yaml
+```
+
+Wait for CSV to succeed:
+
+```bash
+oc get csv -n iam -w
+```
+
+## 3) Install sample MAS IAM stack (dev defaults)
+
+Apply sample resources (dev TLS job + sample `MasIamStack` + demo secrets):
+
+```bash
 oc apply -f https://raw.githubusercontent.com/lfDev28/mas_iam_operator/main/manifests/install-olm-sample.yaml
 ```
 
-Watch the namespace until every pod is running or completed:
+Watch pods/jobs:
 
 ```bash
-oc get pods -n iam
+oc get pods -n iam -w
 ```
 
-You should see the Operator, Keycloak, OpenLDAP, PostgreSQL, and the two jobs
-(`mas-iam-sample-generate-openldap-tls`, `mas-iam-sample-ldap-config`).
+Notes:
+- Sample manifest creates demo passwords (`maxadmin`) for Keycloak/OpenLDAP/PostgreSQL.
+- For production-like installs, replace sample secrets with your own before applying a custom `MasIamStack`.
 
-## 3. Retrieve the Keycloak admin credentials
+## 4) Verify IAM stack and fetch useful values
 
-The sample manifest creates demo secrets with password `maxadmin` (Keycloak,
-OpenLDAP, PostgreSQL). Retrieve the Keycloak admin credentials with:
-
-```bash
-oc get secret mas-iam-sample-bootstrap-admin \
-  -n iam -o jsonpath='{.data.username}' | base64 -d && echo
-oc get secret mas-iam-sample-bootstrap-admin \
-  -n iam -o jsonpath='{.data.password}' | base64 -d && echo
-```
-
-## 4. Locate the Keycloak route
-
-The install manifest exposes Keycloak via an OpenShift Route. Determine the host
-with:
+Keycloak route:
 
 ```bash
 oc get route mas-iam-sample -n iam -o jsonpath='{.spec.host}{"\n"}'
 ```
 
-Open `https://<route-host>` in your browser and sign in with the bootstrap admin
-credentials from the previous step.
-
-## 5. Understand what’s pre-provisioned
-
-- Keycloak 26 with a sample realm ready for MAS integration.
-- OpenLDAP seeded with demo users listed in the `MasIamStack` spec and already
-  wired into Keycloak’s user federation.
-- Bitnami PostgreSQL backing Keycloak.
-- TLS secret generation handled automatically by the Job (retrieve the
-  truststore password with:
-  `oc get secret mas-iam-sample-keycloak-openldap-tls -n iam -o jsonpath='{.data.truststorePassword}' | base64 -d && echo`).
-- Keycloak is bound to the `anyuid` SCC automatically. OpenLDAP only requires
-  `anyuid` if you disable its default non-root security context.
-
-## 6. Import or configure MAS clients
-
-Follow IBM’s MAS SAML client instructions and adapt them to this Keycloak realm:
-<https://www.ibm.com/support/pages/examples-set-mas-saml-different-idps>.
-
-Tips:
-
-1. Use the MAS admin UI (Manage → Administration → Security) to register a new
-   SAML client that points to your MAS workspace URL.
-2. In Keycloak, either import the MAS-provided client descriptor or create a new
-   client with the redirect URIs and certificates from the IBM guide.
-3. When mapping attributes, reuse the LDAP-backed test users (e.g.,
-   `alex.manager`, `jane.doe`) or create your own inside Keycloak.
-
-## 7. SCIM API (preview)
-
-The repo ships a Keycloak image (see `images/keycloak-scim/`) that includes the
-Metatavu SCIM extension. To enable it:
-
-1. **Build & publish the Keycloak image with the SCIM provider**  
-   ```bash
-   SCIM_KEYCLOAK_IMG=quay.io/<org>/mas-iam-keycloak:scim-0.0.1 make scim-keycloak-push
-   ```
-
-2. **Update the `MasIamStack`** so Keycloak uses that image and turns on SCIM:
-   ```yaml
-   spec:
-     keycloak:
-       image:
-         registry: quay.io
-         repository: <org>/mas-iam-keycloak
-         tag: scim-0.0.1
-       scim:
-         enabled: true
-         authenticationMode: KEYCLOAK
-   ```
-
-3. **Seed the SCIM roles and client** once the Keycloak pod is running:
-   ```bash
-   ./scripts/configure-scim-client.sh \
-     --namespace iam \
-     --release mas-iam-sample \
-     --client-id scim-admin \
-     --client-secret <strong-secret>
-   ```
-   The script logs into the Keycloak admin API, creates the `scim-access` /
-   `scim-managed` roles, and configures a confidential client with service
-   accounts enabled. Store the generated client credentials in a Kubernetes
-   Secret so MAS (or other tools) can fetch them safely.
-
-4. **Call the SCIM endpoint** using the service account’s token (client credentials flow):
+Keycloak bootstrap admin credentials:
 
 ```bash
-KC_ROUTE=$(oc get route mas-iam-sample -n iam -o jsonpath='{.spec.host}')
-SCIM_SECRET=<same secret passed to the script>
-TOKEN=$(curl -sk -d grant_type=client_credentials \
-  -d client_id=scim-admin \
-  -d client_secret="${SCIM_SECRET}" \
-  https://"${KC_ROUTE}"/realms/master/protocol/openid-connect/token | jq -r .access_token)
-
-curl -sk -H "Authorization: Bearer ${TOKEN}" \
-  https://"${KC_ROUTE}"/realms/master/scim/v2/Users?count=5 | jq .
+oc get secret mas-iam-sample-bootstrap-admin -n iam -o jsonpath='{.data.username}' | base64 -d; echo
+oc get secret mas-iam-sample-bootstrap-admin -n iam -o jsonpath='{.data.password}' | base64 -d; echo
 ```
 
-[Switch to `EXTERNAL` mode](https://github.com/Metatavu/keycloak-scim-server)
-by editing `spec.keycloak.scim` in the `MasIamStack` (issuer, audience, and JWKS
-URI). Refer to the
-[extension README](https://github.com/Metatavu/keycloak-scim-server) for Azure
-Entra configuration details—the chart surfaces the required environment
-variables so you can match their instructions. Future work will automate the
-client/role bootstrap inside the chart; for now, the helper script keeps the
-steps consistent.
+OpenLDAP details (for external registry setup):
 
-## 8. Working directly with LDAP
+```text
+LDAP URL:  ldaps://mas-iam-sample-openldap.iam.svc.cluster.local:636
+Base DN:   dc=demo,dc=local
+Users DN:  ou=users,dc=demo,dc=local
+Bind DN:   cn=admin,dc=demo,dc=local
+```
 
-If you need to run `ldapsearch` or modify the directory, exec into the OpenLDAP
-pod:
+OpenLDAP bind password:
 
 ```bash
-oc rsh deployment/mas-iam-sample-openldap
-# inside the pod
-ldapsearch -x -H ldaps://mas-iam-sample-openldap:636 -D "cn=admin,dc=demo,dc=local" -W
+oc get secret mas-iam-sample-openldap-admin -n iam -o jsonpath='{.data.password}' | base64 -d; echo
 ```
 
-The admin password lives in the `mas-iam-sample-openldap-admin` secret. Use
-`oc get secret ... -o jsonpath='{.data.password}' | base64 -d` to retrieve it.
-Individual demo user passwords live in
-`mas-iam-sample-openldap-user-passwords` (keys match each username). Example:
+## 5) Install SCIM bridge (required values only)
+
+Set required install values:
 
 ```bash
-oc get secret mas-iam-sample-openldap-user-passwords \
-  -n iam -o jsonpath='{.data.alex\.manager}' | base64 -d && echo
+export SCIM_BRIDGE_MAS_BASE_URL='https://api.<mas-instance>.<domain>/scim/v2'
+export SCIM_BRIDGE_MAS_API_TOKEN_NAME='<your-mas-api-key-name>'
+export SCIM_BRIDGE_MAS_API_TOKEN_VALUE='<your-mas-api-key-value>'
+export SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WORKSPACE_ID='<workspace-id>'
 ```
 
-### Direct MAS-to-LDAP wiring (optional)
+Install with template:
 
-If you want MAS (or another client) to authenticate directly against LDAP:
+```bash
+oc process -f https://raw.githubusercontent.com/lfDev28/mas_iam_operator/main/manifests/scim-bridge-install-template.yaml \
+  -p SCIM_BRIDGE_MAS_BASE_URL="${SCIM_BRIDGE_MAS_BASE_URL}" \
+  -p SCIM_BRIDGE_MAS_API_TOKEN_NAME="${SCIM_BRIDGE_MAS_API_TOKEN_NAME}" \
+  -p SCIM_BRIDGE_MAS_API_TOKEN_VALUE="${SCIM_BRIDGE_MAS_API_TOKEN_VALUE}" \
+  -p SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WORKSPACE_ID="${SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WORKSPACE_ID}" \
+| oc apply -f -
+```
 
-- **Host / port:** `mas-iam-sample-openldap.iam.svc.cluster.local:636`
-- **Bind DN:** `cn=admin,dc=demo,dc=local`
-- **Bind password:** `oc get secret mas-iam-sample-openldap-admin -n iam -o jsonpath='{.data.password}' | base64 -d`
-- **TLS truststore / CA:** `mas-iam-sample-keycloak-openldap-tls` (contains
-  `ca.crt`, `tls.crt`, `tls.key`, `ldap-truststore.p12`)
+## 6) Optional SCIM bridge overrides
 
-Import `ca.crt` wherever MAS (or your browser) needs to trust the OpenLDAP
-endpoint. The same credentials will apply when the SCIM service becomes
-available.
+Pass any of these with extra `-p` flags if needed:
 
-## 9. Resetting the namespace
+```text
+SCIM_BRIDGE_NAMESPACE=iam
+SCIM_BRIDGE_IMAGE=quay.io/<org>/mas-iam-scim-bridge:<tag>
+SCIM_BRIDGE_KEYCLOAK_IMAGE=quay.io/<org>/mas-iam-keycloak:<tag>
+SCIM_BRIDGE_KEYCLOAK_BASE_URL=http://mas-iam-sample:8080
+SCIM_BRIDGE_KEYCLOAK_REALM=maximo
+SCIM_BRIDGE_KEYCLOAK_CLIENT_ID=scim-admin
+SCIM_BRIDGE_KEYCLOAK_CLIENT_SECRET=maxadmin
+SCIM_BRIDGE_MAS_PROFILE_ID=demo
+SCIM_BRIDGE_BRIDGE_POLL_INTERVAL=5m
+SCIM_BRIDGE_MAS_INSECURE_SKIP_VERIFY=false
+SCIM_BRIDGE_MAS_CA_FILE=/etc/scim-bridge/certs/mas-ca.crt
+```
 
-If you need to wipe the environment, run the helper script **from the repo
-root**:
+If MAS uses a custom route CA, include:
+
+```bash
+-p SCIM_BRIDGE_MAS_CA_BUNDLE="$(oc get route <mas-api-route> -n <mas-core-namespace> -o jsonpath='{.spec.tls.caCertificate}')" \
+-p SCIM_BRIDGE_MAS_CA_FILE=/etc/scim-bridge/certs/mas-ca.crt \
+```
+
+## 7) Verify SCIM bridge install
+
+Check workload status:
+
+```bash
+oc get pods -n iam | grep scim-bridge
+oc get jobs -n iam | grep scim-bridge
+```
+
+Expected jobs:
+- `scim-bridge-keycloak-bootstrap` -> `Complete`
+- `scim-bridge-mas-profile-bootstrap` -> `Complete` (when enabled)
+
+Check bridge logs:
+
+```bash
+oc logs deploy/scim-bridge -n iam --tail=200
+```
+
+## 8) Day-2 operations
+
+Restart bridge after ConfigMap/Secret edits:
+
+```bash
+oc rollout restart deployment/scim-bridge -n iam
+```
+
+If Keycloak client secret changed, rerun Keycloak bootstrap job:
+
+```bash
+oc delete job scim-bridge-keycloak-bootstrap -n iam --ignore-not-found
+oc process -f https://raw.githubusercontent.com/lfDev28/mas_iam_operator/main/manifests/scim-bridge-install-template.yaml \
+  -p SCIM_BRIDGE_MAS_BASE_URL="${SCIM_BRIDGE_MAS_BASE_URL}" \
+  -p SCIM_BRIDGE_MAS_API_TOKEN_NAME="${SCIM_BRIDGE_MAS_API_TOKEN_NAME}" \
+  -p SCIM_BRIDGE_MAS_API_TOKEN_VALUE="${SCIM_BRIDGE_MAS_API_TOKEN_VALUE}" \
+  -p SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WORKSPACE_ID="${SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WORKSPACE_ID}" \
+| oc apply -f -
+```
+
+If MAS profile bootstrap values changed, rerun profile bootstrap job:
+
+```bash
+oc delete job scim-bridge-mas-profile-bootstrap -n iam --ignore-not-found
+oc process -f https://raw.githubusercontent.com/lfDev28/mas_iam_operator/main/manifests/scim-bridge-install-template.yaml \
+  -p SCIM_BRIDGE_MAS_BASE_URL="${SCIM_BRIDGE_MAS_BASE_URL}" \
+  -p SCIM_BRIDGE_MAS_API_TOKEN_NAME="${SCIM_BRIDGE_MAS_API_TOKEN_NAME}" \
+  -p SCIM_BRIDGE_MAS_API_TOKEN_VALUE="${SCIM_BRIDGE_MAS_API_TOKEN_VALUE}" \
+  -p SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WORKSPACE_ID="${SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WORKSPACE_ID}" \
+| oc apply -f -
+```
+
+## 9) Recover from sticky SCIM errors (without deleting PVC)
+
+If logs show `skip update due to prior MAS error`, clear sticky error entries via the `state-tools` container.
+
+1. Open terminal in pod `scim-bridge-...`, container `state-tools`.
+2. Run:
+
+```bash
+/opt/scim-bridge-tools/retry-errors --list
+/opt/scim-bridge-tools/retry-errors --all-errors
+oc rollout restart deployment/scim-bridge -n iam
+```
+
+Target a single user:
+
+```bash
+/opt/scim-bridge-tools/retry-errors --username jane.doe
+oc rollout restart deployment/scim-bridge -n iam
+```
+
+## 10) Quick uninstall/reset (dev)
 
 ```bash
 curl -sS https://raw.githubusercontent.com/lfDev28/mas_iam_operator/main/scripts/reset-namespace.sh -o reset-namespace.sh
@@ -227,37 +212,15 @@ chmod +x reset-namespace.sh
 ./reset-namespace.sh --namespace iam --force
 ```
 
-It removes the `MasIamStack`, job artifacts, PVCs, and operator subscription but
-leaves the TLS material unless you pass `--purge-tls` or delete it separately.
-After the cleanup, reapply the install manifest from step 2.
+Add `--purge-tls` to also remove LDAP TLS material.
+The reset flow scales PostgreSQL down and removes the Postgres PVC so fresh installs
+do not inherit stale database credentials.
 
-## 10. Ingress certificates
+## 11) Minimal handoff checklist for colleagues
 
-OpenShift routes are signed by the cluster’s default ingress CA. If your browser
-doesn’t trust it, download the CA bundle and import it:
-
-```bash
-oc get configmap -n openshift-config-managed default-ingress-cert -o jsonpath='{.data.ca-bundle\.crt}' > ingress-ca.crt
-```
-
-Add `ingress-ca.crt` to your operating system or browser trust store so the
-Keycloak route shows as secure.
-
-## 11. Future enhancements
-
-- **SCIM server integration:** a SCIM-compatible provisioning service is in
-  development so MAS can provision/deprovision users automatically.
-- Additional documentation will cover the SCIM endpoint, required credentials,
-  and how to flip MAS into SCIM mode once the server is available.
-
-## Troubleshooting & Tips
-
-- Rerun the install manifest (`oc apply -f …`) after upgrades; it is idempotent.
-- Keep the bundled pods running by deleting failed jobs/pods before reapplying.
-- If `oc apply -f …` shows “resource … configured”, that’s expected—it’s
-  idempotent.
-- The Operator and bundle images referenced in the manifest live on Quay. If you
-  mirror them, update the `IMG`/`BUNDLE_IMG`/`CATALOG_IMG` variables before
-  running `make docker-build docker-push`.
-
-If you have any question please let me know.
+- Operator CSV is `Succeeded` in namespace `iam`.
+- Keycloak/OpenLDAP/PostgreSQL pods are running.
+- `scim-bridge` pod is running.
+- SCIM bootstrap jobs are completed.
+- `scim-bridge-secret` contains environment-specific MAS API key values.
+- Keycloak route is reachable.
