@@ -90,6 +90,37 @@ delete_resource() {
   fi
 }
 
+wait_for_delete() {
+  local kind="$1"
+  local name="$2"
+  local timeout="${3:-180s}"
+
+  if oc get "${kind}" "${name}" -n "${namespace}" >/dev/null 2>&1; then
+    oc wait --for=delete "${kind}/${name}" -n "${namespace}" --timeout="${timeout}" >/dev/null 2>&1 || true
+  fi
+}
+
+quiesce_postgresql() {
+  local sts="${release}-postgresql"
+  local pod="${sts}-0"
+
+  if oc get statefulset "${sts}" -n "${namespace}" >/dev/null 2>&1; then
+    echo "Scaling statefulset/${sts} to 0 before PVC cleanup"
+    oc scale statefulset "${sts}" -n "${namespace}" --replicas=0 >/dev/null 2>&1 || true
+  fi
+
+  if oc get pod "${pod}" -n "${namespace}" >/dev/null 2>&1; then
+    echo "Waiting for pod/${pod} to terminate"
+    wait_for_delete pod "${pod}" 180s
+  fi
+
+  if oc get pod "${pod}" -n "${namespace}" >/dev/null 2>&1; then
+    echo "Force deleting pod/${pod} to release PVC"
+    oc delete pod "${pod}" -n "${namespace}" --force --grace-period=0 --ignore-not-found >/dev/null 2>&1 || true
+    wait_for_delete pod "${pod}" 60s
+  fi
+}
+
 clear_finalizers() {
   local kind="$1"
   local name="$2"
@@ -131,9 +162,17 @@ fi
 delete_resource job "${release}-ldap-config"
 delete_resource job "${release}-keycloak-ldap-config"
 
+# Ensure PostgreSQL pods are gone so the PVC can be deleted cleanly.
+quiesce_postgresql
+
 # Delete the PostgreSQL PVC (name matches StatefulSet volume claim).
 pvc_name="data-${release}-postgresql-0"
 delete_resource pvc "${pvc_name}"
+wait_for_delete pvc "${pvc_name}" 180s
+
+if oc get pvc "${pvc_name}" -n "${namespace}" >/dev/null 2>&1; then
+  echo "Warning: pvc/${pvc_name} still exists; delete it manually before reinstall to avoid stale DB credentials." >&2
+fi
 
 # Remove associated ConfigMaps to ensure clean re-apply of generated resources.
 delete_resource configmap "${release}-postgresql-configuration"

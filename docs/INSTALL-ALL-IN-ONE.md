@@ -212,6 +212,8 @@ chmod +x reset-namespace.sh
 ```
 
 Add `--purge-tls` to also remove LDAP TLS material.
+The reset flow scales PostgreSQL down and removes the Postgres PVC so fresh installs
+do not inherit stale database credentials.
 
 ## 11) Minimal handoff checklist for colleagues
 
@@ -221,4 +223,3 @@ Add `--purge-tls` to also remove LDAP TLS material.
 - SCIM bootstrap jobs are completed.
 - `scim-bridge-secret` contains environment-specific MAS API key values.
 - Keycloak route is reachable.
-
