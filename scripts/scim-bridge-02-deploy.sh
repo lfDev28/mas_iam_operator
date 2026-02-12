@@ -106,6 +106,13 @@ if [[ -z "${SCIM_BRIDGE_KEYCLOAK_BASE_URL}" ]]; then
   exit 1
 fi
 
+case "${SCIM_BRIDGE_MAS_BASE_URL}" in
+  http://http://*|https://https://*|http://https://*|https://http://*)
+    echo "error: SCIM_BRIDGE_MAS_BASE_URL is malformed (${SCIM_BRIDGE_MAS_BASE_URL})" >&2
+    exit 1
+    ;;
+esac
+
 if [[ -z "$SCIM_BRIDGE_STORAGE_CLASS" ]]; then
   default_sc=$(oc get sc -o jsonpath='{range .items[?(@.metadata.annotations.storageclass\.kubernetes\.io/is-default-class=="true")]}{.metadata.name}{"\n"}{end}' 2>/dev/null | head -n1)
   if [[ -n "$default_sc" ]]; then

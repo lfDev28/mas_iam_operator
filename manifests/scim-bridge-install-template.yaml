@@ -323,8 +323,6 @@ objects:
         spec:
           securityContext:
             runAsNonRoot: true
-            fsGroup: 65532
-            fsGroupChangePolicy: OnRootMismatch
           containers:
             - name: scim-bridge
               image: "${SCIM_BRIDGE_IMAGE}"
@@ -356,6 +354,9 @@ objects:
               image: registry.access.redhat.com/ubi9/ubi
               imagePullPolicy: IfNotPresent
               command: ["sleep", "infinity"]
+              securityContext:
+                runAsNonRoot: true
+                allowPrivilegeEscalation: false
               env:
                 - name: PYTHONDONTWRITEBYTECODE
                   value: "1"
@@ -556,11 +557,62 @@ objects:
             - name: mas-profile-bootstrap
               image: "${SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_IMAGE}"
               imagePullPolicy: IfNotPresent
-              envFrom:
-                - configMapRef:
-                    name: scim-bridge-config
-                - secretRef:
-                    name: scim-bridge-secret
+              env:
+                - name: MAS_PROFILE_BOOTSTRAP_ENABLED
+                  valueFrom:
+                    configMapKeyRef:
+                      name: scim-bridge-config
+                      key: SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_ENABLED
+                - name: MAS_BASE_URL
+                  valueFrom:
+                    configMapKeyRef:
+                      name: scim-bridge-config
+                      key: SCIM_BRIDGE_MAS_BASE_URL
+                - name: MAS_PROFILE_ID
+                  valueFrom:
+                    configMapKeyRef:
+                      name: scim-bridge-config
+                      key: SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_ID
+                - name: MAS_WORKSPACE_ID
+                  valueFrom:
+                    configMapKeyRef:
+                      name: scim-bridge-config
+                      key: SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WORKSPACE_ID
+                - name: MAS_PROFILE_BOOTSTRAP_JSON
+                  valueFrom:
+                    configMapKeyRef:
+                      name: scim-bridge-config
+                      key: SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_JSON
+                - name: MAS_INSECURE_SKIP_VERIFY
+                  valueFrom:
+                    configMapKeyRef:
+                      name: scim-bridge-config
+                      key: SCIM_BRIDGE_MAS_INSECURE_SKIP_VERIFY
+                - name: MAS_CA_FILE
+                  valueFrom:
+                    configMapKeyRef:
+                      name: scim-bridge-config
+                      key: SCIM_BRIDGE_MAS_CA_FILE
+                - name: MAS_AUTH_TYPE
+                  valueFrom:
+                    configMapKeyRef:
+                      name: scim-bridge-config
+                      key: SCIM_BRIDGE_MAS_AUTH_TYPE
+                - name: MAS_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: scim-bridge-secret
+                      key: SCIM_BRIDGE_MAS_TOKEN
+                - name: MAS_API_TOKEN_NAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: scim-bridge-secret
+                      key: SCIM_BRIDGE_MAS_API_TOKEN_NAME
+                - name: MAS_API_TOKEN_VALUE
+                  valueFrom:
+                    secretKeyRef:
+                      name: scim-bridge-secret
+                      key: SCIM_BRIDGE_MAS_API_TOKEN_VALUE
               volumeMounts:
                 - name: ca-certs
                   mountPath: /etc/scim-bridge/certs
@@ -570,39 +622,45 @@ objects:
                 - -ec
                 - |
                   set -eu
-                  if [ "${SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_ENABLED:-false}" != "true" ]; then
+                  if [ "${MAS_PROFILE_BOOTSTRAP_ENABLED:-false}" != "true" ]; then
                     echo "MAS profile bootstrap disabled; skipping."
                     exit 0
                   fi
-                  if [ -z "${SCIM_BRIDGE_MAS_BASE_URL:-}" ]; then
-                    echo "error: SCIM_BRIDGE_MAS_BASE_URL is required" >&2
+                  if [ -z "${MAS_BASE_URL:-}" ]; then
+                    echo "error: MAS_BASE_URL is required" >&2
                     exit 1
                   fi
-                  profile_id="${SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_ID:-}"
+                  case "${MAS_BASE_URL}" in
+                    http://http://*|https://https://*|http://https://*|https://http://*)
+                      echo "error: MAS_BASE_URL is malformed (${MAS_BASE_URL})" >&2
+                      exit 1
+                      ;;
+                  esac
+                  profile_id="${MAS_PROFILE_ID:-}"
                   if [ -z "${profile_id}" ]; then
-                    echo "error: SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_ID is required" >&2
+                    echo "error: MAS_PROFILE_ID is required" >&2
                     exit 1
                   fi
-                  base="${SCIM_BRIDGE_MAS_BASE_URL%/}"
+                  base="${MAS_BASE_URL%/}"
                   auth_root="${base%/scim/v2}"
                   auth_url="${auth_root}/v1/authenticate"
                   profiles_url="${base}/Profiles"
                   profile_url="${profiles_url}/${profile_id}"
                   curl_args="-sS"
-                  if [ "${SCIM_BRIDGE_MAS_INSECURE_SKIP_VERIFY:-false}" = "true" ]; then
+                  if [ "${MAS_INSECURE_SKIP_VERIFY:-false}" = "true" ]; then
                     curl_args="${curl_args} -k"
                   fi
-                  if [ -n "${SCIM_BRIDGE_MAS_CA_FILE:-}" ]; then
-                    curl_args="${curl_args} --cacert ${SCIM_BRIDGE_MAS_CA_FILE}"
+                  if [ -n "${MAS_CA_FILE:-}" ]; then
+                    curl_args="${curl_args} --cacert ${MAS_CA_FILE}"
                   fi
-                  token="${SCIM_BRIDGE_MAS_TOKEN:-}"
-                  auth_type="${SCIM_BRIDGE_MAS_AUTH_TYPE:-jwt}"
+                  token="${MAS_TOKEN:-}"
+                  auth_type="${MAS_AUTH_TYPE:-jwt}"
                   if [ -z "${token}" ]; then
-                    if [ -z "${SCIM_BRIDGE_MAS_API_TOKEN_NAME:-}" ] || [ -z "${SCIM_BRIDGE_MAS_API_TOKEN_VALUE:-}" ]; then
-                      echo "error: set SCIM_BRIDGE_MAS_TOKEN or SCIM_BRIDGE_MAS_API_TOKEN_NAME/VALUE" >&2
+                    if [ -z "${MAS_API_TOKEN_NAME:-}" ] || [ -z "${MAS_API_TOKEN_VALUE:-}" ]; then
+                      echo "error: set MAS_TOKEN or MAS_API_TOKEN_NAME/VALUE" >&2
                       exit 1
                     fi
-                    resp="$(curl ${curl_args} -u "${SCIM_BRIDGE_MAS_API_TOKEN_NAME}:${SCIM_BRIDGE_MAS_API_TOKEN_VALUE}" "${auth_url}")"
+                    resp="$(curl ${curl_args} -u "${MAS_API_TOKEN_NAME}:${MAS_API_TOKEN_VALUE}" "${auth_url}")"
                     token="$(printf '%s' "${resp}" | tr -d '\r\n' | sed 's/.*\"token\"[[:space:]]*:[[:space:]]*\"//; s/\".*//')"
                     case "${token}" in
                       *.*.*) ;;
@@ -618,11 +676,11 @@ objects:
                   if [ "${auth_type}" = "api-key" ]; then
                     auth_header="Authorization: APIKey ${token}"
                   fi
-                  payload="${SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_JSON:-}"
+                  payload="${MAS_PROFILE_BOOTSTRAP_JSON:-}"
                   if [ -z "${payload}" ]; then
-                    workspace_id="${SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WORKSPACE_ID:-}"
+                    workspace_id="${MAS_WORKSPACE_ID:-}"
                     if [ -z "${workspace_id}" ]; then
-                      echo "error: SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WORKSPACE_ID is required when no JSON payload is provided" >&2
+                      echo "error: MAS_WORKSPACE_ID is required when no JSON payload is provided" >&2
                       exit 1
                     fi
                     payload="$(printf '{"id":"%s","version":1,"identities":[{"type":"local"},{"id":"default-saml","type":"saml","samlId":"userName"}],"entitlement":{"application":"PREMIUM","admin":"ADMIN_PREMIUM"},"workspaces":[{"id":"%s","applications":["manage","iot","monitor"]}]}' "${profile_id}" "${workspace_id}")"

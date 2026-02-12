@@ -88,7 +88,7 @@ if [[ -z "${pod}" ]]; then
 fi
 
 echo "Configuring SCIM roles and client inside pod ${pod}..."
-oc exec -n "${namespace}" "${pod}" -c keycloak -- env \
+oc exec -i -n "${namespace}" "${pod}" -c keycloak -- env \
   ADMIN_USER="${admin_user}" \
   ADMIN_PASS="${admin_pass}" \
   SCIM_CLIENT_ID="${client_id}" \
@@ -131,6 +131,10 @@ if [[ -z "${client_uuid}" ]]; then
   )
 else
   /opt/keycloak/bin/kcadm.sh update clients/"${client_uuid}" -r "${SCIM_REALM}" -s secret="${SCIM_CLIENT_SECRET}" >/tmp/scim-client.log 2>&1 || true
+fi
+if [[ -z "${client_uuid}" ]]; then
+  echo "error: failed to resolve client UUID for ${SCIM_CLIENT_ID}" >&2
+  exit 1
 fi
 sa_id=""
 for _ in {1..30}; do
