@@ -165,15 +165,19 @@ template (unless you override it via
   "id": "demo",
   "version": 1,
   "identities": [
-    { "type": "local" },
-    { "id": "default-saml", "type": "saml", "samlId": "userName" }
+    { "type": "local" }
   ],
   "entitlement": { "application": "PREMIUM", "admin": "ADMIN_PREMIUM" },
   "workspaces": [
-    { "id": "<workspace-id>", "applications": ["manage", "iot", "monitor"] }
+    { "id": "<workspace-id>", "applications": ["manage"] }
   ]
 }
 ```
+
+This default is intentionally conservative (local identity + `manage`) so it
+works on tenants where SAML IDPs or extra apps are not installed yet. If you
+need SAML identities or additional workspace applications, provide a custom
+`SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_JSON`.
 
 If you change the values after install, re-run the bootstrap Job:
 

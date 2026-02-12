@@ -61,6 +61,7 @@ This sample Dockerfile and manifest run the bridge with a PVC-backed state file 
    ```
    By default, this also applies a one-shot Keycloak bootstrap Job (`manifests/scim-bridge-keycloak-bootstrap.yaml`) that creates/updates the `scim-admin` client in-cluster using `kcadm.sh`. Most users should not need to run `scripts/configure-scim-client.sh`.
    If `SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_ENABLED=true`, the deploy script also applies a one-shot MAS profile bootstrap Job that creates the demo profile via `/scim/v2/Profiles`.
+   Default payload is local identity + `manage` app only; use `SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_JSON` if your tenant needs SAML identities or additional apps.
 4) Verify Deployment + MAS SCIM connectivity:
    ```bash
    ./scripts/scim-bridge-03-verify.sh

@@ -92,6 +92,9 @@ Job that creates a demo MAS SCIM profile using the same MAS credentials stored i
 - `SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WORKSPACE_ID=<workspace-id>`
 - Optional: `SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_JSON=<full profile JSON>`
 
+Default bootstrap payload is local identity plus `manage` workspace app only.
+Add SAML identities or extra apps only through `SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_JSON`.
+
 The Job uses `SCIM_BRIDGE_MAS_BASE_URL`, `SCIM_BRIDGE_MAS_AUTH_TYPE`,
 `SCIM_BRIDGE_MAS_CA_FILE`, and `SCIM_BRIDGE_MAS_INSECURE_SKIP_VERIFY` for the
 API calls. To re-run it, delete the Job and re-apply the manifest.

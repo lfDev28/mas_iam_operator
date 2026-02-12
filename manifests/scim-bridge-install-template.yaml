@@ -683,7 +683,7 @@ objects:
                       echo "error: MAS_WORKSPACE_ID is required when no JSON payload is provided" >&2
                       exit 1
                     fi
-                    payload="$(printf '{"id":"%s","version":1,"identities":[{"type":"local"},{"id":"default-saml","type":"saml","samlId":"userName"}],"entitlement":{"application":"PREMIUM","admin":"ADMIN_PREMIUM"},"workspaces":[{"id":"%s","applications":["manage","iot","monitor"]}]}' "${profile_id}" "${workspace_id}")"
+                    payload="$(printf '{"id":"%s","version":1,"identities":[{"type":"local"}],"entitlement":{"application":"PREMIUM","admin":"ADMIN_PREMIUM"},"workspaces":[{"id":"%s","applications":["manage"]}]}' "${profile_id}" "${workspace_id}")"
                   fi
                   echo "Checking for existing MAS profile ${profile_id}..."
                   status="$(curl ${curl_args} -o /tmp/profile.json -w "%{http_code}" -H "${auth_header}" "${profile_url}" || true)"
