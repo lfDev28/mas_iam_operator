@@ -63,6 +63,10 @@ Keycloak route:
 oc get route mas-iam-sample -n iam -o jsonpath='{.spec.host}{"\n"}'
 ```
 
+Note:
+- This stack does not pre-create MAS application clients in Keycloak. MAS must register its own client(s) in the `maximo` realm as part of the MAS authentication/IdP setup flow.
+- If you previously integrated MAS with this Keycloak and then you reset the IAM stack by deleting the PostgreSQL PVC, you wiped the Keycloak database and those MAS client registrations will be lost. In that case, rerun the MAS authentication/IdP registration step (or restore the old database).
+
 Keycloak bootstrap admin credentials:
 
 ```bash
