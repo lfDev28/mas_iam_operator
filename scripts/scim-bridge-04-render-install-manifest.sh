@@ -17,6 +17,13 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Rendered release artifacts should come from env/scim-bridge.env.release by default.
+# Local dev/test can override with SCIM_BRIDGE_ENV_FILE=env/scim-bridge.env.local.
+if [[ -z "${SCIM_BRIDGE_ENV_FILE:-}" ]]; then
+  SCIM_BRIDGE_ENV_FILE="$ROOT_DIR/env/scim-bridge.env.release"
+fi
+
 # shellcheck source=./_scim-bridge-env.sh
 source "$ROOT_DIR/scripts/_scim-bridge-env.sh"
 
@@ -78,7 +85,6 @@ SCIM_BRIDGE_BRIDGE_ALLOW_UPDATES=${SCIM_BRIDGE_BRIDGE_ALLOW_UPDATES:-true}
 SCIM_BRIDGE_BRIDGE_DRY_RUN=${SCIM_BRIDGE_BRIDGE_DRY_RUN:-false}
 SCIM_BRIDGE_INCLUDE_USERNAMES=${SCIM_BRIDGE_INCLUDE_USERNAMES:-}
 SCIM_BRIDGE_INCLUDE_USERNAME_PREFIX=${SCIM_BRIDGE_INCLUDE_USERNAME_PREFIX:-}
-SCIM_BRIDGE_STORAGE_CLASS=${SCIM_BRIDGE_STORAGE_CLASS:-}
 SCIM_BRIDGE_IMAGE_PULL_SECRETS=${SCIM_BRIDGE_IMAGE_PULL_SECRETS:-[]}
 SCIM_BRIDGE_KEYCLOAK_IMAGE=${SCIM_BRIDGE_KEYCLOAK_IMAGE:-}
 
@@ -124,20 +130,6 @@ fi
 if [[ -f "$MAS_PROFILE_TEMPLATE" ]]; then
   echo -e "\n---" >>"$tmp"
   envsubst <"$MAS_PROFILE_TEMPLATE" >>"$tmp"
-fi
-
-if [[ -z "${SCIM_BRIDGE_STORAGE_CLASS}" || "${SCIM_BRIDGE_STORAGE_CLASS}" == "CHANGEME" ]]; then
-  python3 - <<'PY' "$tmp"
-import sys
-path = sys.argv[1]
-with open(path) as f:
-    lines = f.readlines()
-with open(path, "w") as f:
-    for line in lines:
-        if line.lstrip().startswith("storageClassName:"):
-            continue
-        f.write(line)
-PY
 fi
 
 mv "$tmp" "$OUTPUT"

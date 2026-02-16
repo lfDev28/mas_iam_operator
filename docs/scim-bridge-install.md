@@ -29,6 +29,12 @@ This guide focuses on the “happy path” for inexperienced OpenShift users:
   - You have `oc` access to the cluster where MAS is running.
   - You know (or can create) a project/namespace for the bridge:
     - This guide assumes `iam`.
+  - Your cluster has a default StorageClass (used for the bridge state PVC). Verify with:
+
+```bash
+oc get sc
+oc get sc -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.metadata.annotations.storageclass\\.kubernetes\\.io/is-default-class}{"\n"}{end}'
+```
 
 - **SCIM profiles in MAS**
   - MAS uses a **SCIM profile** object to decide what happens when a user is created via SCIM:
@@ -58,6 +64,9 @@ oc process -f https://raw.githubusercontent.com/<org>/<repo>/main/manifests/scim
   -p SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WORKSPACE_ID=<workspace-id> \
 | oc apply -f -
 ```
+
+Important:
+- `SCIM_BRIDGE_MAS_BASE_URL` must include `/scim/v2` (do not use just the MAS API root).
 
 If your MAS API uses a custom CA (common in MAS environments), add:
 
@@ -504,7 +513,7 @@ oc delete job/scim-bridge-keycloak-bootstrap -n iam --ignore-not-found
 
 ### 6.1 Basic connectivity
 
-Use the helper script:
+If you installed from this repo (local clone), you can use the helper script:
 
 ```bash
 ./scripts/scim-bridge-03-verify.sh
@@ -515,6 +524,18 @@ This will:
 - Print the image and environment variables used by the Deployment.
 - Show recent logs.
 - Call MAS SCIM with the current credentials to list users.
+
+If you installed via raw template URL (no local repo), use these copy/paste checks:
+
+```bash
+oc get pods -n iam | grep scim-bridge
+oc get jobs -n iam | grep scim-bridge
+oc get pvc -n iam | grep scim-bridge
+oc wait --for=condition=complete job/scim-bridge-keycloak-bootstrap -n iam --timeout=10m
+oc wait --for=condition=complete job/scim-bridge-mas-profile-bootstrap -n iam --timeout=10m || true
+oc rollout status deploy/scim-bridge -n iam --timeout=5m
+oc logs deploy/scim-bridge -n iam --since=10m --tail=200
+```
 
 ### 6.2 User sync test
 

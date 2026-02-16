@@ -213,7 +213,6 @@ spec:
   resources:
     requests:
       storage: 1Gi
-  storageClassName: "${SCIM_BRIDGE_STORAGE_CLASS}"
 ---
 apiVersion: apps/v1
 kind: Deployment

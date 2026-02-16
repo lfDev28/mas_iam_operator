@@ -71,7 +71,6 @@ SCIM_BRIDGE_BRIDGE_ALLOW_UPDATES=${SCIM_BRIDGE_BRIDGE_ALLOW_UPDATES:-true}
 SCIM_BRIDGE_BRIDGE_DRY_RUN=${SCIM_BRIDGE_BRIDGE_DRY_RUN:-false}
 SCIM_BRIDGE_INCLUDE_USERNAMES=${SCIM_BRIDGE_INCLUDE_USERNAMES:-}
 SCIM_BRIDGE_INCLUDE_USERNAME_PREFIX=${SCIM_BRIDGE_INCLUDE_USERNAME_PREFIX:-}
-SCIM_BRIDGE_STORAGE_CLASS=${SCIM_BRIDGE_STORAGE_CLASS:-}
 SCIM_BRIDGE_KEYCLOAK_CA_FILE=${SCIM_BRIDGE_KEYCLOAK_CA_FILE:-}
 SCIM_BRIDGE_MAS_CA_FILE=${SCIM_BRIDGE_MAS_CA_FILE:-}
 SCIM_BRIDGE_IMAGE_PULL_SECRETS=${SCIM_BRIDGE_IMAGE_PULL_SECRETS:-[]}
@@ -113,19 +112,9 @@ case "${SCIM_BRIDGE_MAS_BASE_URL}" in
     ;;
 esac
 
-if [[ -z "$SCIM_BRIDGE_STORAGE_CLASS" ]]; then
-  default_sc=$(oc get sc -o jsonpath='{range .items[?(@.metadata.annotations.storageclass\.kubernetes\.io/is-default-class=="true")]}{.metadata.name}{"\n"}{end}' 2>/dev/null | head -n1)
-  if [[ -n "$default_sc" ]]; then
-    SCIM_BRIDGE_STORAGE_CLASS="$default_sc"
-  else
-    rook_sc=$(oc get sc -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null | grep -E 'rook|ceph' | head -n1 || true)
-    if [[ -n "$rook_sc" ]]; then
-      SCIM_BRIDGE_STORAGE_CLASS="$rook_sc"
-    else
-      echo "no storage class set or detected; set SCIM_BRIDGE_STORAGE_CLASS explicitly" >&2
-      exit 1
-    fi
-  fi
+default_sc=$(oc get sc -o jsonpath='{range .items[?(@.metadata.annotations.storageclass\.kubernetes\.io/is-default-class=="true")]}{.metadata.name}{"\n"}{end}' 2>/dev/null | head -n1 || true)
+if [[ -z "${default_sc}" ]]; then
+  echo "warning: no default StorageClass detected; scim-bridge-state PVC may remain Pending" >&2
 fi
 
 command -v envsubst >/dev/null 2>&1 || { echo "envsubst is required" >&2; exit 1; }
@@ -330,7 +319,6 @@ placeholders=(
   "\${SCIM_BRIDGE_BRIDGE_DRY_RUN}"
   "\${SCIM_BRIDGE_INCLUDE_USERNAMES}"
   "\${SCIM_BRIDGE_INCLUDE_USERNAME_PREFIX}"
-  "\${SCIM_BRIDGE_STORAGE_CLASS}"
   "\${SCIM_BRIDGE_IMAGE_PULL_SECRETS}"
 )
 
@@ -366,7 +354,6 @@ scim_bridge_subst_vars=(
   SCIM_BRIDGE_BRIDGE_DRY_RUN
   SCIM_BRIDGE_INCLUDE_USERNAMES
   SCIM_BRIDGE_INCLUDE_USERNAME_PREFIX
-  SCIM_BRIDGE_STORAGE_CLASS
   SCIM_BRIDGE_IMAGE_PULL_SECRETS
 )
 
@@ -450,7 +437,6 @@ export SCIM_BRIDGE_IMAGE \
   SCIM_BRIDGE_BRIDGE_DRY_RUN \
   SCIM_BRIDGE_INCLUDE_USERNAMES \
   SCIM_BRIDGE_INCLUDE_USERNAME_PREFIX \
-  SCIM_BRIDGE_STORAGE_CLASS \
   SCIM_BRIDGE_IMAGE_PULL_SECRETS \
   SCIM_BRIDGE_KEYCLOAK_NAMESPACE \
   SCIM_BRIDGE_KEYCLOAK_SERVICE \

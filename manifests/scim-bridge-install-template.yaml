@@ -27,8 +27,6 @@ parameters:
     value: mas-iam-sample
   - name: SCIM_BRIDGE_KEYCLOAK_ASSIGN_MANAGED_ROLE
     value: "false"
-  - name: SCIM_BRIDGE_STORAGE_CLASS
-    value: rook-ceph-block
   - name: SCIM_BRIDGE_MAS_BASE_URL
     required: true
   - name: SCIM_BRIDGE_MAS_API_TOKEN_NAME
@@ -298,7 +296,6 @@ objects:
       name: scim-bridge-state
       namespace: ${SCIM_BRIDGE_NAMESPACE}
     spec:
-      storageClassName: ${SCIM_BRIDGE_STORAGE_CLASS}
       accessModes:
         - ReadWriteOnce
       resources:

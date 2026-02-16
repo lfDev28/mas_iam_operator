@@ -14,6 +14,12 @@ All required placeholders are called out below.
 - Namespace `iam` available (or choose another namespace and replace it in commands/manifests).
 - MAS API key (name + value) with SCIM permissions.
 - MAS workspace ID (for demo profile bootstrap).
+- A default StorageClass set in the cluster (used for the SCIM bridge PVC). Verify with:
+
+```bash
+oc get sc
+oc get sc -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.metadata.annotations.storageclass\\.kubernetes\\.io/is-default-class}{"\n"}{end}'
+```
 
 ## 1) Cluster login and namespace
 
@@ -100,6 +106,10 @@ export SCIM_BRIDGE_MAS_API_TOKEN_VALUE='<your-mas-api-key-value>'
 export SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WORKSPACE_ID='<workspace-id>'
 ```
 
+Important:
+- `SCIM_BRIDGE_MAS_BASE_URL` must include `/scim/v2` (do not use just the MAS API root).
+  Example: `https://api.lfmas.apps.<domain>/scim/v2`
+
 Install with template:
 
 ```bash
@@ -143,11 +153,21 @@ Check workload status:
 ```bash
 oc get pods -n iam | grep scim-bridge
 oc get jobs -n iam | grep scim-bridge
+oc get pvc -n iam | grep scim-bridge
 ```
 
 Expected jobs:
 - `scim-bridge-keycloak-bootstrap` -> `Complete`
 - `scim-bridge-mas-profile-bootstrap` -> `Complete` (when enabled)
+
+Copy/paste verification:
+
+```bash
+oc wait --for=condition=complete job/scim-bridge-keycloak-bootstrap -n iam --timeout=10m
+oc wait --for=condition=complete job/scim-bridge-mas-profile-bootstrap -n iam --timeout=10m || true
+oc rollout status deploy/scim-bridge -n iam --timeout=5m
+oc logs deploy/scim-bridge -n iam --since=10m --tail=200
+```
 
 Check bridge logs:
 
@@ -162,6 +182,22 @@ Restart bridge after ConfigMap/Secret edits:
 ```bash
 oc rollout restart deployment/scim-bridge -n iam
 ```
+
+Rotate MAS API key (recommended method):
+
+```bash
+oc create secret generic scim-bridge-secret -n iam \\
+  --from-literal=SCIM_BRIDGE_MAS_API_TOKEN_NAME='<your-mas-api-key-name>' \\
+  --from-literal=SCIM_BRIDGE_MAS_API_TOKEN_VALUE='<your-mas-api-key-value>' \\
+  --dry-run=client -o yaml \\
+| oc apply -f -
+
+oc rollout restart deployment/scim-bridge -n iam
+```
+
+If the bridge is skipping users due to a prior `401` or other sticky error, run the retry tool:
+1. Open terminal in the `scim-bridge` pod, container `state-tools`.
+2. Run `/opt/scim-bridge-tools/retry-errors --all-errors` and then restart the Deployment.
 
 If Keycloak client secret changed, rerun Keycloak bootstrap job:
 
