@@ -59,6 +59,32 @@ require_oc() {
   require_command oc "oc CLI"
 }
 
+render_template_file() {
+  local template_path="$1"
+  local out_path="$2"
+  local vars_csv="${3:-}"
+
+  if [[ -n "${MAS_IAM_RENDERER_BINARY:-}" && -x "${MAS_IAM_RENDERER_BINARY}" ]]; then
+    "${MAS_IAM_RENDERER_BINARY}" render-template --vars "${vars_csv}" "${template_path}" "${out_path}"
+    return
+  fi
+
+  require_command envsubst "envsubst"
+  if [[ -n "${vars_csv}" ]]; then
+    local -a render_vars=()
+    local subst_vars=""
+    local var_name=""
+    IFS=',' read -r -a render_vars <<<"${vars_csv}"
+    for var_name in "${render_vars[@]}"; do
+      [[ -n "${var_name}" ]] || continue
+      subst_vars="${subst_vars}\${${var_name}} "
+    done
+    envsubst "${subst_vars}" <"${template_path}" >"${out_path}"
+  else
+    envsubst <"${template_path}" >"${out_path}"
+  fi
+}
+
 require_env_vars() {
   local variable_name=""
 

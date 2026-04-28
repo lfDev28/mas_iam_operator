@@ -248,7 +248,6 @@ detect_scim_bridge_fs_group() {
   log_warn "unable to determine an allowed fsGroup for namespace ${SCIM_BRIDGE_NAMESPACE}; leaving fsGroup unset"
 }
 
-require_command envsubst
 detect_mas_ca_bundle
 validate_bridge_storage_class
 
@@ -284,11 +283,11 @@ render_manifest() {
   local template_path="$1"
   local out_path="$2"
   local -a vars=("${!3}")
-  local subst_vars=""
+  local vars_csv=""
   if (( ${#vars[@]} > 0 )); then
-    subst_vars="$(printf '${%s} ' "${vars[@]}")"
+    vars_csv="$(IFS=,; printf '%s' "${vars[*]}")"
   fi
-  envsubst "$subst_vars" <"$template_path" >"$out_path.tmp"
+  render_template_file "$template_path" "$out_path.tmp" "$vars_csv"
   mv "$out_path.tmp" "$out_path"
 }
 

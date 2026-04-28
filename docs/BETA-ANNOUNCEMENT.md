@@ -26,7 +26,7 @@ There will still be cluster-specific issues. Storage defaults, image registry he
 Recommended flow:
 
 ```bash
-export MAS_IAM_IMAGE='quay.io/lee_forster/mas-iam-tool:v0.1.0-beta.1'
+export MAS_IAM_IMAGE='quay.io/lee_forster/mas-iam-tool:v0.1.0-beta.2'
 mkdir -p "$HOME/mas-iam"
 podman run -ti --rm -v "$HOME/mas-iam:/tmp" --pull always $MAS_IAM_IMAGE
 export PATH="$HOME/mas-iam:$PATH"

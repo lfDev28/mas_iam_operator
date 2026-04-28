@@ -23,6 +23,7 @@ const (
 	EnvWipeFirst               = "MAS_IAM_WIPE_FIRST"
 	EnvSkipProfileDelete       = "MAS_IAM_SKIP_PROFILE_DELETE"
 	EnvRepoRoot                = "MAS_IAM_REPO_ROOT"
+	EnvRendererBinary          = "MAS_IAM_RENDERER_BINARY"
 )
 
 type InstallConfig struct {

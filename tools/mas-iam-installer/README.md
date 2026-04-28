@@ -9,7 +9,7 @@ The supported delivery model is:
 
 Current published image:
 
-- `quay.io/lee_forster/mas-iam-tool:v0.1.0-beta.1`
+- `quay.io/lee_forster/mas-iam-tool:v0.1.0-beta.2`
 
 The CLI wraps the repo's hardened shell install engine. It does not replace it.
 
@@ -28,7 +28,7 @@ The CLI wraps the repo's hardened shell install engine. It does not replace it.
 Set the image once:
 
 ```bash
-export MAS_IAM_IMAGE='quay.io/lee_forster/mas-iam-tool:v0.1.0-beta.1'
+export MAS_IAM_IMAGE='quay.io/lee_forster/mas-iam-tool:v0.1.0-beta.2'
 ```
 
 Bootstrap the host command:
@@ -113,7 +113,6 @@ The installed local runtime:
 - expects these host tools on `PATH`:
   - `oc`
   - `bash` 4+ for `install` and `wipe`
-  - `envsubst` for `install`
 
 You can re-bootstrap explicitly:
 

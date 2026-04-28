@@ -75,12 +75,14 @@ func RunInstall(ctx context.Context, runner *executil.Runner, paths Paths, cfg c
 	if cfg.StorageClass != "" {
 		args = append(args, "--storage-class", cfg.StorageClass)
 	}
+	env := cfg.ScriptEnv()
+	addRendererBinaryEnv(env)
 
 	return runner.Stream(ctx, executil.Options{
 		Name: "bash",
 		Args: args,
 		Dir:  paths.RepoRoot,
-		Env:  cfg.ScriptEnv(),
+		Env:  env,
 	}, output, output)
 }
 
@@ -89,16 +91,26 @@ func RunWipe(ctx context.Context, runner *executil.Runner, paths Paths, cfg conf
 	if cfg.SkipProfileDelete {
 		args = append(args, "--skip-profile-delete")
 	}
+	env := cfg.ScriptEnv()
+	addRendererBinaryEnv(env)
 
 	return runner.Stream(ctx, executil.Options{
 		Name: "bash",
 		Args: args,
 		Dir:  paths.RepoRoot,
-		Env:  cfg.ScriptEnv(),
+		Env:  env,
 	}, output, output)
 }
 
 func fileExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && !info.IsDir()
+}
+
+func addRendererBinaryEnv(env map[string]string) {
+	executable, err := os.Executable()
+	if err != nil || strings.TrimSpace(executable) == "" {
+		return
+	}
+	env[config.EnvRendererBinary] = executable
 }

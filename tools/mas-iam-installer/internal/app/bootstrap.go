@@ -108,7 +108,7 @@ func (o *bootstrapOptions) run(output io.Writer) error {
 	fmt.Fprintf(output, "[result] installed local runtime at container path: %s\n", runtimeDir)
 	fmt.Fprintf(output, "[result] installed launcher at container path: %s\n", wrapperPath)
 	fmt.Fprintf(output, "[result] add the corresponding host directory for %s to PATH\n", outputDir)
-	fmt.Fprintln(output, "[result] host requirements for install/wipe: bash 4+, oc, envsubst")
+	fmt.Fprintln(output, "[result] host requirements for install/wipe: bash 4+, oc")
 	fmt.Fprintf(output, "[result] then run: %s install\n", commandName)
 	return nil
 }
@@ -273,10 +273,6 @@ case "${requested_command}" in
     ;;
 esac
 
-if [[ "${requested_command}" == "install" ]]; then
-  require_command envsubst "envsubst"
-fi
-
-exec env MAS_IAM_REPO_ROOT="${REPO_ROOT}" "${binary_path}" "$@"
+exec env MAS_IAM_REPO_ROOT="${REPO_ROOT}" MAS_IAM_RENDERER_BINARY="${binary_path}" "${binary_path}" "$@"
 `, runtimeDirName)
 }
