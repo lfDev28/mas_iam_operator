@@ -53,15 +53,13 @@ func (o *wipeOptions) run(ctx context.Context, root *RootOptions) error {
 	interactive := ui.IsInteractive() && !o.nonInteractive
 
 	if interactive {
-		client := oc.NewClient(executil.NewRunner())
-		if err := client.CheckAvailable(); err != nil {
-			return err
-		}
-		user, server, err := client.WhoAmI(ctx)
+		runner := executil.NewRunner()
+		client := oc.NewClient(runner)
+		cluster, err := ensureClusterLogin(ctx, runner, client, interactive)
 		if err != nil {
 			return err
 		}
-		ui.PrintClusterContext("Wipe", user, server, cfg.Namespace, "")
+		ui.PrintClusterContext("Wipe", cluster.User, cluster.Server, cfg.Namespace, "")
 
 		updated, err := ui.PromptWipe(cfg)
 		if err != nil {

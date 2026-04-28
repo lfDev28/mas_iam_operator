@@ -30,7 +30,7 @@ https://api.<mas-host>/scim/v2
 Set the beta image:
 
 ```bash
-export MAS_IAM_IMAGE='quay.io/lee_forster/mas-iam-tool:v0.1.0-beta.3'
+export MAS_IAM_IMAGE='quay.io/lee_forster/mas-iam-tool:v0.1.0-beta.4'
 ```
 
 Install the local `mas-iam` command:
@@ -61,7 +61,7 @@ mas-iam --help
 mas-iam preflight
 ```
 
-Preflight checks the active cluster context, basic tool availability, storage classes, and MAS URL shape. If the cluster has more than one plausible storage class, note the block/RBD class names. You may need them during install.
+Preflight checks the active cluster context, basic tool availability, storage classes, and MAS URL shape. If you are not logged in to OpenShift yet, the CLI will offer to run `oc login` before continuing. If the cluster has more than one plausible storage class, note the block/RBD class names. You may need them during install.
 
 ## 3. Run Install
 

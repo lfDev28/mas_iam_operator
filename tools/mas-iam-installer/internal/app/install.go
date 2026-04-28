@@ -69,6 +69,11 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 
 	interactive := ui.IsInteractive() && !o.nonInteractive
 	cfg := o.config
+	cluster, err := ensureClusterLogin(ctx, runner, client, interactive)
+	if err != nil {
+		return err
+	}
+
 	discovery := discoverInstallDiscovery(ctx, client)
 
 	var storageRanking preflight.StorageRanking
@@ -83,14 +88,7 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 	}
 
 	if interactive {
-		if err := client.CheckAvailable(); err != nil {
-			return err
-		}
-		user, server, err := client.WhoAmI(ctx)
-		if err != nil {
-			return err
-		}
-		ui.PrintClusterContext("Install", user, server, cfg.Namespace, storageRanking.Recommended)
+		ui.PrintClusterContext("Install", cluster.User, cluster.Server, cfg.Namespace, storageRanking.Recommended)
 		ui.PrintInstallDiscovery(ui.InstallDiscoveryHints{
 			MASRoutes:  discovery.MASRoutes,
 			Workspaces: discovery.Workspaces,

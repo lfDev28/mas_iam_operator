@@ -11,6 +11,7 @@ import (
 	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/config"
 	executil "github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/exec"
 	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/oc"
+	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/ui"
 )
 
 type statusOptions struct {
@@ -35,17 +36,14 @@ func newStatusCommand() *cobra.Command {
 }
 
 func (o *statusOptions) run(ctx context.Context) error {
-	client := oc.NewClient(executil.NewRunner())
-	if err := client.CheckAvailable(); err != nil {
-		return err
-	}
-
-	user, server, err := client.WhoAmI(ctx)
+	runner := executil.NewRunner()
+	client := oc.NewClient(runner)
+	cluster, err := ensureClusterLogin(ctx, runner, client, ui.IsInteractive())
 	if err != nil {
 		return err
 	}
 
-	fmt.Fprintf(os.Stdout, "Cluster: %s @ %s\n", user, server)
+	fmt.Fprintf(os.Stdout, "Cluster: %s @ %s\n", cluster.User, cluster.Server)
 	fmt.Fprintf(os.Stdout, "Namespace: %s\n", o.namespace)
 
 	csv, err := client.CSVPhase(ctx, o.namespace)

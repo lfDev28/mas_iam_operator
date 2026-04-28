@@ -36,6 +36,8 @@ Cluster and MAS access:
 - MAS API token name and value with SCIM access
 - MAS workspace ID for the demo profile
 
+If you are not logged in to OpenShift yet, the interactive CLI will offer to run `oc login` before preflight or install continues.
+
 The beta has been tested on a small number of clusters, but it cannot cover every possible OpenShift configuration. If install fails because of cluster storage, registry, DNS, route, or certificate behavior, capture evidence and report it as a beta issue.
 
 ## Bootstrap
@@ -43,7 +45,7 @@ The beta has been tested on a small number of clusters, but it cannot cover ever
 Set the image:
 
 ```bash
-export MAS_IAM_IMAGE='quay.io/lee_forster/mas-iam-tool:v0.1.0-beta.3'
+export MAS_IAM_IMAGE='quay.io/lee_forster/mas-iam-tool:v0.1.0-beta.4'
 ```
 
 Bootstrap the local command:
@@ -439,7 +441,7 @@ Redact MAS API token values and any customer-sensitive hostnames before sharing 
 
 Likely post-beta work:
 
-- continued tagged beta/release images after `v0.1.0-beta.3`
+- continued tagged beta/release images after `v0.1.0-beta.4`
 - CLI-backed config editing and token rotation
 - support bundle export
 - better bridge sync summaries and diagnostics

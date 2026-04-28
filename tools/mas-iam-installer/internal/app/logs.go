@@ -10,6 +10,7 @@ import (
 	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/config"
 	executil "github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/exec"
 	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/oc"
+	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/ui"
 )
 
 type logsOptions struct {
@@ -44,13 +45,14 @@ func newLogsCommand() *cobra.Command {
 }
 
 func (o *logsOptions) run(ctx context.Context) error {
-	client := oc.NewClient(executil.NewRunner())
-	if err := client.CheckAvailable(); err != nil {
-		return err
-	}
+	runner := executil.NewRunner()
+	client := oc.NewClient(runner)
 
 	args, err := o.componentArgs()
 	if err != nil {
+		return err
+	}
+	if _, err := ensureClusterLogin(ctx, runner, client, ui.IsInteractive()); err != nil {
 		return err
 	}
 	return client.Logs(ctx, o.namespace, args, os.Stdout, os.Stderr)

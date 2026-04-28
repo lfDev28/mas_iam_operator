@@ -45,23 +45,23 @@ func newPreflightCommand() *cobra.Command {
 
 func (o *preflightOptions) run(ctx context.Context) error {
 	interactive := ui.IsInteractive() && !o.nonInteractive
-	client := oc.NewClient(executil.NewRunner())
+	runner := executil.NewRunner()
+	client := oc.NewClient(runner)
 
 	if interactive && (o.namespace == "" || o.masBaseURL == "") {
-		if err := client.CheckAvailable(); err != nil {
-			return err
-		}
-		user, server, err := client.WhoAmI(ctx)
+		cluster, err := ensureClusterLogin(ctx, runner, client, interactive)
 		if err != nil {
 			return err
 		}
-		ui.PrintClusterContext("Preflight", user, server, o.namespace, "")
+		ui.PrintClusterContext("Preflight", cluster.User, cluster.Server, o.namespace, "")
 		namespace, masBaseURL, err := ui.PromptPreflight(o.namespace, o.masBaseURL)
 		if err != nil {
 			return err
 		}
 		o.namespace = namespace
 		o.masBaseURL = masBaseURL
+	} else if _, err := ensureClusterLogin(ctx, runner, client, interactive); err != nil {
+		return err
 	}
 
 	report := preflight.Run(ctx, client, preflight.Input{

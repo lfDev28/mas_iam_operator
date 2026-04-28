@@ -49,6 +49,17 @@ func (r *Runner) Stream(ctx context.Context, options Options, stdout, stderr io.
 	return nil
 }
 
+func (r *Runner) Interactive(ctx context.Context, options Options, stdin io.Reader, stdout, stderr io.Writer) error {
+	cmd := commandContext(ctx, options)
+	cmd.Stdin = stdin
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("%s failed: %w", commandString(options), err)
+	}
+	return nil
+}
+
 func commandContext(ctx context.Context, options Options) *osexec.Cmd {
 	cmd := osexec.CommandContext(ctx, options.Name, options.Args...)
 	cmd.Dir = options.Dir
