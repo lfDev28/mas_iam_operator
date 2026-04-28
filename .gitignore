@@ -1,4 +1,5 @@
 # Local development artifacts (not for source control)
+.DS_Store
 tls-artifacts/
 charts/mas-iam-stack/tmpcharts-*/
 operators/mas-iam-operator/helm-charts/mas-iam-stack/tmpcharts-*/
@@ -9,3 +10,5 @@ bundle_tmp*
 body.json
 headers.txt
 operators/mas-iam-operator/database/index.db
+docs/_tmp_maxinst_*.log
+.tmp-bootstrap*/

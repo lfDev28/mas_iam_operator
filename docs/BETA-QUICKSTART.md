@@ -1,0 +1,133 @@
+# MAS IAM Beta Quickstart
+
+This is the shortest supported path for the internal beta.
+
+Use it when you want a working MAS IAM plus SCIM bridge environment quickly and you are happy to let the installer guide you through the prompts.
+
+## What You Need
+
+Local tools:
+
+- `podman`
+- `oc`
+- `bash` 4+
+- `envsubst`
+
+Access and inputs:
+
+- a working OpenShift kubeconfig
+- a MAS SCIM base URL ending in `/scim/v2`
+- a MAS API token name and value with SCIM access
+- the MAS workspace ID you want the demo profile to use
+
+Example MAS SCIM URL:
+
+```text
+https://api.<mas-host>/scim/v2
+```
+
+## 1. Bootstrap The Local Command
+
+Set the beta image:
+
+```bash
+export MAS_IAM_IMAGE='quay.io/lee_forster/mas-iam-tool:v0.1.0-beta.1'
+```
+
+Install the local `mas-iam` command:
+
+```bash
+mkdir -p "$HOME/mas-iam"
+podman run -ti --rm -v "$HOME/mas-iam:/tmp" --pull always "$MAS_IAM_IMAGE"
+export PATH="$HOME/mas-iam:$PATH"
+```
+
+If you already bootstrapped an older runtime, overwrite it with:
+
+```bash
+podman run -ti --rm -v "$HOME/mas-iam:/tmp" --pull always "$MAS_IAM_IMAGE" bootstrap --force
+export PATH="$HOME/mas-iam:$PATH"
+```
+
+Confirm the command is available:
+
+```bash
+mas-iam version
+mas-iam --help
+```
+
+## 2. Run Preflight
+
+```bash
+mas-iam preflight
+```
+
+Preflight checks the active cluster context, basic tool availability, storage classes, and MAS URL shape. If the cluster has more than one plausible storage class, note the block/RBD class names. You may need them during install.
+
+## 3. Run Install
+
+```bash
+mas-iam install
+```
+
+The installer prompts for:
+
+- MAS SCIM base URL
+- MAS API token name
+- MAS API token value
+- MAS workspace ID
+- MAS profile ID, defaulting to `demo`
+- PostgreSQL storage class
+- SCIM bridge storage class
+
+For the beta, choose an RBD/block-style storage class for PostgreSQL and the SCIM bridge PVC when one is available.
+
+## 4. Check Health
+
+```bash
+mas-iam status --namespace iam
+mas-iam logs --namespace iam --component bridge
+```
+
+A healthy install should show:
+
+- operator CSV `Succeeded`
+- operator deployment ready
+- IAM core / Keycloak ready
+- OpenLDAP ready
+- PostgreSQL running
+- SCIM bridge ready
+- MAS profile bootstrap job completed
+- PostgreSQL and SCIM bridge PVCs bound
+
+## 5. Reset If Needed
+
+To remove the namespace and optionally delete the MAS profile:
+
+```bash
+mas-iam wipe --namespace iam --profile-id demo
+```
+
+Use `--skip-profile-delete` if you only want to remove the OpenShift lab resources.
+
+## If Something Fails
+
+Capture this output before changing the cluster:
+
+```bash
+oc whoami
+oc whoami --show-server
+mas-iam preflight
+mas-iam status --namespace iam
+mas-iam logs --namespace iam --component operator
+mas-iam logs --namespace iam --component keycloak
+mas-iam logs --namespace iam --component bridge
+```
+
+Most beta install failures so far have come from cluster prerequisites: storage class defaults, image pull access, registry health, DNS, or certificate/route differences. Capture the evidence and treat those as beta bug reports.
+
+## More Detail
+
+- [Detailed install and operations guide](INSTALL-ALL-IN-ONE.md)
+- [Known limitations](BETA-KNOWN-LIMITATIONS.md)
+- [Project overview](../README.md)

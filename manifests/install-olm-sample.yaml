@@ -294,4 +294,6 @@ spec:
           existingSecret: mas-iam-sample-postgresql
     primary:
       persistence:
-        storageClass: rook-ceph-block
+        # scripts/install-olm-sample.sh injects an explicit storageClass here.
+        # Raw manifest apply falls back to cluster/operator defaults and is not the
+        # primary documented install path.

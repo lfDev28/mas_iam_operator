@@ -15,16 +15,13 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=./_all_in_one_common.sh
+source "$ROOT_DIR/scripts/_all_in_one_common.sh"
 # shellcheck source=./_scim-bridge-env.sh
 source "$ROOT_DIR/scripts/_scim-bridge-env.sh"
 
-: "${SCIM_BRIDGE_IMAGE:?Set SCIM_BRIDGE_IMAGE to the pushed image (e.g., quay.io/<org>/scim-bridge:dev)}"
 SCIM_BRIDGE_KEYCLOAK_BASE_URL=${SCIM_BRIDGE_KEYCLOAK_BASE_URL:-}
 : "${SCIM_BRIDGE_KEYCLOAK_REALM:=maximo}"
-: "${SCIM_BRIDGE_KEYCLOAK_CLIENT_ID:?Set SCIM_BRIDGE_KEYCLOAK_CLIENT_ID (e.g., scim-admin)}"
-: "${SCIM_BRIDGE_KEYCLOAK_CLIENT_SECRET:?Set SCIM_BRIDGE_KEYCLOAK_CLIENT_SECRET}"
-: "${SCIM_BRIDGE_MAS_BASE_URL:?Set SCIM_BRIDGE_MAS_BASE_URL (e.g., https://api....../scim/v2)}"
-: "${SCIM_BRIDGE_MAS_PROFILE_ID:?Set SCIM_BRIDGE_MAS_PROFILE_ID (e.g., test1)}"
 : "${SCIM_BRIDGE_NAMESPACE:=iam}"
 : "${SCIM_BRIDGE_KEYCLOAK_RELEASE:=mas-iam-sample}"
 : "${SCIM_BRIDGE_KEYCLOAK_NAMESPACE:=${SCIM_BRIDGE_NAMESPACE}}"
@@ -51,7 +48,7 @@ SCIM_BRIDGE_KEYCLOAK_BASE_URL=${SCIM_BRIDGE_KEYCLOAK_BASE_URL:-}
 : "${SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WORKSPACE_ID:=}"
 : "${SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_JSON:=}"
 : "${SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_JOB_NAME:=scim-bridge-mas-profile-bootstrap}"
-: "${SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_IMAGE:=curlimages/curl:8.5.0}"
+: "${SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_IMAGE:=quay.io/curl/curl:8.5.0}"
 : "${SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WAIT:=true}"
 
 SCIM_BRIDGE_MAS_TOKEN=${SCIM_BRIDGE_MAS_TOKEN:-}
@@ -73,7 +70,23 @@ SCIM_BRIDGE_INCLUDE_USERNAMES=${SCIM_BRIDGE_INCLUDE_USERNAMES:-}
 SCIM_BRIDGE_INCLUDE_USERNAME_PREFIX=${SCIM_BRIDGE_INCLUDE_USERNAME_PREFIX:-}
 SCIM_BRIDGE_KEYCLOAK_CA_FILE=${SCIM_BRIDGE_KEYCLOAK_CA_FILE:-}
 SCIM_BRIDGE_MAS_CA_FILE=${SCIM_BRIDGE_MAS_CA_FILE:-}
+SCIM_BRIDGE_MAS_CA_BUNDLE=${SCIM_BRIDGE_MAS_CA_BUNDLE:-}
+SCIM_BRIDGE_MAS_CA_AUTO_DETECT=${SCIM_BRIDGE_MAS_CA_AUTO_DETECT:-true}
+SCIM_BRIDGE_MAS_ROUTE_NAMESPACE=${SCIM_BRIDGE_MAS_ROUTE_NAMESPACE:-}
+SCIM_BRIDGE_MAS_ROUTE_NAME=${SCIM_BRIDGE_MAS_ROUTE_NAME:-}
 SCIM_BRIDGE_IMAGE_PULL_SECRETS=${SCIM_BRIDGE_IMAGE_PULL_SECRETS:-[]}
+SCIM_BRIDGE_STORAGE_CLASS=${SCIM_BRIDGE_STORAGE_CLASS:-}
+SCIM_BRIDGE_FS_GROUP=${SCIM_BRIDGE_FS_GROUP:-}
+SCIM_BRIDGE_POD_SECURITY_CONTEXT_EXTRA=${SCIM_BRIDGE_POD_SECURITY_CONTEXT_EXTRA:-}
+
+require_env_vars \
+  SCIM_BRIDGE_IMAGE \
+  SCIM_BRIDGE_KEYCLOAK_CLIENT_ID \
+  SCIM_BRIDGE_KEYCLOAK_CLIENT_SECRET \
+  SCIM_BRIDGE_MAS_BASE_URL \
+  SCIM_BRIDGE_MAS_PROFILE_ID
+require_oc
+ensure_oc_login
 
 if [[ -z "${SCIM_BRIDGE_KEYCLOAK_CA_FILE}" && "${SCIM_BRIDGE_KEYCLOAK_ROUTE_CERT_ENABLE}" == "true" ]]; then
   SCIM_BRIDGE_KEYCLOAK_CA_FILE="/etc/scim-bridge/certs/keycloak-ca.crt"
@@ -101,23 +114,149 @@ if [[ -n "${SCIM_BRIDGE_KEYCLOAK_ROUTE_HOST}" ]]; then
 fi
 
 if [[ -z "${SCIM_BRIDGE_KEYCLOAK_BASE_URL}" ]]; then
-  echo "error: SCIM_BRIDGE_KEYCLOAK_BASE_URL is required (set it or enable route cert automation)" >&2
-  exit 1
+  die "SCIM_BRIDGE_KEYCLOAK_BASE_URL is required (set it or enable route cert automation)"
 fi
 
 case "${SCIM_BRIDGE_MAS_BASE_URL}" in
   http://http://*|https://https://*|http://https://*|https://http://*)
-    echo "error: SCIM_BRIDGE_MAS_BASE_URL is malformed (${SCIM_BRIDGE_MAS_BASE_URL})" >&2
-    exit 1
+    die "SCIM_BRIDGE_MAS_BASE_URL is malformed (${SCIM_BRIDGE_MAS_BASE_URL})"
     ;;
 esac
 
-default_sc=$(oc get sc -o jsonpath='{range .items[?(@.metadata.annotations.storageclass\.kubernetes\.io/is-default-class=="true")]}{.metadata.name}{"\n"}{end}' 2>/dev/null | head -n1 || true)
-if [[ -z "${default_sc}" ]]; then
-  echo "warning: no default StorageClass detected; scim-bridge-state PVC may remain Pending" >&2
+log_config "namespace=${SCIM_BRIDGE_NAMESPACE}"
+log_config "keycloak_namespace=${SCIM_BRIDGE_KEYCLOAK_NAMESPACE}"
+log_config "keycloak_bootstrap_method=${SCIM_BRIDGE_KEYCLOAK_BOOTSTRAP_METHOD}"
+log_config "mas_profile_id=${SCIM_BRIDGE_MAS_PROFILE_ID}"
+if [[ -n "${SCIM_BRIDGE_STORAGE_CLASS}" ]]; then
+  log_config "scim_bridge_storage_class_override=${SCIM_BRIDGE_STORAGE_CLASS}"
 fi
 
-command -v envsubst >/dev/null 2>&1 || { echo "envsubst is required" >&2; exit 1; }
+detect_mas_ca_bundle() {
+  local mas_host route_ref
+  local -a route_matches=()
+
+  if [[ "${SCIM_BRIDGE_MAS_CA_AUTO_DETECT}" != "true" ]]; then
+    return
+  fi
+  if [[ -n "${SCIM_BRIDGE_MAS_CA_BUNDLE}" ]]; then
+    return
+  fi
+
+  if ! mas_host="$(parse_host_from_url "${SCIM_BRIDGE_MAS_BASE_URL}")"; then
+    log_warn "unable to derive MAS API host from SCIM_BRIDGE_MAS_BASE_URL=${SCIM_BRIDGE_MAS_BASE_URL}"
+    return
+  fi
+
+  if [[ -n "${SCIM_BRIDGE_MAS_ROUTE_NAMESPACE}" && -n "${SCIM_BRIDGE_MAS_ROUTE_NAME}" ]]; then
+    route_matches=("${SCIM_BRIDGE_MAS_ROUTE_NAMESPACE}/${SCIM_BRIDGE_MAS_ROUTE_NAME}")
+  else
+    mapfile -t route_matches < <(lookup_routes_by_host "${mas_host}")
+  fi
+
+  if (( ${#route_matches[@]} == 0 )); then
+    log_warn "unable to auto-detect MAS route for host ${mas_host}; set SCIM_BRIDGE_MAS_CA_BUNDLE manually if TLS verification fails"
+    return
+  fi
+  if (( ${#route_matches[@]} > 1 )); then
+    log_warn "multiple routes matched host ${mas_host}; set SCIM_BRIDGE_MAS_ROUTE_NAMESPACE/SCIM_BRIDGE_MAS_ROUTE_NAME to disambiguate"
+    printf '%s\n' "${route_matches[@]}" | prefix_stream warn >&2
+    return
+  fi
+
+  route_ref="${route_matches[0]}"
+  SCIM_BRIDGE_MAS_CA_BUNDLE="$(get_route_ca_certificate "${route_ref}")"
+  if [[ -z "${SCIM_BRIDGE_MAS_CA_BUNDLE}" ]]; then
+    log_warn "route ${route_ref} has no tls.caCertificate; set SCIM_BRIDGE_MAS_CA_BUNDLE manually if TLS verification fails"
+    return
+  fi
+
+  if [[ -z "${SCIM_BRIDGE_MAS_CA_FILE}" ]]; then
+    SCIM_BRIDGE_MAS_CA_FILE="/etc/scim-bridge/certs/mas-ca.crt"
+  fi
+  log_preflight "auto-detected MAS route CA from ${route_ref}"
+}
+
+validate_bridge_storage_class() {
+  local block_candidate=""
+  local recommendation=""
+
+  if ! discover_storage_classes; then
+    if [[ -n "${SCIM_BRIDGE_STORAGE_CLASS}" ]]; then
+      die "SCIM_BRIDGE_STORAGE_CLASS=${SCIM_BRIDGE_STORAGE_CLASS} was provided but no StorageClasses were discovered"
+    fi
+    log_warn "no StorageClass resources detected; scim-bridge-state PVC may remain Pending"
+    return
+  fi
+
+  if [[ -n "${SCIM_BRIDGE_STORAGE_CLASS}" ]]; then
+    if ! storage_class_exists "${SCIM_BRIDGE_STORAGE_CLASS}"; then
+      die "SCIM_BRIDGE_STORAGE_CLASS ${SCIM_BRIDGE_STORAGE_CLASS} is not present in the cluster"
+    fi
+    log_preflight "using explicit SCIM bridge PVC storage class ${SCIM_BRIDGE_STORAGE_CLASS}"
+    return
+  fi
+
+  if [[ -z "${DEFAULT_STORAGE_CLASS}" ]]; then
+    recommendation="$(preferred_block_storage_class || true)"
+    if [[ -n "${recommendation}" ]]; then
+      log_warn "no default StorageClass detected; set SCIM_BRIDGE_STORAGE_CLASS=${recommendation} to avoid Pending PVCs"
+    else
+      log_warn "no default StorageClass detected; scim-bridge-state PVC may remain Pending"
+    fi
+    return
+  fi
+
+  log_preflight "scim-bridge-state PVC will use cluster default StorageClass ${DEFAULT_STORAGE_CLASS}"
+  block_candidate="$(preferred_block_storage_class || true)"
+  if [[ -n "${block_candidate}" ]] \
+    && is_cephfs_storage_class "${DEFAULT_STORAGE_CLASS}" \
+    && [[ "${DEFAULT_STORAGE_CLASS}" != "${block_candidate}" ]]; then
+    log_warn "scim-bridge-state PVC will inherit cephfs default ${DEFAULT_STORAGE_CLASS}; consider SCIM_BRIDGE_STORAGE_CLASS=${block_candidate}"
+  fi
+}
+
+detect_scim_bridge_fs_group() {
+  local supplemental_groups=""
+  local uid_range=""
+  local first_range=""
+  local candidate=""
+
+  if [[ -n "${SCIM_BRIDGE_POD_SECURITY_CONTEXT_EXTRA}" ]]; then
+    return
+  fi
+
+  if [[ -n "${SCIM_BRIDGE_FS_GROUP}" ]]; then
+    candidate="${SCIM_BRIDGE_FS_GROUP}"
+  else
+    supplemental_groups="$(oc get namespace "${SCIM_BRIDGE_NAMESPACE}" -o jsonpath='{.metadata.annotations.openshift\.io/sa\.scc\.supplemental-groups}' 2>/dev/null || true)"
+    uid_range="$(oc get namespace "${SCIM_BRIDGE_NAMESPACE}" -o jsonpath='{.metadata.annotations.openshift\.io/sa\.scc\.uid-range}' 2>/dev/null || true)"
+
+    first_range="${supplemental_groups}"
+    if [[ -z "${first_range}" ]]; then
+      first_range="${uid_range}"
+    fi
+    first_range="${first_range%%,*}"
+    candidate="${first_range%%/*}"
+  fi
+
+  if [[ "${candidate}" =~ ^[0-9]+$ ]]; then
+    SCIM_BRIDGE_POD_SECURITY_CONTEXT_EXTRA=$'        fsGroup: '"${candidate}"$'\n        fsGroupChangePolicy: Always'
+    log_preflight "using namespace-supported fsGroup ${candidate} for scim-bridge"
+    return
+  fi
+
+  log_warn "unable to determine an allowed fsGroup for namespace ${SCIM_BRIDGE_NAMESPACE}; leaving fsGroup unset"
+}
+
+require_command envsubst
+detect_mas_ca_bundle
+validate_bridge_storage_class
+
+ensure_namespace_exists "$SCIM_BRIDGE_NAMESPACE"
+if [[ "$SCIM_BRIDGE_KEYCLOAK_NAMESPACE" != "$SCIM_BRIDGE_NAMESPACE" ]]; then
+  ensure_namespace_exists "$SCIM_BRIDGE_KEYCLOAK_NAMESPACE"
+fi
+detect_scim_bridge_fs_group
 
 REPO_ROOT="$ROOT_DIR"
 MANIFEST_TEMPLATE="$REPO_ROOT/manifests/scim-bridge.yaml"
@@ -193,16 +332,15 @@ provision_keycloak() {
         SCIM_BRIDGE_KEYCLOAK_IMAGE="$(detect_keycloak_image)"
       fi
       if [[ -z "${SCIM_BRIDGE_KEYCLOAK_IMAGE}" ]]; then
-        echo "error: SCIM_BRIDGE_KEYCLOAK_IMAGE is required (unable to auto-detect from Keycloak pods)" >&2
-        exit 1
+        die "SCIM_BRIDGE_KEYCLOAK_IMAGE is required (unable to auto-detect from Keycloak pods)"
       fi
       if [[ ! -f "$KEYCLOAK_BOOTSTRAP_TEMPLATE" ]]; then
-        echo "bootstrap manifest not found: $KEYCLOAK_BOOTSTRAP_TEMPLATE" >&2
-        exit 1
+        die "bootstrap manifest not found: $KEYCLOAK_BOOTSTRAP_TEMPLATE"
       fi
-      echo "[scim-bridge] provisioning Keycloak client ${SCIM_BRIDGE_KEYCLOAK_CLIENT_ID} in realm ${SCIM_BRIDGE_KEYCLOAK_REALM} via Kubernetes Job"
+      log_install "provisioning Keycloak client ${SCIM_BRIDGE_KEYCLOAK_CLIENT_ID} in realm ${SCIM_BRIDGE_KEYCLOAK_REALM} via Kubernetes Job"
       oc delete job -n "$SCIM_BRIDGE_KEYCLOAK_NAMESPACE" "$SCIM_BRIDGE_KEYCLOAK_BOOTSTRAP_JOB_NAME" --ignore-not-found >/dev/null 2>&1 || true
       render_manifest "$KEYCLOAK_BOOTSTRAP_TEMPLATE" "$WORK_DIR/scim-bridge-keycloak-bootstrap-rendered.yaml" bootstrap_subst_vars[@]
+      prime_last_applied_annotations "$WORK_DIR/scim-bridge-keycloak-bootstrap-rendered.yaml"
       oc apply -f "$WORK_DIR/scim-bridge-keycloak-bootstrap-rendered.yaml"
       if [[ "${SCIM_BRIDGE_KEYCLOAK_BOOTSTRAP_WAIT}" == "true" ]]; then
         oc wait -n "$SCIM_BRIDGE_KEYCLOAK_NAMESPACE" --for=condition=complete "job/${SCIM_BRIDGE_KEYCLOAK_BOOTSTRAP_JOB_NAME}" --timeout=10m
@@ -210,10 +348,9 @@ provision_keycloak() {
       ;;
     script)
       if [[ ! -x "$CONFIGURE_SCRIPT" ]]; then
-        echo "configure-scim-client.sh not found or not executable at $CONFIGURE_SCRIPT" >&2
-        exit 1
+        die "configure-scim-client.sh not found or not executable at $CONFIGURE_SCRIPT"
       fi
-      echo "[scim-bridge] provisioning Keycloak client ${SCIM_BRIDGE_KEYCLOAK_CLIENT_ID} in realm ${SCIM_BRIDGE_KEYCLOAK_REALM} via oc exec (advanced)"
+      log_install "provisioning Keycloak client ${SCIM_BRIDGE_KEYCLOAK_CLIENT_ID} in realm ${SCIM_BRIDGE_KEYCLOAK_REALM} via oc exec"
       "$CONFIGURE_SCRIPT" \
         --namespace "$SCIM_BRIDGE_KEYCLOAK_NAMESPACE" \
         --release "$SCIM_BRIDGE_KEYCLOAK_RELEASE" \
@@ -222,11 +359,10 @@ provision_keycloak() {
         --client-secret "$client_secret"
       ;;
     none|disabled|false)
-      echo "[scim-bridge] skipping Keycloak provisioning (SCIM_BRIDGE_KEYCLOAK_BOOTSTRAP_METHOD=${SCIM_BRIDGE_KEYCLOAK_BOOTSTRAP_METHOD})"
+      log_config "skipping Keycloak provisioning (SCIM_BRIDGE_KEYCLOAK_BOOTSTRAP_METHOD=${SCIM_BRIDGE_KEYCLOAK_BOOTSTRAP_METHOD})"
       ;;
     *)
-      echo "error: unknown SCIM_BRIDGE_KEYCLOAK_BOOTSTRAP_METHOD=${SCIM_BRIDGE_KEYCLOAK_BOOTSTRAP_METHOD} (expected job|script|none)" >&2
-      exit 1
+      die "unknown SCIM_BRIDGE_KEYCLOAK_BOOTSTRAP_METHOD=${SCIM_BRIDGE_KEYCLOAK_BOOTSTRAP_METHOD} (expected job|script|none)"
       ;;
   esac
 }
@@ -237,18 +373,17 @@ provision_keycloak_route_cert() {
   fi
 
   if [[ "${SCIM_BRIDGE_KEYCLOAK_ROUTE_NAMESPACE}" != "${SCIM_BRIDGE_NAMESPACE}" ]]; then
-    echo "error: route cert job requires SCIM_BRIDGE_KEYCLOAK_ROUTE_NAMESPACE to match SCIM_BRIDGE_NAMESPACE" >&2
-    exit 1
+    die "route cert job requires SCIM_BRIDGE_KEYCLOAK_ROUTE_NAMESPACE to match SCIM_BRIDGE_NAMESPACE"
   fi
 
   if [[ ! -f "$KEYCLOAK_ROUTE_CERT_TEMPLATE" ]]; then
-    echo "route cert manifest not found: $KEYCLOAK_ROUTE_CERT_TEMPLATE" >&2
-    exit 1
+    die "route cert manifest not found: $KEYCLOAK_ROUTE_CERT_TEMPLATE"
   fi
 
-  echo "[scim-bridge] provisioning Keycloak route TLS certificate via Kubernetes Job"
+  log_install "provisioning Keycloak route TLS certificate via Kubernetes Job"
   oc delete job -n "$SCIM_BRIDGE_KEYCLOAK_ROUTE_NAMESPACE" "$SCIM_BRIDGE_KEYCLOAK_ROUTE_CERT_JOB_NAME" --ignore-not-found >/dev/null 2>&1 || true
   render_manifest "$KEYCLOAK_ROUTE_CERT_TEMPLATE" "$WORK_DIR/scim-bridge-keycloak-route-cert-rendered.yaml" route_cert_subst_vars[@]
+  prime_last_applied_annotations "$WORK_DIR/scim-bridge-keycloak-route-cert-rendered.yaml"
   oc apply -f "$WORK_DIR/scim-bridge-keycloak-route-cert-rendered.yaml"
   if [[ "${SCIM_BRIDGE_KEYCLOAK_ROUTE_CERT_WAIT}" == "true" ]]; then
     oc wait -n "$SCIM_BRIDGE_KEYCLOAK_ROUTE_NAMESPACE" --for=condition=complete "job/${SCIM_BRIDGE_KEYCLOAK_ROUTE_CERT_JOB_NAME}" --timeout=10m
@@ -261,13 +396,13 @@ provision_mas_profile() {
   fi
 
   if [[ ! -f "$MAS_PROFILE_BOOTSTRAP_TEMPLATE" ]]; then
-    echo "MAS profile bootstrap manifest not found: $MAS_PROFILE_BOOTSTRAP_TEMPLATE" >&2
-    exit 1
+    die "MAS profile bootstrap manifest not found: $MAS_PROFILE_BOOTSTRAP_TEMPLATE"
   fi
 
-  echo "[scim-bridge] provisioning MAS SCIM profile via Kubernetes Job"
+  log_install "provisioning MAS SCIM profile via Kubernetes Job"
   oc delete job -n "$SCIM_BRIDGE_NAMESPACE" "$SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_JOB_NAME" --ignore-not-found >/dev/null 2>&1 || true
   render_manifest "$MAS_PROFILE_BOOTSTRAP_TEMPLATE" "$WORK_DIR/scim-bridge-mas-profile-bootstrap-rendered.yaml" mas_profile_subst_vars[@]
+  prime_last_applied_annotations "$WORK_DIR/scim-bridge-mas-profile-bootstrap-rendered.yaml"
   oc apply -f "$WORK_DIR/scim-bridge-mas-profile-bootstrap-rendered.yaml"
   if [[ "${SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WAIT}" == "true" ]]; then
     oc wait -n "$SCIM_BRIDGE_NAMESPACE" --for=condition=complete "job/${SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_JOB_NAME}" --timeout=10m
@@ -275,8 +410,7 @@ provision_mas_profile() {
 }
 
 if [[ ! -f "$MANIFEST_TEMPLATE" ]]; then
-  echo "manifest not found: $MANIFEST_TEMPLATE" >&2
-  exit 1
+  die "manifest not found: $MANIFEST_TEMPLATE"
 fi
 
 WORK_DIR="$(mktemp -d)"
@@ -320,6 +454,8 @@ placeholders=(
   "\${SCIM_BRIDGE_INCLUDE_USERNAMES}"
   "\${SCIM_BRIDGE_INCLUDE_USERNAME_PREFIX}"
   "\${SCIM_BRIDGE_IMAGE_PULL_SECRETS}"
+  "\${SCIM_BRIDGE_STORAGE_CLASS}"
+  "\${SCIM_BRIDGE_POD_SECURITY_CONTEXT_EXTRA}"
 )
 
 scim_bridge_subst_vars=(
@@ -355,6 +491,8 @@ scim_bridge_subst_vars=(
   SCIM_BRIDGE_INCLUDE_USERNAMES
   SCIM_BRIDGE_INCLUDE_USERNAME_PREFIX
   SCIM_BRIDGE_IMAGE_PULL_SECRETS
+  SCIM_BRIDGE_STORAGE_CLASS
+  SCIM_BRIDGE_POD_SECURITY_CONTEXT_EXTRA
 )
 
 bootstrap_subst_vars=(
@@ -400,7 +538,7 @@ mas_profile_subst_vars=(
 
 for ph in "${placeholders[@]}"; do
   if ! grep -q "$ph" "$MANIFEST_RENDERED"; then
-    echo "warning: placeholder $ph not found in manifest; ensure manifests/scim-bridge.yaml includes it" >&2
+    log_warn "placeholder $ph not found in manifest; ensure manifests/scim-bridge.yaml includes it"
   fi
 done
 
@@ -438,6 +576,8 @@ export SCIM_BRIDGE_IMAGE \
   SCIM_BRIDGE_INCLUDE_USERNAMES \
   SCIM_BRIDGE_INCLUDE_USERNAME_PREFIX \
   SCIM_BRIDGE_IMAGE_PULL_SECRETS \
+  SCIM_BRIDGE_STORAGE_CLASS \
+  SCIM_BRIDGE_POD_SECURITY_CONTEXT_EXTRA \
   SCIM_BRIDGE_KEYCLOAK_NAMESPACE \
   SCIM_BRIDGE_KEYCLOAK_SERVICE \
   SCIM_BRIDGE_KEYCLOAK_RELEASE \
@@ -457,19 +597,21 @@ export SCIM_BRIDGE_IMAGE \
   SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_IMAGE
 
 render_manifest "$MANIFEST_RENDERED" "$MANIFEST_RENDERED" scim_bridge_subst_vars[@]
-
-oc create namespace "$SCIM_BRIDGE_NAMESPACE" 2>/dev/null || true
-if [[ "$SCIM_BRIDGE_KEYCLOAK_NAMESPACE" != "$SCIM_BRIDGE_NAMESPACE" ]]; then
-  oc create namespace "$SCIM_BRIDGE_KEYCLOAK_NAMESPACE" 2>/dev/null || true
+if [[ -n "${SCIM_BRIDGE_MAS_CA_BUNDLE}" ]]; then
+  oc create configmap scim-bridge-mas-ca \
+    -n "$SCIM_BRIDGE_NAMESPACE" \
+    --from-literal=mas-ca.crt="$SCIM_BRIDGE_MAS_CA_BUNDLE" \
+    --dry-run=client -o yaml | oc apply -f -
 fi
 provision_keycloak_route_cert
 provision_keycloak
-provision_mas_profile
-echo "[scim-bridge] applying manifest to $SCIM_BRIDGE_NAMESPACE namespace"
+log_install "applying manifest to ${SCIM_BRIDGE_NAMESPACE} namespace"
+prime_last_applied_annotations "$MANIFEST_RENDERED"
 oc apply -n "$SCIM_BRIDGE_NAMESPACE" -f "$MANIFEST_RENDERED"
+provision_mas_profile
 
-echo "[scim-bridge] deployed image: $SCIM_BRIDGE_IMAGE"
-echo "[scim-bridge] MAS base/profile: $SCIM_BRIDGE_MAS_BASE_URL / $SCIM_BRIDGE_MAS_PROFILE_ID"
-echo "[scim-bridge] Keycloak: $SCIM_BRIDGE_KEYCLOAK_BASE_URL realm=$SCIM_BRIDGE_KEYCLOAK_REALM"
-echo "[scim-bridge] check status: oc get pods -n $SCIM_BRIDGE_NAMESPACE"
-echo "[scim-bridge] logs: oc logs deploy/scim-bridge -n $SCIM_BRIDGE_NAMESPACE"
+log_result "deployed_image=${SCIM_BRIDGE_IMAGE}"
+log_result "mas_base_url=${SCIM_BRIDGE_MAS_BASE_URL} profile_id=${SCIM_BRIDGE_MAS_PROFILE_ID}"
+log_result "keycloak_base_url=${SCIM_BRIDGE_KEYCLOAK_BASE_URL} realm=${SCIM_BRIDGE_KEYCLOAK_REALM}"
+log_result "check status: oc get pods -n ${SCIM_BRIDGE_NAMESPACE}"
+log_result "logs: oc logs deploy/scim-bridge -n ${SCIM_BRIDGE_NAMESPACE}"
