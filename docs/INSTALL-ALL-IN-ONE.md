@@ -26,7 +26,7 @@ Local tools:
 
 - `podman`
 - `oc`
-- `bash` 4+
+- `bash` 3.2+
 
 Cluster and MAS access:
 
@@ -43,7 +43,7 @@ The beta has been tested on a small number of clusters, but it cannot cover ever
 Set the image:
 
 ```bash
-export MAS_IAM_IMAGE='quay.io/lee_forster/mas-iam-tool:v0.1.0-beta.2'
+export MAS_IAM_IMAGE='quay.io/lee_forster/mas-iam-tool:v0.1.0-beta.3'
 ```
 
 Bootstrap the local command:
@@ -439,7 +439,7 @@ Redact MAS API token values and any customer-sensitive hostnames before sharing 
 
 Likely post-beta work:
 
-- continued tagged beta/release images after `v0.1.0-beta.2`
+- continued tagged beta/release images after `v0.1.0-beta.3`
 - CLI-backed config editing and token rotation
 - support bundle export
 - better bridge sync summaries and diagnostics

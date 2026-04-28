@@ -150,7 +150,10 @@ detect_mas_ca_bundle() {
   if [[ -n "${SCIM_BRIDGE_MAS_ROUTE_NAMESPACE}" && -n "${SCIM_BRIDGE_MAS_ROUTE_NAME}" ]]; then
     route_matches=("${SCIM_BRIDGE_MAS_ROUTE_NAMESPACE}/${SCIM_BRIDGE_MAS_ROUTE_NAME}")
   else
-    mapfile -t route_matches < <(lookup_routes_by_host "${mas_host}")
+    while IFS= read -r route_ref; do
+      [[ -n "${route_ref}" ]] || continue
+      route_matches+=("${route_ref}")
+    done < <(lookup_routes_by_host "${mas_host}")
   fi
 
   if (( ${#route_matches[@]} == 0 )); then

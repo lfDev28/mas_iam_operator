@@ -81,7 +81,11 @@ if oc get project "${NAMESPACE}" >/dev/null 2>&1; then
       log_wait "namespace=${NAMESPACE} phase=${phase:-unknown}"
 
       if [[ "${phase}" == "Terminating" ]]; then
-        mapfile -t stacks < <(oc get masiamstacks.iam.mas.ibm.com -n "${NAMESPACE}" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)
+        stacks=()
+        while IFS= read -r stack; do
+          [[ -n "${stack}" ]] || continue
+          stacks+=("${stack}")
+        done < <(oc get masiamstacks.iam.mas.ibm.com -n "${NAMESPACE}" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)
         if (( ${#stacks[@]} > 0 )); then
           for stack in "${stacks[@]}"; do
             if [[ -n "${stack}" ]]; then

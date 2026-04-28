@@ -10,7 +10,7 @@ Local tools:
 
 - `podman`
 - `oc`
-- `bash` 4+
+- `bash` 3.2+
 
 Access and inputs:
 
@@ -30,7 +30,7 @@ https://api.<mas-host>/scim/v2
 Set the beta image:
 
 ```bash
-export MAS_IAM_IMAGE='quay.io/lee_forster/mas-iam-tool:v0.1.0-beta.2'
+export MAS_IAM_IMAGE='quay.io/lee_forster/mas-iam-tool:v0.1.0-beta.3'
 ```
 
 Install the local `mas-iam` command:

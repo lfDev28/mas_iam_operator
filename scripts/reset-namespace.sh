@@ -142,7 +142,11 @@ clear_finalizers keycloakstacks.iam.iam.mas.ibm.com "${release}"
 delete_resource keycloakstacks.iam.iam.mas.ibm.com "${release}"
 
 # Delete operator-managed secrets created for the release.
-mapfile -t release_secrets < <(oc get secret -n "${namespace}" \
+release_secrets=()
+while IFS= read -r secret; do
+  [[ -n "${secret}" ]] || continue
+  release_secrets+=("${secret}")
+done < <(oc get secret -n "${namespace}" \
   -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null | grep "^${release}-" || true)
 
 for secret in "${release_secrets[@]}"; do
@@ -184,7 +188,11 @@ delete_resource subscription "${subscription_name}"
 delete_resource subscription "keycloak-stack-operator"
 
 csv_selector="operators.coreos.com/${subscription_name}.${namespace}"
-mapfile -t csvs < <(oc get csv -n "${namespace}" -l "${csv_selector}" \
+csvs=()
+while IFS= read -r csv; do
+  [[ -n "${csv}" ]] || continue
+  csvs+=("${csv}")
+done < <(oc get csv -n "${namespace}" -l "${csv_selector}" \
   -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)
 for csv in "${csvs[@]}"; do
   [[ -n "${csv}" ]] || continue
@@ -192,7 +200,11 @@ for csv in "${csvs[@]}"; do
 done
 
 legacy_csv_selector="operators.coreos.com/keycloak-stack-operator.${namespace}"
-mapfile -t legacy_csvs < <(oc get csv -n "${namespace}" -l "${legacy_csv_selector}" \
+legacy_csvs=()
+while IFS= read -r csv; do
+  [[ -n "${csv}" ]] || continue
+  legacy_csvs+=("${csv}")
+done < <(oc get csv -n "${namespace}" -l "${legacy_csv_selector}" \
   -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)
 for csv in "${legacy_csvs[@]}"; do
   [[ -n "${csv}" ]] || continue

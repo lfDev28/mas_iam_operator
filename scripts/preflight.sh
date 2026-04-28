@@ -91,7 +91,11 @@ if (( mas_host_parse_rc != 0 )); then
 fi
 
 log_preflight "mas_host=${MAS_HOST}"
-mapfile -t MAS_ROUTE_MATCHES < <(lookup_routes_by_host "${MAS_HOST}")
+MAS_ROUTE_MATCHES=()
+while IFS= read -r route_ref; do
+  [[ -n "${route_ref}" ]] || continue
+  MAS_ROUTE_MATCHES+=("${route_ref}")
+done < <(lookup_routes_by_host "${MAS_HOST}")
 
 if (( ${#MAS_ROUTE_MATCHES[@]} == 0 )); then
   log_warn "no OpenShift route matched MAS host ${MAS_HOST}; automatic MAS CA detection may not work"

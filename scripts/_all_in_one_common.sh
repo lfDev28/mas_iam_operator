@@ -46,6 +46,10 @@ prefix_stream() {
   done
 }
 
+to_lower() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
+}
+
 require_command() {
   local command_name="$1"
   local description="${2:-$1}"
@@ -264,13 +268,13 @@ storage_class_exists() {
 }
 
 is_cephfs_storage_class() {
-  local candidate="${1,,}"
+  local candidate
+  candidate="$(to_lower "$1")"
   [[ "${candidate}" == *cephfs* ]]
 }
 
 discover_storage_classes() {
   local existing lower_name
-  local -a discovered=()
   local -a preferred_names=(
     "ocs-external-storagecluster-ceph-rbd"
     "ocs-storagecluster-ceph-rbd"
@@ -283,13 +287,11 @@ discover_storage_classes() {
   PREFERRED_BLOCK_STORAGE_CLASS=""
   REGEX_BLOCK_STORAGE_CLASS=""
 
-  mapfile -t ALL_STORAGE_CLASSES < <(list_storage_classes)
-  for existing in "${ALL_STORAGE_CLASSES[@]}"; do
+  while IFS= read -r existing; do
     if [[ -n "${existing}" ]]; then
-      discovered+=("${existing}")
+      ALL_STORAGE_CLASSES+=("${existing}")
     fi
-  done
-  ALL_STORAGE_CLASSES=("${discovered[@]}")
+  done < <(list_storage_classes)
 
   if (( ${#ALL_STORAGE_CLASSES[@]} == 0 )); then
     return 1
@@ -305,7 +307,7 @@ discover_storage_classes() {
   done
 
   for existing in "${ALL_STORAGE_CLASSES[@]}"; do
-    lower_name="${existing,,}"
+    lower_name="$(to_lower "${existing}")"
     if [[ "${lower_name}" =~ (rbd|block) ]]; then
       REGEX_BLOCK_STORAGE_CLASS="${existing}"
       break
