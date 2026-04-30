@@ -67,7 +67,7 @@ Start here:
 Short version:
 
 ```bash
-export MAS_IAM_IMAGE='quay.io/lee_forster/mas-iam-tool:v0.1.0-beta.4'
+export MAS_IAM_IMAGE='quay.io/lee_forster/mas-iam-tool:v0.1.0-beta.5'
 
 mkdir -p "$HOME/mas-iam"
 podman run -ti --rm -v "$HOME/mas-iam:/tmp" --pull always "$MAS_IAM_IMAGE"
@@ -85,6 +85,7 @@ The installer is interactive. It prompts for the MAS SCIM URL, MAS API token, wo
 Common post-install tasks are documented in the install guide:
 
 - [Checking health](docs/INSTALL-ALL-IN-ONE.md#check-health)
+- [Getting LDAP connection details](docs/INSTALL-ALL-IN-ONE.md#ldap-connection-details)
 - [Updating the MAS API key](docs/INSTALL-ALL-IN-ONE.md#updating-the-mas-api-key)
 - [Editable runtime values](docs/INSTALL-ALL-IN-ONE.md#editable-runtime-values)
 - [Wiping and reinstalling](docs/INSTALL-ALL-IN-ONE.md#wipe-and-reinstall)
@@ -116,10 +117,10 @@ oc rollout restart deployment/scim-bridge -n iam
 The near-term plan is:
 
 1. release this as an internal beta
-2. keep the supported install surface focused on `mas-iam preflight`, `install`, `status`, `logs`, and `wipe`
+2. keep the supported install surface focused on `mas-iam preflight`, `install`, `status`, `logs`, `ldap-info`, and `wipe`
 3. collect real cluster failures and fix them as beta bug reports
 4. tighten docs from real user feedback
-5. publish immutable beta/release image tags, starting with `v0.1.0-beta.4`
+5. publish immutable beta/release image tags, starting with `v0.1.0-beta.5`
 
 Post-beta work is tracked in [specs/post-beta-roadmap.md](specs/post-beta-roadmap.md). The strongest next candidates are API key/config update workflows, support bundle collection, better diagnostics, and group-based profile routing.
 

@@ -9,7 +9,7 @@ The supported delivery model is:
 
 Current published image:
 
-- `quay.io/lee_forster/mas-iam-tool:v0.1.0-beta.4`
+- `quay.io/lee_forster/mas-iam-tool:v0.1.0-beta.5`
 
 The CLI wraps the repo's hardened shell install engine. It does not replace it.
 
@@ -21,6 +21,7 @@ The CLI wraps the repo's hardened shell install engine. It does not replace it.
 - `preflight`
 - `status`
 - `logs`
+- `ldap-info`
 - `version`
 
 ## Official User Flow
@@ -28,7 +29,7 @@ The CLI wraps the repo's hardened shell install engine. It does not replace it.
 Set the image once:
 
 ```bash
-export MAS_IAM_IMAGE='quay.io/lee_forster/mas-iam-tool:v0.1.0-beta.4'
+export MAS_IAM_IMAGE='quay.io/lee_forster/mas-iam-tool:v0.1.0-beta.5'
 ```
 
 Bootstrap the host command:
@@ -47,6 +48,7 @@ After bootstrap:
 mas-iam preflight
 mas-iam install
 mas-iam status --namespace iam
+mas-iam ldap-info --namespace iam
 mas-iam logs --namespace iam --component bridge
 mas-iam wipe --namespace iam --profile-id demo
 ```

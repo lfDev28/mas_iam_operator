@@ -57,6 +57,9 @@ func (o *statusOptions) run(ctx context.Context) error {
 
 	openldap, err := client.Deployment(ctx, o.namespace, "mas-iam-sample-openldap")
 	printStatusLine("OpenLDAP", err, deploymentSummary(openldap))
+	if err == nil {
+		fmt.Fprintf(os.Stdout, "LDAP details: mas-iam ldap-info --namespace %s\n", o.namespace)
+	}
 
 	postgres, err := client.Pod(ctx, o.namespace, "mas-iam-sample-postgresql-0")
 	printStatusLine("PostgreSQL", err, podSummary(postgres))

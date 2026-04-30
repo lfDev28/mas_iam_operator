@@ -2,6 +2,7 @@ package oc
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -546,6 +547,33 @@ func (c *Client) PVCs(ctx context.Context, namespace string) ([]PVCStatus, error
 		})
 	}
 	return pvcs, nil
+}
+
+func (c *Client) SecretData(ctx context.Context, namespace, name string) (map[string]string, error) {
+	output, err := c.runner.Output(ctx, executil.Options{
+		Name: "oc",
+		Args: []string{"get", "secret", name, "-n", namespace, "-o", "json"},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var payload struct {
+		Data map[string]string `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(output), &payload); err != nil {
+		return nil, fmt.Errorf("decode secret %s: %w", name, err)
+	}
+
+	decoded := map[string]string{}
+	for key, value := range payload.Data {
+		raw, err := base64.StdEncoding.DecodeString(value)
+		if err != nil {
+			return nil, fmt.Errorf("decode secret %s key %s: %w", name, key, err)
+		}
+		decoded[key] = string(raw)
+	}
+	return decoded, nil
 }
 
 func (c *Client) Logs(ctx context.Context, namespace string, args []string, stdout, stderr io.Writer) error {

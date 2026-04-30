@@ -30,7 +30,7 @@ https://api.<mas-host>/scim/v2
 Set the beta image:
 
 ```bash
-export MAS_IAM_IMAGE='quay.io/lee_forster/mas-iam-tool:v0.1.0-beta.4'
+export MAS_IAM_IMAGE='quay.io/lee_forster/mas-iam-tool:v0.1.0-beta.5'
 ```
 
 Install the local `mas-iam` command:
@@ -86,6 +86,12 @@ For the beta, choose an RBD/block-style storage class for PostgreSQL and the SCI
 ```bash
 mas-iam status --namespace iam
 mas-iam logs --namespace iam --component bridge
+```
+
+To print the bundled OpenLDAP connection values:
+
+```bash
+mas-iam ldap-info --namespace iam
 ```
 
 A healthy install should show:

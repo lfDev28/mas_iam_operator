@@ -45,7 +45,7 @@ The beta has been tested on a small number of clusters, but it cannot cover ever
 Set the image:
 
 ```bash
-export MAS_IAM_IMAGE='quay.io/lee_forster/mas-iam-tool:v0.1.0-beta.4'
+export MAS_IAM_IMAGE='quay.io/lee_forster/mas-iam-tool:v0.1.0-beta.5'
 ```
 
 Bootstrap the local command:
@@ -170,6 +170,42 @@ Raw checks:
 oc get pods -n iam -o wide
 oc get deploy,statefulset,job,pvc,route -n iam
 oc get csv -n iam
+```
+
+## LDAP Connection Details
+
+The beta install includes a bundled OpenLDAP server. If you want to connect a MAS instance directly to that LDAP server, use:
+
+```bash
+mas-iam ldap-info --namespace iam
+```
+
+By default the command hides passwords. To print the admin bind password:
+
+```bash
+mas-iam ldap-info --namespace iam --show-password
+```
+
+The default cluster-internal values are:
+
+| Setting | Value |
+|---|---|
+| URL | `ldaps://mas-iam-sample-openldap.iam.svc.cluster.local:636` |
+| Bind DN | `cn=admin,dc=demo,dc=local` |
+| Base DN | `dc=demo,dc=local` |
+| Users DN | `ou=users,dc=demo,dc=local` |
+| Groups DN | `ou=groups,dc=demo,dc=local` |
+| User attribute | `uid` |
+| Group object class | `groupOfUniqueNames` |
+| Group member attribute | `uniqueMember` |
+| Admin password secret | `secret/mas-iam-sample-openldap-admin`, key `password` |
+| Demo user password secret | `secret/mas-iam-sample-openldap-user-passwords` |
+| TLS secret | `secret/mas-iam-sample-keycloak-openldap-tls` |
+
+This URL is meant for workloads inside the same OpenShift cluster. For a local command-line test, you can temporarily port-forward the service:
+
+```bash
+oc -n iam port-forward svc/mas-iam-sample-openldap 1636:636
 ```
 
 ## Wipe And Reinstall
@@ -441,7 +477,7 @@ Redact MAS API token values and any customer-sensitive hostnames before sharing 
 
 Likely post-beta work:
 
-- continued tagged beta/release images after `v0.1.0-beta.4`
+- continued tagged beta/release images after `v0.1.0-beta.5`
 - CLI-backed config editing and token rotation
 - support bundle export
 - better bridge sync summaries and diagnostics
