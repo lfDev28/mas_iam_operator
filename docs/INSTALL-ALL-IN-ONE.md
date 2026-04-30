@@ -186,6 +186,12 @@ By default the command hides passwords. To print the admin bind password:
 mas-iam ldap-info --namespace iam --show-password
 ```
 
+To print the seeded demo user passwords:
+
+```bash
+mas-iam ldap-info --namespace iam --show-user-passwords
+```
+
 The default cluster-internal values are:
 
 | Setting | Value |
@@ -201,6 +207,8 @@ The default cluster-internal values are:
 | Admin password secret | `secret/mas-iam-sample-openldap-admin`, key `password` |
 | Demo user password secret | `secret/mas-iam-sample-openldap-user-passwords` |
 | TLS secret | `secret/mas-iam-sample-keycloak-openldap-tls` |
+
+The required MAS LDAP connection values are therefore available either from `mas-iam ldap-info` or directly from the OpenShift secrets above. The admin bind credential is in `secret/mas-iam-sample-openldap-admin`, key `password`.
 
 This URL is meant for workloads inside the same OpenShift cluster. For a local command-line test, you can temporarily port-forward the service:
 

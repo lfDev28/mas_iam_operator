@@ -26,7 +26,7 @@ There will still be cluster-specific issues. Storage defaults, image registry he
 Recommended flow:
 
 ```bash
-export MAS_IAM_IMAGE='quay.io/lee_forster/mas-iam-tool:v0.1.0-beta.4'
+export MAS_IAM_IMAGE='quay.io/lee_forster/mas-iam-tool:v0.1.0-beta.5'
 mkdir -p "$HOME/mas-iam"
 podman run -ti --rm -v "$HOME/mas-iam:/tmp" --pull always $MAS_IAM_IMAGE
 export PATH="$HOME/mas-iam:$PATH"
@@ -41,6 +41,14 @@ After install:
 mas-iam status --namespace iam
 mas-iam logs --namespace iam --component bridge
 ```
+
+If you want to connect MAS directly to the bundled OpenLDAP server, the install exposes the connection values through:
+
+```bash
+mas-iam ldap-info --namespace iam
+```
+
+The LDAP bind password is stored in `secret/mas-iam-sample-openldap-admin`, key `password`. The seeded demo user passwords are stored in `secret/mas-iam-sample-openldap-user-passwords`. The CLI hides those values by default; use `--show-password` or `--show-user-passwords` only when you need to retrieve them.
 
 If you hit issues, please send evidence rather than a summary. The minimum useful capture is:
 
