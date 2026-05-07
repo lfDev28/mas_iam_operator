@@ -21,6 +21,8 @@ The CLI wraps the repo's hardened shell install engine. It does not replace it.
 - `preflight`
 - `status`
 - `support-bundle`
+- `config view`
+- `config set mas-api-token`
 - `logs`
 - `ldap-info`
 - `version`
@@ -50,6 +52,8 @@ mas-iam preflight
 mas-iam install
 mas-iam status --namespace iam
 mas-iam support-bundle --namespace iam
+mas-iam config view --namespace iam
+mas-iam config set mas-api-token --namespace iam --token-name '<token-name>' --token-value '<token-value>'
 mas-iam ldap-info --namespace iam
 mas-iam logs --namespace iam --component bridge
 mas-iam wipe --namespace iam --profile-id demo
@@ -77,6 +81,8 @@ The `wipe` command prompts for:
 - final destructive confirmation
 
 The `support-bundle` command creates a timestamped local evidence directory and redacts secret values by default.
+
+The `config view` command shows `configmap/scim-bridge-config` values and redacted `secret/scim-bridge-secret` key names. The `config set mas-api-token` command rotates the MAS API token name/value, preserves other secret keys, restarts `deployment/scim-bridge`, and waits for rollout completion.
 
 ## Non-Interactive Install
 

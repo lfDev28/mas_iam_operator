@@ -30,6 +30,9 @@ Current internal beta baseline:
   - `mas-iam status`
   - `mas-iam logs`
   - `mas-iam ldap-info`
+  - `mas-iam support-bundle`
+  - `mas-iam config view`
+  - `mas-iam config set mas-api-token`
   - `mas-iam wipe`
 - default install creates one demo MAS SCIM profile flow
 - default install exposes bundled OpenLDAP connection details through `mas-iam ldap-info`
@@ -41,6 +44,8 @@ Recent beta hardening already completed:
 - added early `oc login` detection and interactive login handoff
 - added explicit PostgreSQL and SCIM bridge storage-class selection
 - added LDAP connection detail reporting
+- added support bundle collection for beta evidence capture
+- added runtime config viewing and MAS API token rotation for the SCIM bridge
 - documented quickstart, install, operations, and known limitations
 
 ## Priority Features
@@ -51,8 +56,8 @@ Goal: let users safely update bridge configuration without reinstalling.
 
 Initial targets:
 
-- `mas-iam config view`
-- `mas-iam config set mas-api-token`
+- `mas-iam config view` (done for v0.1.1)
+- `mas-iam config set mas-api-token` (done for v0.1.1)
 - `mas-iam config set bridge`
 - `mas-iam restart bridge`
 
@@ -76,7 +81,7 @@ Goal: make beta bug reports easier to collect and easier to act on.
 
 Initial target:
 
-- `mas-iam support-bundle --namespace iam` (started for v0.1.1)
+- `mas-iam support-bundle --namespace iam` (done for v0.1.1)
 
 Bundle contents:
 
@@ -181,13 +186,13 @@ Required behavior:
 - Some clusters may still require explicit block/RBD storage classes.
 - Registry, DNS, route, proxy, and certificate differences can still break installs.
 - Image pull access must be validated for all published runtime artifacts.
-- Failed install evidence collection is still mostly manual until the v0.1.1 `support-bundle` command is released.
+- Failed install evidence collection is improved by the v0.1.1 `support-bundle` command.
 
 ### Runtime Operations
 
-- MAS API token rotation is manual today.
-- Config changes require users to know which configmap/secret to edit.
-- Bridge pod restart is required after env-backed config changes.
+- MAS API token rotation is supported through `mas-iam config set mas-api-token`.
+- General config changes still require users to know which configmap/secret to edit.
+- Bridge pod restart is required after env-backed config changes; token rotation restarts the bridge automatically.
 - Completed bootstrap jobs do not reread updated secrets unless recreated.
 
 ### SCIM Bridge Behavior
@@ -202,7 +207,7 @@ Required behavior:
 
 - Install summaries are useful but still basic.
 - Troubleshooting guidance is split across docs and command output.
-- v0.1.1 starts the single-command support evidence package with `mas-iam support-bundle`.
+- v0.1.1 includes the single-command support evidence package with `mas-iam support-bundle`.
 - There is no guided config editing flow yet.
 
 ## Suggested Release Phases
@@ -217,9 +222,9 @@ Focus:
 
 Feature targets:
 
-- `mas-iam support-bundle`
-- `mas-iam config view`
-- `mas-iam config set mas-api-token`
+- `mas-iam support-bundle` (done)
+- `mas-iam config view` (done)
+- `mas-iam config set mas-api-token` (done)
 - `mas-iam restart bridge`
 - clearer install failure messages from real beta feedback
 - updated docs based on team install results

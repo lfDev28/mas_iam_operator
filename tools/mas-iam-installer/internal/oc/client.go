@@ -1,6 +1,7 @@
 package oc
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -549,6 +550,59 @@ func (c *Client) PVCs(ctx context.Context, namespace string) ([]PVCStatus, error
 	return pvcs, nil
 }
 
+func (c *Client) ConfigMapData(ctx context.Context, namespace, name string) (map[string]string, error) {
+	output, err := c.runner.Output(ctx, executil.Options{
+		Name: "oc",
+		Args: []string{"get", "configmap", name, "-n", namespace, "-o", "json"},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var payload struct {
+		Data map[string]string `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(output), &payload); err != nil {
+		return nil, fmt.Errorf("decode configmap %s: %w", name, err)
+	}
+	if payload.Data == nil {
+		return map[string]string{}, nil
+	}
+	return payload.Data, nil
+}
+
+func (c *Client) SecretJSON(ctx context.Context, namespace, name string) ([]byte, error) {
+	output, err := c.runner.Output(ctx, executil.Options{
+		Name: "oc",
+		Args: []string{"get", "secret", name, "-n", namespace, "-o", "json"},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return []byte(output), nil
+}
+
+func (c *Client) SecretKeys(ctx context.Context, namespace, name string) ([]string, error) {
+	raw, err := c.SecretJSON(ctx, namespace, name)
+	if err != nil {
+		return nil, err
+	}
+
+	var payload struct {
+		Data map[string]string `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, fmt.Errorf("decode secret %s: %w", name, err)
+	}
+
+	keys := make([]string, 0, len(payload.Data))
+	for key := range payload.Data {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys, nil
+}
+
 func (c *Client) SecretData(ctx context.Context, namespace, name string) (map[string]string, error) {
 	output, err := c.runner.Output(ctx, executil.Options{
 		Name: "oc",
@@ -574,6 +628,27 @@ func (c *Client) SecretData(ctx context.Context, namespace, name string) (map[st
 		decoded[key] = string(raw)
 	}
 	return decoded, nil
+}
+
+func (c *Client) Patch(ctx context.Context, namespace, target string, patch []byte) (string, error) {
+	return c.runner.InputOutput(ctx, executil.Options{
+		Name: "oc",
+		Args: []string{"patch", target, "-n", namespace, "--type", "merge", "--patch-file", "/dev/stdin"},
+	}, bytes.NewReader(patch))
+}
+
+func (c *Client) RolloutRestart(ctx context.Context, namespace, target string) (string, error) {
+	return c.runner.Output(ctx, executil.Options{
+		Name: "oc",
+		Args: []string{"rollout", "restart", target, "-n", namespace},
+	})
+}
+
+func (c *Client) RolloutStatus(ctx context.Context, namespace, target, timeout string) (string, error) {
+	return c.runner.Output(ctx, executil.Options{
+		Name: "oc",
+		Args: []string{"rollout", "status", target, "-n", namespace, "--timeout=" + timeout},
+	})
 }
 
 func (c *Client) Logs(ctx context.Context, namespace string, args []string, stdout, stderr io.Writer) error {

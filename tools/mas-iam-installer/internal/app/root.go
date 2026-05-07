@@ -38,6 +38,7 @@ func NewRootCommand() *cobra.Command {
 		newPreflightCommand(),
 		newStatusCommand(),
 		newSupportBundleCommand(),
+		newConfigCommand(),
 		newLogsCommand(),
 		newLDAPInfoCommand(),
 		newVersionCommand(),

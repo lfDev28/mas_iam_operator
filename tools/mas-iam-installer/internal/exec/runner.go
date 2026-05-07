@@ -39,6 +39,20 @@ func (r *Runner) Output(ctx context.Context, options Options) (string, error) {
 	return string(output), nil
 }
 
+func (r *Runner) InputOutput(ctx context.Context, options Options, stdin io.Reader) (string, error) {
+	cmd := commandContext(ctx, options)
+	cmd.Stdin = stdin
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		trimmed := strings.TrimSpace(string(output))
+		if trimmed == "" {
+			return "", fmt.Errorf("%s failed: %w", commandString(options), err)
+		}
+		return "", fmt.Errorf("%s failed: %w: %s", commandString(options), err, trimmed)
+	}
+	return string(output), nil
+}
+
 func (r *Runner) Stream(ctx context.Context, options Options, stdout, stderr io.Writer) error {
 	cmd := commandContext(ctx, options)
 	cmd.Stdout = stdout

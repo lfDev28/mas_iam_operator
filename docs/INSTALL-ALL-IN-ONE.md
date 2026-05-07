@@ -270,24 +270,24 @@ The relevant keys are:
 - `SCIM_BRIDGE_MAS_API_TOKEN_VALUE`
 - `SCIM_BRIDGE_MAS_TOKEN`, only if using a direct token instead of API token name/value
 
+To view the current bridge runtime configuration without exposing secret values:
+
+```bash
+mas-iam config view --namespace iam
+```
+
+The command prints values from `configmap/scim-bridge-config` and prints only key names for `secret/scim-bridge-secret`.
+
 To rotate the MAS API key:
 
 ```bash
-keycloak_client_id="$(oc get secret scim-bridge-secret -n iam -o jsonpath='{.data.SCIM_BRIDGE_KEYCLOAK_CLIENT_ID}' | base64 -d)"
-keycloak_client_secret="$(oc get secret scim-bridge-secret -n iam -o jsonpath='{.data.SCIM_BRIDGE_KEYCLOAK_CLIENT_SECRET}' | base64 -d)"
-
-oc create secret generic scim-bridge-secret -n iam \
-  --from-literal=SCIM_BRIDGE_KEYCLOAK_CLIENT_ID="${keycloak_client_id}" \
-  --from-literal=SCIM_BRIDGE_KEYCLOAK_CLIENT_SECRET="${keycloak_client_secret}" \
-  --from-literal=SCIM_BRIDGE_MAS_TOKEN='' \
-  --from-literal=SCIM_BRIDGE_MAS_API_TOKEN_NAME='<new-mas-api-token-name>' \
-  --from-literal=SCIM_BRIDGE_MAS_API_TOKEN_VALUE='<new-mas-api-token-value>' \
-  --dry-run=client -o yaml \
-| oc apply -f -
-
-oc rollout restart deployment/scim-bridge -n iam
-oc rollout status deployment/scim-bridge -n iam --timeout=5m
+mas-iam config set mas-api-token \
+  --namespace iam \
+  --token-name '<new-mas-api-token-name>' \
+  --token-value '<new-mas-api-token-value>'
 ```
+
+The command updates only these keys in `secret/scim-bridge-secret`, preserves the other secret keys, restarts `deployment/scim-bridge`, and waits for rollout completion.
 
 Why the restart is required:
 
