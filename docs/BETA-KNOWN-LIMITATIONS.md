@@ -70,6 +70,8 @@ Known realities:
 
 Operationally, failed installs should be treated as beta feedback unless the same failure reproduces on the validated default path. Capture `preflight`, `status`, component logs, PVC state, and events before changing the cluster.
 
+The current CLI includes `mas-iam support-bundle --namespace iam` to collect the common status, resource, event, log, configmap, and redacted secret evidence into a timestamped local directory.
+
 ### Product Scope
 
 This beta is not yet positioned as:
@@ -86,6 +88,7 @@ Reasonable things to rely on in the beta:
 - `mas-iam preflight`
 - `mas-iam install`
 - `mas-iam status`
+- `mas-iam support-bundle`
 - `mas-iam logs`
 - `mas-iam wipe`
 - one working default demo flow for SCIM user provisioning
@@ -101,4 +104,3 @@ These are good next-phase enhancements, but they are not part of the current bet
 - more advanced identity-source emulation
 - broader UX polish and richer install summaries
 - CLI-backed config editing and token rotation
-- support bundle collection for bug reports

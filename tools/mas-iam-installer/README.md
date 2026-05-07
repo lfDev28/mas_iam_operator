@@ -20,6 +20,7 @@ The CLI wraps the repo's hardened shell install engine. It does not replace it.
 - `wipe`
 - `preflight`
 - `status`
+- `support-bundle`
 - `logs`
 - `ldap-info`
 - `version`
@@ -48,6 +49,7 @@ After bootstrap:
 mas-iam preflight
 mas-iam install
 mas-iam status --namespace iam
+mas-iam support-bundle --namespace iam
 mas-iam ldap-info --namespace iam
 mas-iam logs --namespace iam --component bridge
 mas-iam wipe --namespace iam --profile-id demo
@@ -73,6 +75,8 @@ The `wipe` command prompts for:
 - MAS profile ID
 - whether to skip MAS profile deletion
 - final destructive confirmation
+
+The `support-bundle` command creates a timestamped local evidence directory and redacts secret values by default.
 
 ## Non-Interactive Install
 

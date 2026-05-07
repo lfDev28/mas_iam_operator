@@ -172,6 +172,24 @@ oc get deploy,statefulset,job,pvc,route -n iam
 oc get csv -n iam
 ```
 
+## Support Bundle
+
+For beta bug reports or install/runtime triage, collect a local support bundle:
+
+```bash
+mas-iam support-bundle --namespace iam
+```
+
+The command verifies `oc` access, offers the same interactive `oc login` handoff as the other CLI commands, then writes a timestamped directory such as:
+
+```text
+mas-iam-support-iam-20260507-153000
+```
+
+The bundle includes the installed `mas-iam` version, current OpenShift user/server, `mas-iam status` output, namespace resource summaries, recent events, selected component logs, configmaps, storage classes, and redacted secret summaries.
+
+Secret values are not written to the bundle. Secret summaries include names, types, and key names only, and collected text is scrubbed for known secret-derived token, password, and client secret values. Review hostnames, customer identifiers, and environment-specific resource names before sharing outside the team.
+
 ## LDAP Connection Details
 
 The beta install includes a bundled OpenLDAP server. If you want to connect a MAS instance directly to that LDAP server, use:
@@ -468,18 +486,10 @@ Common causes:
 Capture:
 
 ```bash
-oc whoami
-oc whoami --show-server
-mas-iam preflight
-mas-iam status --namespace iam
-mas-iam logs --namespace iam --component operator
-mas-iam logs --namespace iam --component keycloak
-mas-iam logs --namespace iam --component bridge
-oc get pods,pvc,job,route -n iam
-oc get events -n iam --sort-by=.lastTimestamp
+mas-iam support-bundle --namespace iam
 ```
 
-Redact MAS API token values and any customer-sensitive hostnames before sharing outside the team.
+Review customer-sensitive hostnames and identifiers before sharing outside the team. The support bundle avoids raw secret values by default.
 
 ## Future Plans
 
@@ -487,7 +497,6 @@ Likely post-beta work:
 
 - continued tagged beta/release images after `v0.1.0-beta.5`
 - CLI-backed config editing and token rotation
-- support bundle export
 - better bridge sync summaries and diagnostics
 - safer reconciliation for existing MAS users
 - group-based profile routing

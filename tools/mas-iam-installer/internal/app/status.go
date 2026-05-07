@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -43,31 +44,37 @@ func (o *statusOptions) run(ctx context.Context) error {
 		return err
 	}
 
-	fmt.Fprintf(os.Stdout, "Cluster: %s @ %s\n", cluster.User, cluster.Server)
-	fmt.Fprintf(os.Stdout, "Namespace: %s\n", o.namespace)
+	printMASIAMStatus(os.Stdout, ctx, client, o.namespace, cluster)
 
-	csv, err := client.CSVPhase(ctx, o.namespace)
-	printStatusLine("CSV", err, fmt.Sprintf("%s phase=%s", csv.Name, csv.Phase))
+	return nil
+}
 
-	operator, err := client.Deployment(ctx, o.namespace, "mas-iam-operator-controller-manager")
-	printStatusLine("Operator controller", err, deploymentSummary(operator))
+func printMASIAMStatus(w io.Writer, ctx context.Context, client *oc.Client, namespace string, cluster clusterContext) {
+	fmt.Fprintf(w, "Cluster: %s @ %s\n", cluster.User, cluster.Server)
+	fmt.Fprintf(w, "Namespace: %s\n", namespace)
 
-	keycloak, err := client.Deployment(ctx, o.namespace, "mas-iam-sample")
-	printStatusLine("IAM core", err, deploymentSummary(keycloak))
+	csv, err := client.CSVPhase(ctx, namespace)
+	printStatusLine(w, "CSV", err, fmt.Sprintf("%s phase=%s", csv.Name, csv.Phase))
 
-	openldap, err := client.Deployment(ctx, o.namespace, "mas-iam-sample-openldap")
-	printStatusLine("OpenLDAP", err, deploymentSummary(openldap))
+	operator, err := client.Deployment(ctx, namespace, "mas-iam-operator-controller-manager")
+	printStatusLine(w, "Operator controller", err, deploymentSummary(operator))
+
+	keycloak, err := client.Deployment(ctx, namespace, "mas-iam-sample")
+	printStatusLine(w, "IAM core", err, deploymentSummary(keycloak))
+
+	openldap, err := client.Deployment(ctx, namespace, "mas-iam-sample-openldap")
+	printStatusLine(w, "OpenLDAP", err, deploymentSummary(openldap))
 	if err == nil {
-		fmt.Fprintf(os.Stdout, "LDAP details: mas-iam ldap-info --namespace %s\n", o.namespace)
+		fmt.Fprintf(w, "LDAP details: mas-iam ldap-info --namespace %s\n", namespace)
 	}
 
-	postgres, err := client.Pod(ctx, o.namespace, "mas-iam-sample-postgresql-0")
-	printStatusLine("PostgreSQL", err, podSummary(postgres))
+	postgres, err := client.Pod(ctx, namespace, "mas-iam-sample-postgresql-0")
+	printStatusLine(w, "PostgreSQL", err, podSummary(postgres))
 
-	bridge, err := client.Deployment(ctx, o.namespace, "scim-bridge")
-	printStatusLine("SCIM bridge", err, deploymentSummary(bridge))
+	bridge, err := client.Deployment(ctx, namespace, "scim-bridge")
+	printStatusLine(w, "SCIM bridge", err, deploymentSummary(bridge))
 
-	fmt.Fprintln(os.Stdout, "Jobs:")
+	fmt.Fprintln(w, "Jobs:")
 	for _, jobSpec := range []struct {
 		name        string
 		missingNote string
@@ -91,25 +98,23 @@ func (o *statusOptions) run(ctx context.Context) error {
 			name: "scim-bridge-mas-profile-bootstrap",
 		},
 	} {
-		job, err := client.Job(ctx, o.namespace, jobSpec.name)
-		printIndentedStatusLine(jobSpec.name, err, jobSummary(job), jobSpec.missingNote)
+		job, err := client.Job(ctx, namespace, jobSpec.name)
+		printIndentedStatusLine(w, jobSpec.name, err, jobSummary(job), jobSpec.missingNote)
 	}
 
-	fmt.Fprintln(os.Stdout, "PVCs:")
-	pvcs, err := client.PVCs(ctx, o.namespace)
+	fmt.Fprintln(w, "PVCs:")
+	pvcs, err := client.PVCs(ctx, namespace)
 	if err != nil {
-		printIndentedStatusLine("pvc-list", err, "", "")
-		return nil
+		printIndentedStatusLine(w, "pvc-list", err, "", "")
+		return
 	}
 	if len(pvcs) == 0 {
-		fmt.Fprintln(os.Stdout, "  none")
-		return nil
+		fmt.Fprintln(w, "  none")
+		return
 	}
 	for _, pvc := range pvcs {
-		fmt.Fprintf(os.Stdout, "  %s: phase=%s storageClass=%s\n", pvc.Name, pvc.Phase, pvc.StorageClass)
+		fmt.Fprintf(w, "  %s: phase=%s storageClass=%s\n", pvc.Name, pvc.Phase, pvc.StorageClass)
 	}
-
-	return nil
 }
 
 func deploymentSummary(status oc.DeploymentStatus) string {
@@ -124,32 +129,32 @@ func jobSummary(status oc.JobStatus) string {
 	return fmt.Sprintf("complete=%t active=%d succeeded=%d failed=%d", status.Complete, status.Active, status.Succeeded, status.Failed)
 }
 
-func printStatusLine(label string, err error, summary string) {
+func printStatusLine(w io.Writer, label string, err error, summary string) {
 	if err != nil {
 		if oc.IsNotFound(err) {
-			fmt.Fprintf(os.Stdout, "%s: missing\n", label)
+			fmt.Fprintf(w, "%s: missing\n", label)
 			return
 		}
-		fmt.Fprintf(os.Stdout, "%s: error: %v\n", label, err)
+		fmt.Fprintf(w, "%s: error: %v\n", label, err)
 		return
 	}
-	fmt.Fprintf(os.Stdout, "%s: %s\n", label, summary)
+	fmt.Fprintf(w, "%s: %s\n", label, summary)
 }
 
-func printIndentedStatusLine(label string, err error, summary, missingNote string) {
+func printIndentedStatusLine(w io.Writer, label string, err error, summary, missingNote string) {
 	if err != nil {
 		if oc.IsNotFound(err) {
 			if missingNote != "" {
-				fmt.Fprintf(os.Stdout, "  %s: absent (%s)\n", label, missingNote)
+				fmt.Fprintf(w, "  %s: absent (%s)\n", label, missingNote)
 			} else {
-				fmt.Fprintf(os.Stdout, "  %s: missing\n", label)
+				fmt.Fprintf(w, "  %s: missing\n", label)
 			}
 			return
 		}
-		fmt.Fprintf(os.Stdout, "  %s: error: %v\n", label, sanitizeWhitespace(err.Error()))
+		fmt.Fprintf(w, "  %s: error: %v\n", label, sanitizeWhitespace(err.Error()))
 		return
 	}
-	fmt.Fprintf(os.Stdout, "  %s: %s\n", label, summary)
+	fmt.Fprintf(w, "  %s: %s\n", label, summary)
 }
 
 func sanitizeWhitespace(value string) string {
