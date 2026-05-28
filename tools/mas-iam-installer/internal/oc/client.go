@@ -74,6 +74,13 @@ type JobStatus struct {
 	Complete  bool
 }
 
+type ConditionStatus struct {
+	Type    string
+	Status  string
+	Reason  string
+	Message string
+}
+
 type PVCStatus struct {
 	Name         string
 	Phase        string
@@ -550,6 +557,41 @@ func (c *Client) PVCs(ctx context.Context, namespace string) ([]PVCStatus, error
 	return pvcs, nil
 }
 
+func (c *Client) ObjectStorageCfgConditions(ctx context.Context, namespace, name string) ([]ConditionStatus, error) {
+	output, err := c.runner.Output(ctx, executil.Options{
+		Name: "oc",
+		Args: []string{"get", "objectstoragecfg", name, "-n", namespace, "-o", "json"},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var payload struct {
+		Status struct {
+			Conditions []struct {
+				Type    string `json:"type"`
+				Status  string `json:"status"`
+				Reason  string `json:"reason"`
+				Message string `json:"message"`
+			} `json:"conditions"`
+		} `json:"status"`
+	}
+	if err := json.Unmarshal([]byte(output), &payload); err != nil {
+		return nil, fmt.Errorf("decode objectstoragecfg %s: %w", name, err)
+	}
+
+	conditions := make([]ConditionStatus, 0, len(payload.Status.Conditions))
+	for _, condition := range payload.Status.Conditions {
+		conditions = append(conditions, ConditionStatus{
+			Type:    condition.Type,
+			Status:  condition.Status,
+			Reason:  condition.Reason,
+			Message: condition.Message,
+		})
+	}
+	return conditions, nil
+}
+
 func (c *Client) ConfigMapData(ctx context.Context, namespace, name string) (map[string]string, error) {
 	output, err := c.runner.Output(ctx, executil.Options{
 		Name: "oc",
@@ -635,6 +677,13 @@ func (c *Client) Patch(ctx context.Context, namespace, target string, patch []by
 		Name: "oc",
 		Args: []string{"patch", target, "-n", namespace, "--type", "merge", "--patch-file", "/dev/stdin"},
 	}, bytes.NewReader(patch))
+}
+
+func (c *Client) Apply(ctx context.Context, manifest []byte) (string, error) {
+	return c.runner.InputOutput(ctx, executil.Options{
+		Name: "oc",
+		Args: []string{"apply", "--server-side", "--force-conflicts", "--field-manager=mas-iam-installer", "-f", "-"},
+	}, bytes.NewReader(manifest))
 }
 
 func (c *Client) RolloutRestart(ctx context.Context, namespace, target string) (string, error) {

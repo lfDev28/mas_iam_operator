@@ -43,6 +43,8 @@ The default beta flow installs:
 - demo LDAP users and groups
 - one default MAS SCIM profile
 
+Experimental post-beta work is exploring whether the project should broaden into a MAS external services toolkit. The first exploration is an OpenShift-hosted S3-compatible object storage path for reproducing MAS object storage integrations; see [MAS Object Storage POC](docs/OBJECT-STORAGE-POC.md).
+
 ## What It Is Not
 
 This is not a final product installer yet, and it is not trying to emulate every enterprise identity provider.

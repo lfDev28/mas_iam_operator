@@ -17,6 +17,8 @@ The project should continue to focus on:
 
 The project should not try to become a full enterprise IdP emulator in the short term. Microsoft Entra-style behavior, customer tenant policy, and vendor-specific provisioning semantics should be treated as targeted compatibility features only when they directly help support work.
 
+There is also a post-beta exploration to broaden the project beyond IAM into a MAS external services toolkit. The first candidate is S3-compatible object storage for reproducing MAS object storage and attachment scenarios on OpenShift. That work should remain experimental until the IAM beta is stable.
+
 ## Current Baseline
 
 Current internal beta baseline:
@@ -178,6 +180,25 @@ Required behavior:
 - print current and target versions
 - show which OpenShift resources will change
 - avoid deleting user state unless explicitly requested
+
+### 7. S3-Compatible Object Storage Lab
+
+Goal: make MAS object storage and S3 integration issues reproducible without external cloud credentials.
+
+Initial targets:
+
+- Rook Ceph RGW proof of concept
+- bucket provisioning through `ObjectBucketClaim`
+- MAS-compatible `ObjectStorageCfg`
+- custom certificate/trust wiring
+- clear output for endpoint, bucket, region, and secret names
+
+Required behavior:
+
+- keep this outside the beta IAM launch path until validated
+- verify the S3 endpoint before configuring Manage properties
+- avoid hard-coding one cluster's route domain or MAS instance ID
+- support a future provider split: existing S3, Rook Ceph, ODF/NooBaa, and MinIO
 
 ## Known Bugs And Limitations
 
