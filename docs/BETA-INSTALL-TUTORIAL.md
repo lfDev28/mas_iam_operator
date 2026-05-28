@@ -9,13 +9,6 @@ The supported install instructions live in:
 
 Use this checklist only when preparing release notes, screenshots, or a walkthrough for the team.
 
-## Capture Rules
-
-- redact MAS API token values
-- redact customer-sensitive hostnames when needed
-- keep enough output to show success without pasting large logs
-- prefer `mas-iam status` summaries over raw object dumps unless debugging
-
 ## 1. Bootstrap
 
 Commands:

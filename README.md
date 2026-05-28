@@ -122,7 +122,7 @@ The near-term plan is:
 4. tighten docs from real user feedback
 5. publish immutable beta/release image tags, starting with `v0.1.0-beta.5`
 
-Post-beta work is tracked in [specs/post-beta-roadmap.md](specs/post-beta-roadmap.md). The strongest next candidates are API key/config update workflows, support bundle collection, better diagnostics, and group-based profile routing.
+Post-beta work is tracked in [docs/INITIAL-RELEASE-PLAN.md](docs/INITIAL-RELEASE-PLAN.md) and [specs/post-beta-roadmap.md](specs/post-beta-roadmap.md). The strongest next candidates are API key/config update workflows, support bundle collection, better diagnostics, and group-based profile routing.
 
 ## Reporting Beta Issues
 

@@ -14,7 +14,6 @@ Local tools:
 
 Access and inputs:
 
-- a working OpenShift kubeconfig
 - a MAS SCIM base URL ending in `/scim/v2`
 - a MAS API token name and value with SCIM access
 - the MAS workspace ID you want the demo profile to use
@@ -130,9 +129,3 @@ mas-iam logs --namespace iam --component bridge
 ```
 
 Most beta install failures so far have come from cluster prerequisites: storage class defaults, image pull access, registry health, DNS, or certificate/route differences. Capture the evidence and treat those as beta bug reports.
-
-## More Detail
-
-- [Detailed install and operations guide](INSTALL-ALL-IN-ONE.md)
-- [Known limitations](BETA-KNOWN-LIMITATIONS.md)
-- [Project overview](../README.md)
