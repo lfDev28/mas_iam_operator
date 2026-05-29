@@ -45,7 +45,7 @@ The beta has been tested on a small number of clusters, but it cannot cover ever
 Set the image:
 
 ```bash
-export MAS_EST_IMAGE='quay.io/lee_forster/mas-est-tool:v0.1.0-beta.5'
+export MAS_EST_IMAGE='quay.io/lee_forster/mas-est-tool:v0.1.0-beta.6'
 ```
 
 Bootstrap the local command:
@@ -495,7 +495,7 @@ Review customer-sensitive hostnames and identifiers before sharing outside the t
 
 Likely post-beta work:
 
-- continued tagged beta/release images after `v0.1.0-beta.5`
+- continued tagged beta/release images after `v0.1.0-beta.6`
 - CLI-backed config editing and token rotation
 - better bridge sync summaries and diagnostics
 - safer reconciliation for existing MAS users
