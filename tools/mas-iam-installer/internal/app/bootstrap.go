@@ -108,7 +108,7 @@ func (o *bootstrapOptions) run(output io.Writer) error {
 	fmt.Fprintf(output, "[result] installed local runtime at container path: %s\n", runtimeDir)
 	fmt.Fprintf(output, "[result] installed launcher at container path: %s\n", wrapperPath)
 	fmt.Fprintf(output, "[result] add the corresponding host directory for %s to PATH\n", outputDir)
-	fmt.Fprintln(output, "[result] host requirements for install/wipe: bash 3.2+, oc")
+	fmt.Fprintln(output, "[result] host requirements for install/uninstall: bash 3.2+, oc")
 	fmt.Fprintf(output, "[result] then run: %s install\n", commandName)
 	return nil
 }
@@ -258,18 +258,18 @@ require_command() {
   fi
 }
 
-if [[ "${requested_command}" == "install" || "${requested_command}" == "wipe" ]]; then
+if [[ "${requested_command}" == "install" || "${requested_command}" == "uninstall" || "${requested_command}" == "wipe" ]]; then
   require_command bash "bash 3.2+"
   bash_major="$(bash -c 'printf "%%s" "${BASH_VERSINFO[0]}"' 2>/dev/null || printf '0')"
   bash_minor="$(bash -c 'printf "%%s" "${BASH_VERSINFO[1]}"' 2>/dev/null || printf '0')"
   if [[ "${bash_major}" -lt 3 ]] || { [[ "${bash_major}" -eq 3 ]] && [[ "${bash_minor}" -lt 2 ]]; }; then
-    echo "error: mas-est install/wipe require bash 3.2+ on the host PATH" >&2
+    echo "error: mas-est install/uninstall require bash 3.2+ on the host PATH" >&2
     exit 1
   fi
 fi
 
 case "${requested_command}" in
-  install|preflight|status|logs|wipe)
+  install|preflight|status|logs|uninstall|wipe)
     require_command oc "oc CLI"
     ;;
 esac

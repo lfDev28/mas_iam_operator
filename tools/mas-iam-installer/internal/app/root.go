@@ -35,7 +35,7 @@ func NewRootCommand() *cobra.Command {
 	command.AddCommand(
 		bootstrapCommand,
 		newInstallCommand(rootOptions),
-		newWipeCommand(rootOptions),
+		newUninstallCommand(rootOptions),
 		newPreflightCommand(),
 		newStatusCommand(),
 		newSupportBundleCommand(),

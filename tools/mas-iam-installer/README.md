@@ -5,7 +5,7 @@ This module contains the `mas-est` CLI and the bootstrap path that installs a lo
 The supported delivery model is:
 
 1. bootstrap `mas-est` once from the published image
-2. run `mas-est install`, `mas-est wipe`, `mas-est preflight`, and related commands locally without going back through `podman`
+2. run `mas-est install`, `mas-est uninstall`, `mas-est preflight`, and related commands locally without going back through `podman`
 
 Current published image:
 
@@ -17,7 +17,7 @@ The CLI wraps the repo's hardened shell install engine. It does not replace it.
 
 - `bootstrap`
 - `install`
-- `wipe`
+- `uninstall`
 - `preflight`
 - `status`
 - `support-bundle`
@@ -59,7 +59,7 @@ mas-est config set mas-api-token --namespace mas-est --token-name '<token-name>'
 mas-est object-storage install-minio --mas-instance-id '<instance-id>'
 mas-est ldap-info --namespace mas-est
 mas-est logs --namespace mas-est --component bridge
-mas-est wipe --namespace mas-est --profile-id demo
+mas-est uninstall --namespace mas-est --profile-id demo
 ```
 
 ## Interactive Prompts
@@ -74,9 +74,9 @@ The `install` command prompts for:
 - MAS profile ID
 - PostgreSQL storage class
 - SCIM bridge storage class
-- wipe first
+- uninstall first
 
-The `wipe` command prompts for:
+The `uninstall` command prompts for:
 
 - namespace
 - MAS profile ID
@@ -118,7 +118,7 @@ Env vars:
 - `SCIM_BRIDGE_MAS_PROFILE_ID`
 - `POSTGRES_STORAGE_CLASS`
 - `SCIM_BRIDGE_STORAGE_CLASS`
-- `MAS_EST_WIPE_FIRST`
+- `MAS_EST_UNINSTALL_FIRST`
 
 ## Bootstrap Details
 
@@ -128,10 +128,10 @@ The installed local runtime:
 
 - writes `mas-est` plus a bundled runtime tree into the target directory
 - includes native binaries for `darwin/amd64`, `darwin/arm64`, `linux/amd64`, and `linux/arm64`
-- bundles the repo `scripts/`, `manifests/`, and `env/` needed by install and wipe
+- bundles the repo `scripts/`, `manifests/`, and `env/` needed by install and uninstall
 - expects these host tools on `PATH`:
   - `oc`
-  - `bash` 3.2+ for `install` and `wipe`
+  - `bash` 3.2+ for `install` and `uninstall`
 
 You can re-bootstrap explicitly:
 

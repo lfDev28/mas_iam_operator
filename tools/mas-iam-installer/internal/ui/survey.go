@@ -116,7 +116,7 @@ func PromptInstall(cfg config.InstallConfig, hints InstallDiscoveryHints, storag
 	}
 
 	if err := askOne(&survey.Confirm{
-		Message: "Wipe namespace before install?",
+		Message: "Uninstall namespace before install?",
 		Default: cfg.WipeFirst,
 		Help:    "Use this when you want the CLI to remove the existing namespace before reinstalling.",
 	}, &cfg.WipeFirst); err != nil {
@@ -178,7 +178,7 @@ func PromptWipe(cfg config.WipeConfig) (config.WipeConfig, error) {
 	if err := askOne(&survey.Confirm{
 		Message: "Skip MAS profile delete?",
 		Default: cfg.SkipProfileDelete,
-		Help:    "Choose Yes if you only want to wipe cluster resources and leave the MAS profile alone.",
+		Help:    "Choose Yes if you only want to uninstall cluster resources and leave the MAS profile alone.",
 	}, &cfg.SkipProfileDelete); err != nil {
 		return cfg, err
 	}
@@ -434,7 +434,7 @@ func PrintInstallSummary(cfg config.InstallConfig) {
 	if cfg.ScimBridgeStorageClass != "" {
 		fmt.Printf("[config] scim_bridge_storage_class=%s\n", cfg.ScimBridgeStorageClass)
 	}
-	fmt.Printf("[config] wipe_first=%t\n", cfg.WipeFirst)
+	fmt.Printf("[config] uninstall_first=%t\n", cfg.WipeFirst)
 }
 
 func PrintBanner(title string, lines ...string) {

@@ -45,7 +45,7 @@ What I have tested so far:
 
 - fresh-cluster install validation end to end
 - CLI bootstrap from the published container image
-- wipe and reinstall on an existing cluster
+- uninstall and reinstall on an existing cluster
 - operator install reaching `Succeeded`
 - Keycloak, OpenLDAP, PostgreSQL, and SCIM bridge becoming healthy
 - MAS profile bootstrap completing successfully
@@ -115,7 +115,7 @@ The supported flow is:
 2. run `mas-est preflight`
 3. run `mas-est install`
 4. use `mas-est status` and `mas-est logs` for checks
-5. use `mas-est wipe` when you want to reset and rerun
+5. use `mas-est uninstall` when you want to reset and rerun
 
 The full install steps are in:
 
@@ -132,7 +132,7 @@ These are the things I am comfortable claiming because they have been tested:
 
 - the CLI bootstrap works
 - the all-in-one install flow works
-- the wipe and reinstall flow works
+- the uninstall and reinstall flow works
 - the operator path works from the published catalog
 - PostgreSQL and the SCIM bridge can be pinned to explicit storage classes
 - the SCIM bridge deployment no longer carries the broken helper sidecar that was blocking readiness

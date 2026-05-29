@@ -97,16 +97,16 @@ Capture from MAS:
 
 Do not include tokens or customer-sensitive details in screenshots.
 
-## 6. Optional Wipe
+## 6. Optional Uninstall
 
 Command:
 
 ```bash
-mas-est wipe --namespace mas-est --profile-id demo
+mas-est uninstall --namespace mas-est --profile-id demo
 ```
 
 Capture:
 
-- wipe confirmation
+- uninstall confirmation
 - namespace cleanup
 - whether MAS profile deletion was performed or skipped

@@ -33,3 +33,26 @@ func TestLoadWipeConfigPrefersMASESTSkipProfileDelete(t *testing.T) {
 		t.Fatal("SkipProfileDelete = false, want true")
 	}
 }
+
+func TestLoadInstallConfigPrefersUninstallFirstOverWipeFirst(t *testing.T) {
+	t.Setenv(EnvUninstallFirst, "true")
+	t.Setenv(EnvWipeFirst, "false")
+	t.Setenv(LegacyEnvWipeFirst, "false")
+
+	cfg := LoadInstallConfigFromEnv()
+
+	if !cfg.WipeFirst {
+		t.Fatal("WipeFirst = false, want true")
+	}
+}
+
+func TestLoadInstallConfigFallsBackToWipeFirst(t *testing.T) {
+	t.Setenv(EnvWipeFirst, "true")
+	t.Setenv(LegacyEnvWipeFirst, "false")
+
+	cfg := LoadInstallConfigFromEnv()
+
+	if !cfg.WipeFirst {
+		t.Fatal("WipeFirst = false, want true")
+	}
+}

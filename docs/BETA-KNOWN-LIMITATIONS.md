@@ -90,7 +90,7 @@ Reasonable things to rely on in the beta:
 - `mas-est status`
 - `mas-est support-bundle`
 - `mas-est logs`
-- `mas-est wipe`
+- `mas-est uninstall`
 - one working default demo flow for SCIM user provisioning
 - manual MAS API key rotation by updating `secret/scim-bridge-secret` and restarting `deployment/scim-bridge`
 

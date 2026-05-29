@@ -234,24 +234,24 @@ This URL is meant for workloads inside the same OpenShift cluster. For a local c
 oc -n mas-est port-forward svc/mas-est-iam-openldap 1636:636
 ```
 
-## Wipe And Reinstall
+## Uninstall And Reinstall
 
-To wipe the OpenShift namespace and delete the MAS profile:
+To uninstall the OpenShift namespace and delete the MAS profile:
 
 ```bash
-mas-est wipe --namespace mas-est --profile-id demo
+mas-est uninstall --namespace mas-est --profile-id demo
 ```
 
 To keep the MAS profile and only remove the cluster-side lab resources:
 
 ```bash
-mas-est wipe --namespace mas-est --profile-id demo --skip-profile-delete
+mas-est uninstall --namespace mas-est --profile-id demo --skip-profile-delete
 ```
 
-For non-interactive wipe:
+For non-interactive uninstall:
 
 ```bash
-mas-est wipe --namespace mas-est --profile-id demo --yes
+mas-est uninstall --namespace mas-est --profile-id demo --yes
 ```
 
 If profile deletion needs MAS credentials, provide the MAS URL and token values with flags or environment variables.
@@ -383,7 +383,7 @@ oc get pvc -n mas-est
 oc describe pvc -n mas-est <pvc-name>
 ```
 
-Then wipe and reinstall with explicit storage-class choices if needed.
+Then uninstall and reinstall with explicit storage-class choices if needed.
 
 ## Published Artifact Dependencies
 

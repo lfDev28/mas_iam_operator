@@ -22,6 +22,7 @@ const (
 	EnvStorageClass            = "POSTGRES_STORAGE_CLASS"
 	EnvSCIMBridgeStorageClass  = "SCIM_BRIDGE_STORAGE_CLASS"
 	EnvKeycloakBootstrapMethod = "SCIM_BRIDGE_KEYCLOAK_BOOTSTRAP_METHOD"
+	EnvUninstallFirst          = "MAS_EST_UNINSTALL_FIRST"
 	EnvWipeFirst               = "MAS_EST_WIPE_FIRST"
 	LegacyEnvWipeFirst         = "MAS_IAM_WIPE_FIRST"
 	EnvSkipProfileDelete       = "MAS_EST_SKIP_PROFILE_DELETE"
@@ -73,7 +74,7 @@ func LoadInstallConfigFromEnv() InstallConfig {
 	cfg.StorageClass = envOrDefault(EnvStorageClass, cfg.StorageClass)
 	cfg.ScimBridgeStorageClass = envOrDefault(EnvSCIMBridgeStorageClass, cfg.ScimBridgeStorageClass)
 	cfg.KeycloakBootstrapMethod = envOrDefault(EnvKeycloakBootstrapMethod, cfg.KeycloakBootstrapMethod)
-	cfg.WipeFirst = boolEnvOrDefaultWithLegacy(EnvWipeFirst, LegacyEnvWipeFirst, cfg.WipeFirst)
+	cfg.WipeFirst = boolEnvOrDefaultWithFallbacks(EnvUninstallFirst, cfg.WipeFirst, EnvWipeFirst, LegacyEnvWipeFirst)
 	return cfg
 }
 
@@ -132,7 +133,7 @@ func (c WipeConfig) Validate() error {
 	if len(missing) == 0 {
 		return nil
 	}
-	return fmt.Errorf("missing required wipe values: %s", strings.Join(missing, ", "))
+	return fmt.Errorf("missing required uninstall values: %s", strings.Join(missing, ", "))
 }
 
 func (c InstallConfig) ScriptEnv() map[string]string {
@@ -210,6 +211,10 @@ func boolEnvOrDefault(name string, fallback bool) bool {
 }
 
 func boolEnvOrDefaultWithLegacy(name, legacyName string, fallback bool) bool {
+	return boolEnvOrDefaultWithFallbacks(name, fallback, legacyName)
+}
+
+func boolEnvOrDefaultWithFallbacks(name string, fallback bool, fallbackNames ...string) bool {
 	if value, ok := os.LookupEnv(name); ok && strings.TrimSpace(value) != "" {
 		parsed, err := strconv.ParseBool(value)
 		if err != nil {
@@ -217,5 +222,14 @@ func boolEnvOrDefaultWithLegacy(name, legacyName string, fallback bool) bool {
 		}
 		return parsed
 	}
-	return boolEnvOrDefault(legacyName, fallback)
+	for _, fallbackName := range fallbackNames {
+		if value, ok := os.LookupEnv(fallbackName); ok && strings.TrimSpace(value) != "" {
+			parsed, err := strconv.ParseBool(value)
+			if err != nil {
+				return fallback
+			}
+			return parsed
+		}
+	}
+	return fallback
 }

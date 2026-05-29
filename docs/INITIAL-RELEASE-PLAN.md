@@ -35,7 +35,7 @@ Current internal beta baseline:
   - `mas-est support-bundle`
   - `mas-est config view`
   - `mas-est config set mas-api-token`
-  - `mas-est wipe`
+  - `mas-est uninstall`
 - default install creates one demo MAS SCIM profile flow
 - default install exposes bundled OpenLDAP connection details through `mas-est ldap-info`
 
@@ -167,7 +167,7 @@ Required behavior:
 
 ### 6. Upgrade And Refresh Flow
 
-Goal: avoid full wipe/reinstall for routine updates.
+Goal: avoid full uninstall/reinstall for routine updates.
 
 Initial targets:
 
@@ -314,7 +314,7 @@ Feature targets:
 
 Exit criteria:
 
-- routine upgrades do not require wipe/reinstall
+- routine upgrades do not require uninstall/reinstall
 - users can customize common demo inputs without editing manifests
 - documentation is organized around install, operate, troubleshoot, and extend
 

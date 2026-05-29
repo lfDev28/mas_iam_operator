@@ -51,9 +51,10 @@ func newInstallCommand(root *RootOptions) *cobra.Command {
 	flags.StringVar(&opts.config.StorageClass, "storage-class", opts.config.StorageClass, "PostgreSQL storage class override")
 	flags.StringVar(&opts.config.ScimBridgeStorageClass, "scim-bridge-storage-class", opts.config.ScimBridgeStorageClass, "SCIM bridge PVC storage class override")
 	flags.StringVar(&opts.config.KeycloakBootstrapMethod, "keycloak-bootstrap", opts.config.KeycloakBootstrapMethod, "Keycloak bootstrap mode passed to install-all-in-one.sh")
-	flags.BoolVar(&opts.config.WipeFirst, "wipe-first", opts.config.WipeFirst, "Wipe the namespace before install")
+	flags.BoolVar(&opts.config.WipeFirst, "uninstall-first", opts.config.WipeFirst, "Uninstall the namespace before install")
+	flags.BoolVar(&opts.config.WipeFirst, "wipe-first", opts.config.WipeFirst, "Deprecated alias for --uninstall-first")
 	flags.BoolVar(&opts.nonInteractive, "non-interactive", false, "Disable prompts and require flags/env vars")
-	flags.BoolVarP(&opts.yes, "yes", "y", false, "Skip destructive confirmation checks for non-interactive wipe flows")
+	flags.BoolVarP(&opts.yes, "yes", "y", false, "Skip destructive confirmation checks for non-interactive uninstall flows")
 
 	return command
 }
@@ -130,7 +131,7 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 			return nil
 		}
 	} else if cfg.WipeFirst && !o.yes {
-		return fmt.Errorf("--yes is required with --wipe-first in non-interactive mode")
+		return fmt.Errorf("--yes is required with --uninstall-first in non-interactive mode")
 	}
 
 	output := io.Writer(os.Stdout)
@@ -152,10 +153,10 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 			MASAPITokenName:  cfg.MASAPITokenName,
 			MASAPITokenValue: cfg.MASAPITokenValue,
 		}
-		fmt.Fprintf(output, "[install] wiping namespace %s before install\n", cfg.Namespace)
+		fmt.Fprintf(output, "[install] uninstalling namespace %s before install\n", cfg.Namespace)
 		if err := installer.RunWipe(ctx, runner, paths, wipeConfig, output); err != nil {
 			if logPath != "" {
-				fmt.Fprintf(os.Stderr, "[result] wipe failed; see %s\n", logPath)
+				fmt.Fprintf(os.Stderr, "[result] uninstall failed; see %s\n", logPath)
 			}
 			return err
 		}

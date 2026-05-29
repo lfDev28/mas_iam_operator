@@ -109,7 +109,7 @@ A healthy install should show:
 To remove the namespace and optionally delete the MAS profile:
 
 ```bash
-mas-est wipe --namespace mas-est --profile-id demo
+mas-est uninstall --namespace mas-est --profile-id demo
 ```
 
 Use `--skip-profile-delete` if you only want to remove the OpenShift lab resources.

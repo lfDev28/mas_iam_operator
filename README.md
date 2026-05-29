@@ -31,7 +31,7 @@ Use `mas-est` when you need to:
 - test generic IAM login and provisioning flows
 - create demo users, LDAP data, and SCIM resources quickly
 - validate certificate and trust behavior between the components
-- wipe and reinstall the lab without rebuilding it by hand
+- uninstall and reinstall the lab without rebuilding it by hand
 
 The default beta flow installs:
 
@@ -90,7 +90,7 @@ Common post-install tasks are documented in the install guide:
 - [Getting LDAP connection details](docs/INSTALL-ALL-IN-ONE.md#ldap-connection-details)
 - [Updating the MAS API key](docs/INSTALL-ALL-IN-ONE.md#updating-the-mas-api-key)
 - [Editable runtime values](docs/INSTALL-ALL-IN-ONE.md#editable-runtime-values)
-- [Wiping and reinstalling](docs/INSTALL-ALL-IN-ONE.md#wipe-and-reinstall)
+- [Uninstalling and reinstalling](docs/INSTALL-ALL-IN-ONE.md#uninstall-and-reinstall)
 - [Troubleshooting](docs/INSTALL-ALL-IN-ONE.md#troubleshooting)
 
 The two main cluster-side configuration objects are:
@@ -119,7 +119,7 @@ oc rollout restart deployment/scim-bridge -n mas-est
 The near-term plan is:
 
 1. release this as an internal beta
-2. keep the supported install surface focused on `mas-est preflight`, `install`, `status`, `logs`, `ldap-info`, and `wipe`
+2. keep the supported install surface focused on `mas-est preflight`, `install`, `status`, `logs`, `ldap-info`, and `uninstall`
 3. collect real cluster failures and fix them as beta bug reports
 4. tighten docs from real user feedback
 5. publish immutable beta/release image tags, starting with `v0.1.0-beta.5`
