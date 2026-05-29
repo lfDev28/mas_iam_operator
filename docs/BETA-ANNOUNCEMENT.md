@@ -26,7 +26,7 @@ There will still be cluster-specific issues. Storage defaults, image registry he
 Recommended flow:
 
 ```bash
-export MAS_EST_IMAGE='quay.io/lee_forster/mas-est-tool:v0.1.0-beta.6'
+export MAS_EST_IMAGE='quay.io/lee_forster/mas-iam-tool:v0.1.0-beta.6'
 mkdir -p "$HOME/mas-est"
 podman run -ti --rm -v "$HOME/mas-est:/tmp" --pull always $MAS_EST_IMAGE
 export PATH="$HOME/mas-est:$PATH"

@@ -23,7 +23,7 @@ There is also a post-beta exploration to broaden the project beyond IAM into a M
 
 Current internal beta baseline:
 
-- released image: `quay.io/lee_forster/mas-est-tool:v0.1.0-beta.6`
+- released image: `quay.io/lee_forster/mas-iam-tool:v0.1.0-beta.6`
 - local bootstrap supports macOS and Linux host workflows
 - published image supports `linux/amd64` and `linux/arm64`
 - supported CLI surface:
