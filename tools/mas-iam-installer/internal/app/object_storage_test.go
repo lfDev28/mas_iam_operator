@@ -75,6 +75,38 @@ func TestObjectStorageDefaultAndValidateDerivesInstanceID(t *testing.T) {
 	}
 }
 
+func TestMinIOInternalEndpointURL(t *testing.T) {
+	opts := &minioInstallOptions{
+		namespace: "mas-external-services",
+		name:      "mas-minio",
+	}
+
+	if got := opts.internalEndpointURL(); got != "http://mas-minio.mas-external-services.svc.cluster.local:9000" {
+		t.Fatalf("internalEndpointURL() = %q", got)
+	}
+}
+
+func TestMinIORoutesUseSeparateServicePorts(t *testing.T) {
+	opts := &minioInstallOptions{
+		namespace: "mas-external-services",
+		name:      "mas-minio",
+	}
+
+	apiRoute := minioRouteManifest(opts, "mas-minio-api", "minio-api.example.com", "api")
+	apiSpec := apiRoute["spec"].(map[string]any)
+	apiPort := apiSpec["port"].(map[string]string)
+	if apiPort["targetPort"] != "api" {
+		t.Fatalf("api targetPort = %q", apiPort["targetPort"])
+	}
+
+	consoleRoute := minioRouteManifest(opts, "mas-minio-console", "minio-console.example.com", "console")
+	consoleSpec := consoleRoute["spec"].(map[string]any)
+	consolePort := consoleSpec["port"].(map[string]string)
+	if consolePort["targetPort"] != "console" {
+		t.Fatalf("console targetPort = %q", consolePort["targetPort"])
+	}
+}
+
 func TestCertificateManifestSkipsEmptyRouteHost(t *testing.T) {
 	opts := &objectStorageInstallOptions{
 		rookNamespace:  "rook-ceph",

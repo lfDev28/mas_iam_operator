@@ -686,6 +686,20 @@ func (c *Client) Apply(ctx context.Context, manifest []byte) (string, error) {
 	}, bytes.NewReader(manifest))
 }
 
+func (c *Client) DeleteIgnoreNotFound(ctx context.Context, namespace, target string) (string, error) {
+	return c.runner.Output(ctx, executil.Options{
+		Name: "oc",
+		Args: []string{"delete", target, "-n", namespace, "--ignore-not-found=true"},
+	})
+}
+
+func (c *Client) WaitForCondition(ctx context.Context, namespace, target, condition, timeout string) (string, error) {
+	return c.runner.Output(ctx, executil.Options{
+		Name: "oc",
+		Args: []string{"wait", "--for=condition=" + condition, target, "-n", namespace, "--timeout=" + timeout},
+	})
+}
+
 func (c *Client) RolloutRestart(ctx context.Context, namespace, target string) (string, error) {
 	return c.runner.Output(ctx, executil.Options{
 		Name: "oc",

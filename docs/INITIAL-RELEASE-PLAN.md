@@ -187,18 +187,18 @@ Goal: make MAS object storage and S3 integration issues reproducible without ext
 
 Initial targets:
 
-- Rook Ceph RGW proof of concept
-- bucket provisioning through `ObjectBucketClaim`
+- MinIO proof of concept with browser console access
+- automatic demo bucket provisioning
 - MAS-compatible `ObjectStorageCfg`
-- custom certificate/trust wiring
-- clear output for endpoint, bucket, region, and secret names
+- clear output for endpoint, console URL, bucket, region, and secret names
+- keep Rook Ceph RGW available as an alternate provider experiment
 
 Required behavior:
 
 - keep this outside the beta IAM launch path until validated
 - verify the S3 endpoint before configuring Manage properties
 - avoid hard-coding one cluster's route domain or MAS instance ID
-- support a future provider split: existing S3, Rook Ceph, ODF/NooBaa, and MinIO
+- support a future provider split: MinIO, existing S3, Rook Ceph, and ODF/NooBaa
 
 ## Known Bugs And Limitations
 

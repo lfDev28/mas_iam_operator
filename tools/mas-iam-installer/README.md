@@ -23,6 +23,7 @@ The CLI wraps the repo's hardened shell install engine. It does not replace it.
 - `support-bundle`
 - `config view`
 - `config set mas-api-token`
+- `object-storage install-minio` (experimental)
 - `object-storage install-rook-ceph` (experimental)
 - `logs`
 - `ldap-info`
@@ -55,7 +56,7 @@ mas-iam status --namespace iam
 mas-iam support-bundle --namespace iam
 mas-iam config view --namespace iam
 mas-iam config set mas-api-token --namespace iam --token-name '<token-name>' --token-value '<token-value>'
-mas-iam object-storage install-rook-ceph --mas-instance-id '<instance-id>'
+mas-iam object-storage install-minio --mas-instance-id '<instance-id>'
 mas-iam ldap-info --namespace iam
 mas-iam logs --namespace iam --component bridge
 mas-iam wipe --namespace iam --profile-id demo
@@ -86,7 +87,9 @@ The `support-bundle` command creates a timestamped local evidence directory and 
 
 The `config view` command shows `configmap/scim-bridge-config` values and redacted `secret/scim-bridge-secret` key names. The `config set mas-api-token` command rotates the MAS API token name/value, preserves other secret keys, restarts `deployment/scim-bridge`, and waits for rollout completion.
 
-The `object-storage install-rook-ceph` command is experimental post-beta work. It creates a Rook Ceph RGW S3 endpoint, an `ObjectBucketClaim`, a MAS-compatible credentials secret, and a system-scoped MAS `ObjectStorageCfg`.
+The `object-storage install-minio` command is experimental post-beta work. It creates a lightweight MinIO S3 endpoint, an OpenShift route for the MinIO Console UI, a demo bucket, a MAS-compatible credentials secret, and a system-scoped MAS `ObjectStorageCfg`.
+
+The older `object-storage install-rook-ceph` command remains available for Rook Ceph RGW experiments.
 
 ## Non-Interactive Install
 

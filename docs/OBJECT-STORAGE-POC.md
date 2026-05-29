@@ -8,7 +8,7 @@ This is post-beta work. It is not part of the current IAM beta launch surface ye
 
 Add a repeatable way to stand up S3-compatible storage on OpenShift so support engineers can reproduce MAS object storage and S3 integration issues without needing external cloud credentials.
 
-The first supported development target is Rook Ceph RGW because the current lab cluster already has a Rook Ceph cluster and the required object bucket CRDs.
+The current preferred development target is MinIO. It is simpler to operate for demos than Rook Ceph RGW and includes a browser console for uploading, browsing, and deleting objects.
 
 ## Current Cluster Findings
 
@@ -16,24 +16,92 @@ The initial target cluster has:
 
 - `rook-ceph` namespace
 - `CephCluster` in `Ready` phase
-- `CephObjectStore` CRD
-- `ObjectBucketClaim` CRD
+- block storage class `rook-ceph-block`
 - `cert-manager` and MAS cluster issuers
 - MAS `ObjectStorageCfg` CRD
 
 It does not currently have:
 
 - Red Hat ODF / NooBaa installed
-- an existing `CephObjectStore`
-- an existing S3 route
-- an existing bucket storage class
-- an existing MAS `ObjectStorageCfg`
+- a managed object storage service dedicated to MAS testing
 
-The Ceph cluster may report health warnings. Check those before treating any S3 behavior as a MAS issue.
+The Ceph cluster may report health warnings. Check those before treating PVC or storage behavior as a MAS issue.
 
-## Experimental Install
+## Recommended Experimental Install
 
 From a logged-in OpenShift shell:
+
+```bash
+mas-iam object-storage install-minio \
+  --mas-instance-id lfmas
+```
+
+The command derives these defaults:
+
+- MAS core namespace: `mas-<instance-id>-core`
+- MinIO namespace: `mas-external-services`
+- MinIO deployment/service name: `mas-minio`
+- PVC storage class: `rook-ceph-block`
+- PVC size: `20Gi`
+- bucket: `mas-s3-demo`
+- external S3 API route: `mas-minio-api.<default OpenShift apps domain>`
+- external MinIO Console route: `mas-minio-console.<default OpenShift apps domain>`
+- MAS credential secret: `mas-minio-objectstorage-credentials`
+- MAS ObjectStorageCfg: `ibm-mas-<instance-id>-objectstoragecfg-system`
+
+Use explicit flags when testing a different cluster layout:
+
+```bash
+mas-iam object-storage install-minio \
+  --mas-instance-id lfmas \
+  --mas-core-namespace mas-lfmas-core \
+  --namespace mas-external-services \
+  --storage-class rook-ceph-block \
+  --pvc-size 20Gi \
+  --bucket mas-s3-demo
+```
+
+## MinIO Resources
+
+The command creates or updates:
+
+- namespace for external lab services
+- MinIO root credential `Secret`
+- MinIO data `PersistentVolumeClaim`
+- MinIO `Deployment`
+- MinIO `Service`
+- OpenShift route for the S3 API
+- OpenShift route for the MinIO Console UI
+- bucket initialization `Job`
+- MAS-compatible credential `Secret` with `username` and `password`
+- MAS `ObjectStorageCfg`
+
+MAS is configured to use the internal cluster URL:
+
+```text
+http://mas-minio.mas-external-services.svc.cluster.local:9000
+```
+
+The external S3 API route is mainly for manual testing from outside the cluster. The Console route is the browser UI for uploading files and managing buckets.
+
+Retrieve the MinIO Console credentials from the root secret:
+
+```bash
+oc get secret mas-minio-root -n mas-external-services -o jsonpath='{.data.MINIO_ROOT_USER}' | base64 -d
+echo
+oc get secret mas-minio-root -n mas-external-services -o jsonpath='{.data.MINIO_ROOT_PASSWORD}' | base64 -d
+echo
+```
+
+For MAS, the credentials are stored in the MAS core namespace:
+
+```bash
+oc get secret mas-minio-objectstorage-credentials -n mas-lfmas-core
+```
+
+## Rook Ceph RGW Alternative
+
+The older Rook Ceph RGW path remains available for clusters where a Rook object gateway is the thing being tested directly:
 
 ```bash
 mas-iam object-storage install-rook-ceph \
@@ -64,9 +132,9 @@ mas-iam object-storage install-rook-ceph \
   --cert-issuer-name mas-lfmas-ca
 ```
 
-## Created Resources
+### Rook Ceph Resources
 
-The command creates or updates:
+The Rook command creates or updates:
 
 - `Certificate` for the RGW route and service DNS names
 - `CephObjectStore`
@@ -80,14 +148,14 @@ The ObjectBucketClaim-generated secret remains in place with the S3-native key n
 
 ## MAS Integration Notes
 
-MAS validates Ceph/S3 object storage by calling S3 `list_buckets()` using:
+MAS validates S3 object storage by calling S3 `list_buckets()` using:
 
 - `ObjectStorageCfg.spec.config.url`
 - credential secret key `username`
 - credential secret key `password`
 - optional custom CA certificates from `ObjectStorageCfg.spec.certificates`
 
-The first POC only creates the MAS object storage configuration. Manage attachment properties should be configured after the endpoint is verified.
+The current POC only creates the MAS object storage configuration. Manage attachment properties should be configured after the endpoint is verified.
 
 Typical follow-on Manage work includes bucket-specific properties such as endpoint, bucket name, region, access key, secret key, and attachment storage mode.
 
@@ -101,9 +169,9 @@ This feature is one reason the project may eventually be renamed from an IAM-onl
 Potential future providers:
 
 - existing S3 endpoint
+- MinIO for lightweight demos
 - Rook Ceph RGW
 - ODF / NooBaa
-- MinIO for lightweight demos
 
 Potential future services:
 
