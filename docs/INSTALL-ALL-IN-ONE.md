@@ -1,4 +1,4 @@
-# MAS IAM Install And Operations Guide
+# MAS External Services Toolkit Install And Operations Guide
 
 This is the detailed guide for the internal beta install path.
 
@@ -6,11 +6,11 @@ For the short path, use [BETA-QUICKSTART.md](BETA-QUICKSTART.md).
 
 ## What The Installer Does
 
-`mas-iam` installs a working MAS IAM plus SCIM bridge lab on OpenShift. The beta path bootstraps a local command from a published container image, then runs the install locally against your current kubeconfig.
+`mas-est` installs a working MAS External Services Toolkit plus SCIM bridge lab on OpenShift. The beta path bootstraps a local command from a published container image, then runs the install locally against your current kubeconfig.
 
 The install creates:
 
-- MAS IAM operator through OLM
+- MAS EST IAM operator through OLM
 - Keycloak
 - OpenLDAP
 - PostgreSQL
@@ -18,7 +18,7 @@ The install creates:
 - demo LDAP users and groups
 - one MAS SCIM profile, usually `demo`
 
-The supported user entry point is the local `mas-iam` command. The shell scripts in this repo remain the backend implementation and maintainer/debug path.
+The supported user entry point is the local `mas-est` command. The shell scripts in this repo remain the backend implementation and maintainer/debug path.
 
 ## Prerequisites
 
@@ -45,29 +45,29 @@ The beta has been tested on a small number of clusters, but it cannot cover ever
 Set the image:
 
 ```bash
-export MAS_IAM_IMAGE='quay.io/lee_forster/mas-iam-tool:v0.1.0-beta.5'
+export MAS_EST_IMAGE='quay.io/lee_forster/mas-est-tool:v0.1.0-beta.5'
 ```
 
 Bootstrap the local command:
 
 ```bash
-mkdir -p "$HOME/mas-iam"
-podman run -ti --rm -v "$HOME/mas-iam:/tmp" --pull always "$MAS_IAM_IMAGE"
-export PATH="$HOME/mas-iam:$PATH"
+mkdir -p "$HOME/mas-est"
+podman run -ti --rm -v "$HOME/mas-est:/tmp" --pull always "$MAS_EST_IMAGE"
+export PATH="$HOME/mas-est:$PATH"
 ```
 
 Confirm it works:
 
 ```bash
-mas-iam version
-mas-iam --help
+mas-est version
+mas-est --help
 ```
 
 If the runtime already exists and you want to refresh it:
 
 ```bash
-podman run -ti --rm -v "$HOME/mas-iam:/tmp" --pull always "$MAS_IAM_IMAGE" bootstrap --force
-export PATH="$HOME/mas-iam:$PATH"
+podman run -ti --rm -v "$HOME/mas-est:/tmp" --pull always "$MAS_EST_IMAGE" bootstrap --force
+export PATH="$HOME/mas-est:$PATH"
 ```
 
 The `bootstrap --force` part must come after the image name.
@@ -77,13 +77,13 @@ The `bootstrap --force` part must come after the image name.
 Run preflight:
 
 ```bash
-mas-iam preflight
+mas-est preflight
 ```
 
 Run the interactive install:
 
 ```bash
-mas-iam install
+mas-est install
 ```
 
 The installer prompts for:
@@ -117,13 +117,13 @@ export SCIM_BRIDGE_MAS_PROFILE_ID='demo'
 export POSTGRES_STORAGE_CLASS='<rbd-storage-class>'
 export SCIM_BRIDGE_STORAGE_CLASS='<rbd-storage-class>'
 
-mas-iam install --non-interactive
+mas-est install --non-interactive
 ```
 
 Equivalent install flags:
 
 ```bash
-mas-iam install \
+mas-est install \
   --non-interactive \
   --mas-base-url 'https://api.<mas-host>/scim/v2' \
   --mas-api-token-name '<mas-api-token-name>' \
@@ -139,26 +139,26 @@ mas-iam install \
 Use the CLI first:
 
 ```bash
-mas-iam status --namespace iam
-mas-iam logs --namespace iam --component bridge
+mas-est status --namespace mas-est
+mas-est logs --namespace mas-est --component bridge
 ```
 
 Useful log shortcuts:
 
 ```bash
-mas-iam logs --namespace iam --component operator
-mas-iam logs --namespace iam --component keycloak
-mas-iam logs --namespace iam --component bridge
-mas-iam logs --namespace iam --component profile-bootstrap
+mas-est logs --namespace mas-est --component operator
+mas-est logs --namespace mas-est --component keycloak
+mas-est logs --namespace mas-est --component bridge
+mas-est logs --namespace mas-est --component profile-bootstrap
 ```
 
 A healthy install should show:
 
 - operator CSV `Succeeded`
 - `deployment/mas-iam-operator-controller-manager` ready
-- `deployment/mas-iam-sample` ready
-- `deployment/mas-iam-sample-openldap` ready
-- `statefulset/mas-iam-sample-postgresql` ready
+- `deployment/mas-est-iam` ready
+- `deployment/mas-est-iam-openldap` ready
+- `statefulset/mas-est-iam-postgresql` ready
 - `deployment/scim-bridge` ready
 - `job/scim-bridge-mas-profile-bootstrap` complete
 - PostgreSQL PVC bound
@@ -167,9 +167,9 @@ A healthy install should show:
 Raw checks:
 
 ```bash
-oc get pods -n iam -o wide
-oc get deploy,statefulset,job,pvc,route -n iam
-oc get csv -n iam
+oc get pods -n mas-est -o wide
+oc get deploy,statefulset,job,pvc,route -n mas-est
+oc get csv -n mas-est
 ```
 
 ## Support Bundle
@@ -177,16 +177,16 @@ oc get csv -n iam
 For beta bug reports or install/runtime triage, collect a local support bundle:
 
 ```bash
-mas-iam support-bundle --namespace iam
+mas-est support-bundle --namespace mas-est
 ```
 
 The command verifies `oc` access, offers the same interactive `oc login` handoff as the other CLI commands, then writes a timestamped directory such as:
 
 ```text
-mas-iam-support-iam-20260507-153000
+mas-est-support-mas-est-20260507-153000
 ```
 
-The bundle includes the installed `mas-iam` version, current OpenShift user/server, `mas-iam status` output, namespace resource summaries, recent events, selected component logs, configmaps, storage classes, and redacted secret summaries.
+The bundle includes the installed `mas-est` version, current OpenShift user/server, `mas-est status` output, namespace resource summaries, recent events, selected component logs, configmaps, storage classes, and redacted secret summaries.
 
 Secret values are not written to the bundle. Secret summaries include names, types, and key names only, and collected text is scrubbed for known secret-derived token, password, and client secret values. Review hostnames, customer identifiers, and environment-specific resource names before sharing outside the team.
 
@@ -195,26 +195,26 @@ Secret values are not written to the bundle. Secret summaries include names, typ
 The beta install includes a bundled OpenLDAP server. If you want to connect a MAS instance directly to that LDAP server, use:
 
 ```bash
-mas-iam ldap-info --namespace iam
+mas-est ldap-info --namespace mas-est
 ```
 
 By default the command hides passwords. To print the admin bind password:
 
 ```bash
-mas-iam ldap-info --namespace iam --show-password
+mas-est ldap-info --namespace mas-est --show-password
 ```
 
 To print the seeded demo user passwords:
 
 ```bash
-mas-iam ldap-info --namespace iam --show-user-passwords
+mas-est ldap-info --namespace mas-est --show-user-passwords
 ```
 
 The default cluster-internal values are:
 
 | Setting | Value |
 |---|---|
-| URL | `ldaps://mas-iam-sample-openldap.iam.svc.cluster.local:636` |
+| URL | `ldaps://mas-est-iam-openldap.mas-est.svc.cluster.local:636` |
 | Bind DN | `cn=admin,dc=demo,dc=local` |
 | Base DN | `dc=demo,dc=local` |
 | Users DN | `ou=users,dc=demo,dc=local` |
@@ -222,16 +222,16 @@ The default cluster-internal values are:
 | User attribute | `uid` |
 | Group object class | `groupOfUniqueNames` |
 | Group member attribute | `uniqueMember` |
-| Admin password secret | `secret/mas-iam-sample-openldap-admin`, key `password` |
-| Demo user password secret | `secret/mas-iam-sample-openldap-user-passwords` |
-| TLS secret | `secret/mas-iam-sample-keycloak-openldap-tls` |
+| Admin password secret | `secret/mas-est-iam-openldap-admin`, key `password` |
+| Demo user password secret | `secret/mas-est-iam-openldap-user-passwords` |
+| TLS secret | `secret/mas-est-iam-keycloak-openldap-tls` |
 
-The required MAS LDAP connection values are therefore available either from `mas-iam ldap-info` or directly from the OpenShift secrets above. The admin bind credential is in `secret/mas-iam-sample-openldap-admin`, key `password`.
+The required MAS LDAP connection values are therefore available either from `mas-est ldap-info` or directly from the OpenShift secrets above. The admin bind credential is in `secret/mas-est-iam-openldap-admin`, key `password`.
 
 This URL is meant for workloads inside the same OpenShift cluster. For a local command-line test, you can temporarily port-forward the service:
 
 ```bash
-oc -n iam port-forward svc/mas-iam-sample-openldap 1636:636
+oc -n mas-est port-forward svc/mas-est-iam-openldap 1636:636
 ```
 
 ## Wipe And Reinstall
@@ -239,19 +239,19 @@ oc -n iam port-forward svc/mas-iam-sample-openldap 1636:636
 To wipe the OpenShift namespace and delete the MAS profile:
 
 ```bash
-mas-iam wipe --namespace iam --profile-id demo
+mas-est wipe --namespace mas-est --profile-id demo
 ```
 
 To keep the MAS profile and only remove the cluster-side lab resources:
 
 ```bash
-mas-iam wipe --namespace iam --profile-id demo --skip-profile-delete
+mas-est wipe --namespace mas-est --profile-id demo --skip-profile-delete
 ```
 
 For non-interactive wipe:
 
 ```bash
-mas-iam wipe --namespace iam --profile-id demo --yes
+mas-est wipe --namespace mas-est --profile-id demo --yes
 ```
 
 If profile deletion needs MAS credentials, provide the MAS URL and token values with flags or environment variables.
@@ -273,7 +273,7 @@ The relevant keys are:
 To view the current bridge runtime configuration without exposing secret values:
 
 ```bash
-mas-iam config view --namespace iam
+mas-est config view --namespace mas-est
 ```
 
 The command prints values from `configmap/scim-bridge-config` and prints only key names for `secret/scim-bridge-secret`.
@@ -281,8 +281,8 @@ The command prints values from `configmap/scim-bridge-config` and prints only ke
 To rotate the MAS API key:
 
 ```bash
-mas-iam config set mas-api-token \
-  --namespace iam \
+mas-est config set mas-api-token \
+  --namespace mas-est \
   --token-name '<new-mas-api-token-name>' \
   --token-value '<new-mas-api-token-value>'
 ```
@@ -298,10 +298,10 @@ Why the restart is required:
 If you also need to rerun the MAS profile bootstrap job with the new key:
 
 ```bash
-oc delete job scim-bridge-mas-profile-bootstrap -n iam --ignore-not-found
+oc delete job scim-bridge-mas-profile-bootstrap -n mas-est --ignore-not-found
 
 # rerun the install path, or reapply the rendered bootstrap manifest from the same runtime/config
-mas-iam install
+mas-est install
 ```
 
 For most token rotations, restarting `deployment/scim-bridge` is enough. Keycloak, OpenLDAP, and PostgreSQL do not need to restart for MAS API token changes.
@@ -318,7 +318,7 @@ secret/scim-bridge-secret
 After editing either object, restart the bridge:
 
 ```bash
-oc rollout restart deployment/scim-bridge -n iam
+oc rollout restart deployment/scim-bridge -n mas-est
 ```
 
 Common editable values in `scim-bridge-config`:
@@ -350,17 +350,17 @@ Edit with care. Some values are generated by install and may be overwritten if y
 To patch a non-secret value:
 
 ```bash
-oc patch configmap scim-bridge-config -n iam \
+oc patch configmap scim-bridge-config -n mas-est \
   --type merge \
   -p '{"data":{"SCIM_BRIDGE_BRIDGE_POLL_INTERVAL":"2m"}}'
 
-oc rollout restart deployment/scim-bridge -n iam
+oc rollout restart deployment/scim-bridge -n mas-est
 ```
 
 To inspect non-secret values:
 
 ```bash
-oc get configmap scim-bridge-config -n iam -o yaml
+oc get configmap scim-bridge-config -n mas-est -o yaml
 ```
 
 ## Storage Values
@@ -372,15 +372,15 @@ The install prompts separately for:
 
 They control different PVCs:
 
-- `POSTGRES_STORAGE_CLASS` controls `data-mas-iam-sample-postgresql-0`
+- `POSTGRES_STORAGE_CLASS` controls `data-mas-est-iam-postgresql-0`
 - `SCIM_BRIDGE_STORAGE_CLASS` controls `scim-bridge-state`
 
 If either PVC is `Pending`, check:
 
 ```bash
 oc get sc
-oc get pvc -n iam
-oc describe pvc -n iam <pvc-name>
+oc get pvc -n mas-est
+oc describe pvc -n mas-est <pvc-name>
 ```
 
 Then wipe and reinstall with explicit storage-class choices if needed.
@@ -398,21 +398,21 @@ If repo code changes but the corresponding images were not rebuilt and pushed, t
 
 ## Troubleshooting
 
-### Bootstrap Says `/tmp/mas-iam` Already Exists
+### Bootstrap Says `/tmp/mas-est` Already Exists
 
 Refresh the runtime with:
 
 ```bash
-podman run -ti --rm -v "$HOME/mas-iam:/tmp" --pull always "$MAS_IAM_IMAGE" bootstrap --force
+podman run -ti --rm -v "$HOME/mas-est:/tmp" --pull always "$MAS_EST_IMAGE" bootstrap --force
 ```
 
 The command is `bootstrap --force` after the image name.
 
-### `mas-iam` Is Not Found
+### `mas-est` Is Not Found
 
 ```bash
-export PATH="$HOME/mas-iam:$PATH"
-which mas-iam
+export PATH="$HOME/mas-est:$PATH"
+which mas-est
 ```
 
 ### Cluster API DNS Fails
@@ -428,9 +428,9 @@ Fix cluster DNS/VPN/network access first. The installer cannot proceed until `oc
 ### Operator CSV Stuck
 
 ```bash
-mas-iam status --namespace iam
-oc get csv -n iam
-oc describe csv -n iam <csv-name>
+mas-est status --namespace mas-est
+oc get csv -n mas-est
+oc describe csv -n mas-est <csv-name>
 oc get catalogsource mas-iam-operator -n openshift-marketplace -o yaml
 ```
 
@@ -439,8 +439,8 @@ Look for catalog image pull failures, bundle errors, or an unhealthy operator de
 ### PVCs Stay Pending
 
 ```bash
-oc get pvc -n iam
-oc describe pvc -n iam <pvc-name>
+oc get pvc -n mas-est
+oc describe pvc -n mas-est <pvc-name>
 oc get sc
 ```
 
@@ -461,14 +461,14 @@ Do not use only the MAS API root. Do not duplicate the scheme, such as `https://
 Check bridge logs:
 
 ```bash
-mas-iam logs --namespace iam --component bridge --tail 300
+mas-est logs --namespace mas-est --component bridge --tail 300
 ```
 
 Also check:
 
 ```bash
-oc get configmap scim-bridge-config -n iam -o yaml
-oc get secret scim-bridge-secret -n iam -o yaml
+oc get configmap scim-bridge-config -n mas-est -o yaml
+oc get secret scim-bridge-secret -n mas-est -o yaml
 ```
 
 Do not paste unredacted secret output into bug reports.
@@ -486,7 +486,7 @@ Common causes:
 Capture:
 
 ```bash
-mas-iam support-bundle --namespace iam
+mas-est support-bundle --namespace mas-est
 ```
 
 Review customer-sensitive hostnames and identifiers before sharing outside the team. The support bundle avoids raw secret values by default.

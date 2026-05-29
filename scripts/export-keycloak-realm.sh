@@ -5,13 +5,13 @@ show_usage() {
   cat <<'USAGE'
 Usage: export-keycloak-realm.sh <namespace> <release> <realm> [output-path]
 
-Exports a Keycloak realm JSON from the running mas-iam deployment. The export
+Exports a Keycloak realm JSON from the running mas-est IAM deployment. The export
 is performed with the Keycloak CLI inside the pod, avoiding HTTP management
 port conflicts, and the resulting realm file is written locally.
 
 Arguments:
-  namespace    Kubernetes namespace where Keycloak runs (for MAS this is often 'iam').
-  release      Helm release name (for MAS this is often 'mas-iam').
+  namespace    Kubernetes namespace where Keycloak runs (default: mas-est).
+  release      Helm release name (default: mas-est-iam).
   realm        Realm name to export.
   output-path  Optional local path for the exported JSON. Defaults to
                charts/mas-iam-stack/realm-config/<realm>-realm.json relative

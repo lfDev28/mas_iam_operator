@@ -13,8 +13,8 @@ import (
 
 const (
 	defaultBootstrapOutputDir = "/tmp"
-	defaultBootstrapCommand   = "mas-iam"
-	bundledRuntimeRoot        = "/opt/mas-iam/runtime"
+	defaultBootstrapCommand   = "mas-est"
+	bundledRuntimeRoot        = "/opt/mas-est/runtime"
 )
 
 type bootstrapOptions struct {
@@ -31,14 +31,14 @@ func newBootstrapCommand() *cobra.Command {
 
 	command := &cobra.Command{
 		Use:   "bootstrap",
-		Short: "Install the local mas-iam runtime into a mounted host directory",
+		Short: "Install the local mas-est runtime into a mounted host directory",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return opts.run(cmd.OutOrStdout())
 		},
 	}
 
 	flags := command.Flags()
-	flags.StringVar(&opts.outputDir, "output-dir", opts.outputDir, "Mounted host directory where the local mas-iam runtime should be written")
+	flags.StringVar(&opts.outputDir, "output-dir", opts.outputDir, "Mounted host directory where the local mas-est runtime should be written")
 	flags.StringVar(&opts.commandName, "command-name", opts.commandName, "Name of the installed host command")
 	flags.BoolVar(&opts.force, "force", false, "Overwrite an existing local runtime")
 
@@ -115,9 +115,9 @@ func (o *bootstrapOptions) run(output io.Writer) error {
 
 func populateRuntimeTree(destination string) error {
 	layout := map[string]string{
-		filepath.Join(destination, "repo", "scripts"):   "/opt/mas-iam/scripts",
-		filepath.Join(destination, "repo", "manifests"): "/opt/mas-iam/manifests",
-		filepath.Join(destination, "repo", "env"):       "/opt/mas-iam/env",
+		filepath.Join(destination, "repo", "scripts"):   "/opt/mas-est/scripts",
+		filepath.Join(destination, "repo", "manifests"): "/opt/mas-est/manifests",
+		filepath.Join(destination, "repo", "env"):       "/opt/mas-est/env",
 		filepath.Join(destination, "bin"):               filepath.Join(bundledRuntimeRoot, "bin"),
 	}
 
@@ -213,8 +213,8 @@ func renderLocalLauncher(runtimeDirName string) string {
 set -euo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-RUNTIME_DIR="${MAS_IAM_RUNTIME_DIR:-${SELF_DIR}/%s}"
-REPO_ROOT="${MAS_IAM_REPO_ROOT:-${RUNTIME_DIR}/repo}"
+RUNTIME_DIR="${MAS_EST_RUNTIME_DIR:-${SELF_DIR}/%s}"
+REPO_ROOT="${MAS_EST_REPO_ROOT:-${MAS_IAM_REPO_ROOT:-${RUNTIME_DIR}/repo}}"
 requested_command="${1:-}"
 
 os_name="$(uname -s)"
@@ -238,7 +238,7 @@ case "${arch_name}" in
     ;;
 esac
 
-binary_path="${RUNTIME_DIR}/bin/${os_name}-${arch_name}/iam"
+binary_path="${RUNTIME_DIR}/bin/${os_name}-${arch_name}/est"
 if [[ ! -x "${binary_path}" ]]; then
   echo "error: runtime binary not found: ${binary_path}" >&2
   exit 1
@@ -263,7 +263,7 @@ if [[ "${requested_command}" == "install" || "${requested_command}" == "wipe" ]]
   bash_major="$(bash -c 'printf "%%s" "${BASH_VERSINFO[0]}"' 2>/dev/null || printf '0')"
   bash_minor="$(bash -c 'printf "%%s" "${BASH_VERSINFO[1]}"' 2>/dev/null || printf '0')"
   if [[ "${bash_major}" -lt 3 ]] || { [[ "${bash_major}" -eq 3 ]] && [[ "${bash_minor}" -lt 2 ]]; }; then
-    echo "error: mas-iam install/wipe require bash 3.2+ on the host PATH" >&2
+    echo "error: mas-est install/wipe require bash 3.2+ on the host PATH" >&2
     exit 1
   fi
 fi
@@ -274,6 +274,6 @@ case "${requested_command}" in
     ;;
 esac
 
-exec env MAS_IAM_REPO_ROOT="${REPO_ROOT}" MAS_IAM_RENDERER_BINARY="${binary_path}" "${binary_path}" "$@"
+exec env MAS_EST_REPO_ROOT="${REPO_ROOT}" MAS_EST_RENDERER_BINARY="${binary_path}" MAS_IAM_REPO_ROOT="${REPO_ROOT}" MAS_IAM_RENDERER_BINARY="${binary_path}" "${binary_path}" "$@"
 `, runtimeDirName)
 }

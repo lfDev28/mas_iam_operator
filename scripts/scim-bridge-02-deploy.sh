@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Deploy the SCIM bridge into the iam namespace using manifests/scim-bridge.yaml
+# Deploy the SCIM bridge into the mas-est namespace using manifests/scim-bridge.yaml
 # Example:
 #   SCIM_BRIDGE_IMAGE=quay.io/<org>/scim-bridge:dev \
 #   SCIM_BRIDGE_KEYCLOAK_BASE_URL=https://keycloak.example.com \
@@ -22,8 +22,8 @@ source "$ROOT_DIR/scripts/_scim-bridge-env.sh"
 
 SCIM_BRIDGE_KEYCLOAK_BASE_URL=${SCIM_BRIDGE_KEYCLOAK_BASE_URL:-}
 : "${SCIM_BRIDGE_KEYCLOAK_REALM:=maximo}"
-: "${SCIM_BRIDGE_NAMESPACE:=iam}"
-: "${SCIM_BRIDGE_KEYCLOAK_RELEASE:=mas-iam-sample}"
+: "${SCIM_BRIDGE_NAMESPACE:=mas-est}"
+: "${SCIM_BRIDGE_KEYCLOAK_RELEASE:=mas-est-iam}"
 : "${SCIM_BRIDGE_KEYCLOAK_NAMESPACE:=${SCIM_BRIDGE_NAMESPACE}}"
 : "${SCIM_BRIDGE_KEYCLOAK_SERVICE:=${SCIM_BRIDGE_KEYCLOAK_RELEASE}}"
 : "${SCIM_BRIDGE_KEYCLOAK_IMAGE:=}"

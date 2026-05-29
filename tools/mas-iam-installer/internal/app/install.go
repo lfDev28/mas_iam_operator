@@ -35,7 +35,7 @@ func newInstallCommand(root *RootOptions) *cobra.Command {
 
 	command := &cobra.Command{
 		Use:   "install",
-		Short: "Install or reinstall MAS IAM and the SCIM bridge",
+		Short: "Install or reinstall the MAS EST IAM services and SCIM bridge",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return opts.run(cmd.Context(), root)
 		},
@@ -171,7 +171,7 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 
 	fmt.Fprintln(output, "[result] install completed")
 	fmt.Fprintf(output, "[result] verify with: oc get pods -n %s\n", cfg.Namespace)
-	fmt.Fprintf(output, "[result] logs shortcut: mas-iam logs --namespace %s --component bridge\n", cfg.Namespace)
+	fmt.Fprintf(output, "[result] logs shortcut: mas-est logs --namespace %s --component bridge\n", cfg.Namespace)
 
 	return nil
 }

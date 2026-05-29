@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/config"
 	executil "github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/exec"
 	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/oc"
 	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/ui"
@@ -23,7 +24,7 @@ const (
 	defaultObjectStorageClass  = "rook-ceph-bucket"
 	defaultObjectBucketClaim   = "mas-s3-bucket"
 	defaultObjectStorageRegion = "us-east-1"
-	defaultMinIONamespace      = "mas-external-services"
+	defaultMinIONamespace      = config.DefaultNamespace
 	defaultMinIOName           = "mas-minio"
 	defaultMinIOBucket         = "mas-s3-demo"
 	defaultMinIOPVCSize        = "20Gi"
@@ -631,8 +632,8 @@ func applyMASObjectStorageConfig(ctx context.Context, client *oc.Client, options
 			"namespace": options.masCoreNamespace,
 			"labels": map[string]string{
 				"app.kubernetes.io/instance":   options.masInstanceID,
-				"app.kubernetes.io/managed-by": "mas-iam-installer",
-				"app.kubernetes.io/name":       "mas-external-services",
+				"app.kubernetes.io/managed-by": "mas-est-installer",
+				"app.kubernetes.io/name":       "mas-est",
 				"mas.ibm.com/instanceId":       options.masInstanceID,
 			},
 		},
@@ -653,7 +654,7 @@ func applyMASObjectStorageConfig(ctx context.Context, client *oc.Client, options
 			"namespace": options.masCoreNamespace,
 			"labels": map[string]string{
 				"app.kubernetes.io/instance":   "ibm-mas",
-				"app.kubernetes.io/managed-by": "mas-iam-installer",
+				"app.kubernetes.io/managed-by": "mas-est-installer",
 				"app.kubernetes.io/name":       "ibm-mas",
 				"mas.ibm.com/configScope":      "system",
 				"mas.ibm.com/instanceId":       options.masInstanceID,
@@ -784,8 +785,8 @@ func minioNamespaceManifest(o *minioInstallOptions) map[string]any {
 		"metadata": map[string]any{
 			"name": o.namespace,
 			"labels": map[string]string{
-				"app.kubernetes.io/managed-by": "mas-iam-installer",
-				"app.kubernetes.io/name":       "mas-external-services",
+				"app.kubernetes.io/managed-by": "mas-est-installer",
+				"app.kubernetes.io/name":       "mas-est",
 			},
 		},
 	}
@@ -1032,7 +1033,7 @@ func minioBucketInitJobManifest(o *minioInstallOptions, jobName string) map[stri
 func minioLabels(o *minioInstallOptions) map[string]string {
 	return map[string]string{
 		"app.kubernetes.io/instance":   o.name,
-		"app.kubernetes.io/managed-by": "mas-iam-installer",
+		"app.kubernetes.io/managed-by": "mas-est-installer",
 		"app.kubernetes.io/name":       "minio",
 		"mas.ibm.com/instanceId":       o.masInstanceID,
 	}

@@ -6,22 +6,22 @@ usage() {
   cat <<'EOF'
 Usage: test-openldap-bind.sh [--namespace <ns>] [--release <name>] [--base-dn <dn>] [--bind-dn <dn>]
 
-Verifies that the MAS IAM chart can authenticate to the bundled OpenLDAP instance
+Verifies that the MAS EST IAM chart can authenticate to the bundled OpenLDAP instance
 by running ldapwhoami from inside the OpenLDAP pod. The script automatically
 retrieves the admin password from <release>-openldap-admin and prints the DN
 returned by the directory if the bind succeeds.
 
 Options:
-  -n, --namespace   Namespace that hosts the MAS IAM stack (default: iam)
-  -r, --release     Helm release / MasIamStack name (default: mas-iam-sample)
+  -n, --namespace   Namespace that hosts the MAS EST IAM stack (default: mas-est)
+  -r, --release     Helm release / MasIamStack name (default: mas-est-iam)
       --base-dn     Directory base DN (default: dc=demo,dc=local)
       --bind-dn     Bind DN (default: cn=admin,<base-dn>)
   -h, --help        Show this help
 EOF
 }
 
-namespace="iam"
-release="mas-iam-sample"
+namespace="mas-est"
+release="mas-est-iam"
 base_dn="dc=demo,dc=local"
 bind_dn=""
 

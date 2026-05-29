@@ -20,7 +20,7 @@ Selection order:
 EOF
 }
 
-NAMESPACE="${TARGET_NAMESPACE:-iam}"
+NAMESPACE="${TARGET_NAMESPACE:-mas-est}"
 MANIFEST=""
 POSTGRES_STORAGE_CLASS="${POSTGRES_STORAGE_CLASS:-}"
 
@@ -79,9 +79,12 @@ if [[ "${SELECTED_STORAGE_REASON}" == "first-available" ]]; then
   log_warn "falling back to the first available StorageClass ${SELECTED_STORAGE_CLASS}; set POSTGRES_STORAGE_CLASS to pin a better class if needed"
 fi
 
+rendered_manifest="$(mktemp)"
 tmp_manifest="$(mktemp)"
-cleanup() { rm -f "${tmp_manifest}"; }
+cleanup() { rm -f "${rendered_manifest}" "${tmp_manifest}"; }
 trap cleanup EXIT
+
+render_namespace_manifest "${MANIFEST}" "${rendered_manifest}" "${NAMESPACE}"
 
 awk -v sc="${SELECTED_STORAGE_CLASS}" '
   { print }
@@ -94,7 +97,7 @@ awk -v sc="${SELECTED_STORAGE_CLASS}" '
       exit 2
     }
   }
-' "${MANIFEST}" > "${tmp_manifest}"
+' "${rendered_manifest}" > "${tmp_manifest}"
 
 prime_last_applied_annotations "${tmp_manifest}"
 oc apply -f "${tmp_manifest}"

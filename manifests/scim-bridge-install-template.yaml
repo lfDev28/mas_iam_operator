@@ -6,13 +6,13 @@ metadata:
     description: "Install the SCIM bridge with a demo MAS profile bootstrap."
 parameters:
   - name: SCIM_BRIDGE_NAMESPACE
-    value: iam
+    value: mas-est
   - name: SCIM_BRIDGE_IMAGE
     value: quay.io/lee_forster/mas-iam-scim-bridge:scim-bridge-v0.1.0
   - name: SCIM_BRIDGE_KEYCLOAK_IMAGE
     value: quay.io/lee_forster/mas-iam-keycloak:scim-bridge-v0.1.0
   - name: SCIM_BRIDGE_KEYCLOAK_BASE_URL
-    value: http://mas-iam-sample:8080
+    value: http://mas-est-iam:8080
   - name: SCIM_BRIDGE_KEYCLOAK_REALM
     value: maximo
   - name: SCIM_BRIDGE_KEYCLOAK_CLIENT_ID
@@ -20,11 +20,11 @@ parameters:
   - name: SCIM_BRIDGE_KEYCLOAK_CLIENT_SECRET
     value: maxadmin
   - name: SCIM_BRIDGE_KEYCLOAK_RELEASE
-    value: mas-iam-sample
+    value: mas-est-iam
   - name: SCIM_BRIDGE_KEYCLOAK_NAMESPACE
-    value: iam
+    value: mas-est
   - name: SCIM_BRIDGE_KEYCLOAK_SERVICE
-    value: mas-iam-sample
+    value: mas-est-iam
   - name: SCIM_BRIDGE_KEYCLOAK_ASSIGN_MANAGED_ROLE
     value: "false"
   - name: SCIM_BRIDGE_MAS_BASE_URL

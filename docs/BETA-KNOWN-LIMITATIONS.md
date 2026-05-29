@@ -1,4 +1,4 @@
-# MAS IAM Beta Known Limitations
+# MAS External Services Toolkit Beta Known Limitations
 
 This document defines the support boundary for the internal beta.
 
@@ -6,7 +6,7 @@ This document defines the support boundary for the internal beta.
 
 The current beta is designed to support one thing well:
 
-- getting a working MAS IAM plus SCIM bridge lab up quickly for support and troubleshooting work
+- getting a working MAS External Services Toolkit plus SCIM bridge lab up quickly for support and troubleshooting work
 
 The supported default flow is:
 
@@ -20,7 +20,7 @@ The supported default flow is:
 
 ### Identity Provider Parity
 
-`mas-iam` is not a feature-for-feature replacement for Microsoft Entra or other enterprise IdPs.
+`mas-est` is not a feature-for-feature replacement for Microsoft Entra or other enterprise IdPs.
 
 Current limitations:
 
@@ -70,7 +70,7 @@ Known realities:
 
 Operationally, failed installs should be treated as beta feedback unless the same failure reproduces on the validated default path. Capture `preflight`, `status`, component logs, PVC state, and events before changing the cluster.
 
-The current CLI includes `mas-iam support-bundle --namespace iam` to collect the common status, resource, event, log, configmap, and redacted secret evidence into a timestamped local directory.
+The current CLI includes `mas-est support-bundle --namespace mas-est` to collect the common status, resource, event, log, configmap, and redacted secret evidence into a timestamped local directory.
 
 ### Product Scope
 
@@ -84,13 +84,13 @@ This beta is not yet positioned as:
 
 Reasonable things to rely on in the beta:
 
-- local bootstrap of `mas-iam` from the published container image
-- `mas-iam preflight`
-- `mas-iam install`
-- `mas-iam status`
-- `mas-iam support-bundle`
-- `mas-iam logs`
-- `mas-iam wipe`
+- local bootstrap of `mas-est` from the published container image
+- `mas-est preflight`
+- `mas-est install`
+- `mas-est status`
+- `mas-est support-bundle`
+- `mas-est logs`
+- `mas-est wipe`
 - one working default demo flow for SCIM user provisioning
 - manual MAS API key rotation by updating `secret/scim-bridge-secret` and restarting `deployment/scim-bridge`
 

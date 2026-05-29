@@ -18,7 +18,7 @@ type Paths struct {
 	WipeScript    string
 }
 
-const bundledRepoRoot = "/opt/mas-iam"
+const bundledRepoRoot = "/opt/mas-est"
 
 func DiscoverPaths(override string) (Paths, error) {
 	candidates := []string{}
@@ -46,6 +46,7 @@ func DiscoverPaths(override string) (Paths, error) {
 
 	addCandidate(override)
 	addCandidate(os.Getenv(config.EnvRepoRoot))
+	addCandidate(os.Getenv(config.LegacyEnvRepoRoot))
 	addCandidate(bundledRepoRoot)
 
 	if cwd, err := os.Getwd(); err == nil {
@@ -113,4 +114,5 @@ func addRendererBinaryEnv(env map[string]string) {
 		return
 	}
 	env[config.EnvRendererBinary] = executable
+	env[config.LegacyEnvRendererBinary] = executable
 }

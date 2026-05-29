@@ -29,7 +29,7 @@ func newWipeCommand(root *RootOptions) *cobra.Command {
 
 	command := &cobra.Command{
 		Use:   "wipe",
-		Short: "Remove the MAS IAM namespace and optional MAS profile data",
+		Short: "Remove the MAS EST namespace and optional MAS profile data",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return opts.run(cmd.Context(), root)
 		},

@@ -90,20 +90,20 @@ func TestRedactorFromSecretListJSONOnlyUsesSensitiveKeys(t *testing.T) {
 func TestSafePathTokenAndBundleDirName(t *testing.T) {
 	when := time.Date(2026, 5, 7, 8, 9, 10, 0, time.UTC)
 	parent := t.TempDir()
-	dir, err := createSupportBundleDir(parent, "iam/test namespace", when)
+	dir, err := createSupportBundleDir(parent, "mas-est/test namespace", when)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if !strings.HasSuffix(dir, "mas-iam-support-iam-test-namespace-20260507-080910") {
+	if !strings.HasSuffix(dir, "mas-est-support-mas-est-test-namespace-20260507-080910") {
 		t.Fatalf("unexpected bundle dir: %s", dir)
 	}
 
-	secondDir, err := createSupportBundleDir(parent, "iam/test namespace", when)
+	secondDir, err := createSupportBundleDir(parent, "mas-est/test namespace", when)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasSuffix(secondDir, "mas-iam-support-iam-test-namespace-20260507-080910-01") {
+	if !strings.HasSuffix(secondDir, "mas-est-support-mas-est-test-namespace-20260507-080910-01") {
 		t.Fatalf("unexpected collision-safe bundle dir: %s", secondDir)
 	}
 }

@@ -682,7 +682,7 @@ func (c *Client) Patch(ctx context.Context, namespace, target string, patch []by
 func (c *Client) Apply(ctx context.Context, manifest []byte) (string, error) {
 	return c.runner.InputOutput(ctx, executil.Options{
 		Name: "oc",
-		Args: []string{"apply", "--server-side", "--force-conflicts", "--field-manager=mas-iam-installer", "-f", "-"},
+		Args: []string{"apply", "--server-side", "--force-conflicts", "--field-manager=mas-est-installer", "-f", "-"},
 	}, bytes.NewReader(manifest))
 }
 

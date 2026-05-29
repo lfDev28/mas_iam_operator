@@ -35,8 +35,8 @@ OUTPUT="${SCIM_BRIDGE_OUTPUT:-$ROOT_DIR/manifests/scim-bridge-install.yaml}"
 set -a
 
 : "${SCIM_BRIDGE_IMAGE:?Set SCIM_BRIDGE_IMAGE (published image tag for release)}"
-: "${SCIM_BRIDGE_NAMESPACE:=iam}"
-: "${SCIM_BRIDGE_KEYCLOAK_RELEASE:=mas-iam-sample}"
+: "${SCIM_BRIDGE_NAMESPACE:=mas-est}"
+: "${SCIM_BRIDGE_KEYCLOAK_RELEASE:=mas-est-iam}"
 : "${SCIM_BRIDGE_KEYCLOAK_NAMESPACE:=${SCIM_BRIDGE_NAMESPACE}}"
 : "${SCIM_BRIDGE_KEYCLOAK_SERVICE:=${SCIM_BRIDGE_KEYCLOAK_RELEASE}}"
 : "${SCIM_BRIDGE_KEYCLOAK_BOOTSTRAP_JOB_NAME:=scim-bridge-keycloak-bootstrap}"

@@ -8,7 +8,7 @@ import (
 )
 
 func OpenRunLog(repoRoot, command string) (*os.File, string, error) {
-	logDir := filepath.Join(repoRoot, ".mas-iam-installer", "logs")
+	logDir := filepath.Join(repoRoot, ".mas-est-installer", "logs")
 	if err := os.MkdirAll(logDir, 0o755); err != nil {
 		return nil, "", fmt.Errorf("create log directory: %w", err)
 	}

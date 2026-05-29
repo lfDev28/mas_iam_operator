@@ -28,7 +28,7 @@ func PromptInstall(cfg config.InstallConfig, hints InstallDiscoveryHints, storag
 	if cfg.Namespace, err = askRequiredInput(
 		"Namespace",
 		cfg.Namespace,
-		"OpenShift namespace for the MAS IAM stack. Press Enter to accept the current default.",
+		"OpenShift namespace for the MAS EST services. Press Enter to accept the current default.",
 	); err != nil {
 		return cfg, err
 	}
@@ -466,7 +466,7 @@ func PrintClusterContext(action, user, server, namespace string, recommendedStor
 		"Press Enter to accept defaults.",
 		"Use arrow keys to choose storage classes. Type ? during a prompt for field help.",
 	)
-	PrintBanner(fmt.Sprintf("MAS IAM %s", action), lines...)
+	PrintBanner(fmt.Sprintf("MAS EST %s", action), lines...)
 }
 
 func storageChoiceDescription(choice preflight.StorageChoice) string {

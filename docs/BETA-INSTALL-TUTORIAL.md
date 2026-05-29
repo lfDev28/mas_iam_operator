@@ -1,4 +1,4 @@
-# MAS IAM Beta Validation Capture
+# MAS External Services Toolkit Beta Validation Capture
 
 This page is a capture checklist for producing screenshots or terminal snippets from a clean beta install.
 
@@ -14,18 +14,18 @@ Use this checklist only when preparing release notes, screenshots, or a walkthro
 Commands:
 
 ```bash
-export MAS_IAM_IMAGE='quay.io/lee_forster/mas-iam-tool:v0.1.0-beta.5'
-mkdir -p "$HOME/mas-iam"
-podman run -ti --rm -v "$HOME/mas-iam:/tmp" --pull always "$MAS_IAM_IMAGE"
-export PATH="$HOME/mas-iam:$PATH"
-mas-iam version
-mas-iam --help
+export MAS_EST_IMAGE='quay.io/lee_forster/mas-est-tool:v0.1.0-beta.5'
+mkdir -p "$HOME/mas-est"
+podman run -ti --rm -v "$HOME/mas-est:/tmp" --pull always "$MAS_EST_IMAGE"
+export PATH="$HOME/mas-est:$PATH"
+mas-est version
+mas-est --help
 ```
 
 Capture:
 
 - image pull/bootstrap success
-- `mas-iam version`
+- `mas-est version`
 - top-level command help
 
 ## 2. Preflight
@@ -33,7 +33,7 @@ Capture:
 Command:
 
 ```bash
-mas-iam preflight
+mas-est preflight
 ```
 
 Capture:
@@ -48,7 +48,7 @@ Capture:
 Command:
 
 ```bash
-mas-iam install
+mas-est install
 ```
 
 Capture:
@@ -68,8 +68,8 @@ Capture:
 Commands:
 
 ```bash
-mas-iam status --namespace iam
-mas-iam logs --namespace iam --component bridge --tail 100
+mas-est status --namespace mas-est
+mas-est logs --namespace mas-est --component bridge --tail 100
 ```
 
 Capture:
@@ -83,8 +83,8 @@ Capture:
 Optional raw checks:
 
 ```bash
-oc get pods -n iam -o wide
-oc get deploy,statefulset,job,pvc,route -n iam
+oc get pods -n mas-est -o wide
+oc get deploy,statefulset,job,pvc,route -n mas-est
 ```
 
 ## 5. MAS-Side Confirmation
@@ -102,7 +102,7 @@ Do not include tokens or customer-sensitive details in screenshots.
 Command:
 
 ```bash
-mas-iam wipe --namespace iam --profile-id demo
+mas-est wipe --namespace mas-est --profile-id demo
 ```
 
 Capture:

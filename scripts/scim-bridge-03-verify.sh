@@ -13,7 +13,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=./_scim-bridge-env.sh
 source "$ROOT_DIR/scripts/_scim-bridge-env.sh"
 
-: "${SCIM_BRIDGE_NAMESPACE:=iam}"
+: "${SCIM_BRIDGE_NAMESPACE:=mas-est}"
 : "${MAS_SCIM_BASE:?Set MAS_SCIM_BASE (e.g., https://api....../scim/v2)}"
 : "${MAS_PROFILE_ID:?Set MAS_PROFILE_ID (e.g., test1)}"
 MAS_AUTH_SCHEME=${MAS_AUTH_SCHEME:-Bearer}

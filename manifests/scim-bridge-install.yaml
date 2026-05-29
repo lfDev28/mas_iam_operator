@@ -5,7 +5,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: scim-bridge-config
-  namespace: iam
+  namespace: mas-est
 data:
   SCIM_BRIDGE_KEYCLOAK_BASE_URL: "https://keycloak.example.com"
   SCIM_BRIDGE_KEYCLOAK_REALM: "maximo"
@@ -36,7 +36,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: scim-bridge-secret
-  namespace: iam
+  namespace: mas-est
 type: Opaque
 stringData:
   SCIM_BRIDGE_KEYCLOAK_CLIENT_ID: "scim-admin"
@@ -49,7 +49,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: scim-bridge-state
-  namespace: iam
+  namespace: mas-est
 spec:
   storageClassName:
   accessModes:
@@ -62,7 +62,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: scim-bridge
-  namespace: iam
+  namespace: mas-est
 spec:
   replicas: 1
   strategy:
@@ -125,7 +125,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: scim-bridge-keycloak-bootstrap
-  namespace: iam
+  namespace: mas-est
   labels:
     app.kubernetes.io/name: scim-bridge
     app.kubernetes.io/component: keycloak-bootstrap
@@ -146,7 +146,7 @@ spec:
             - name: HOME
               value: /tmp/kcadm
             - name: KC_HOST
-              value: "http://mas-iam-sample:8080"
+              value: "http://mas-est-iam:8080"
             - name: SCIM_REALM
               value: "maximo"
             - name: SCIM_CLIENT_ID
@@ -156,12 +156,12 @@ spec:
             - name: KC_ADMIN_USER
               valueFrom:
                 secretKeyRef:
-                  name: "mas-iam-sample-bootstrap-admin"
+                  name: "mas-est-iam-bootstrap-admin"
                   key: username
             - name: KC_ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: "mas-iam-sample-bootstrap-admin"
+                  name: "mas-est-iam-bootstrap-admin"
                   key: password
             - name: SCIM_CLIENT_SECRET
               valueFrom:
@@ -290,7 +290,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: scim-bridge-route-cert
-  namespace: iam
+  namespace: mas-est
   labels:
     app.kubernetes.io/name: scim-bridge
     app.kubernetes.io/component: keycloak-route-cert
@@ -299,7 +299,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: scim-bridge-route-cert
-  namespace: iam
+  namespace: mas-est
   labels:
     app.kubernetes.io/name: scim-bridge
     app.kubernetes.io/component: keycloak-route-cert
@@ -320,7 +320,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: scim-bridge-route-cert
-  namespace: iam
+  namespace: mas-est
   labels:
     app.kubernetes.io/name: scim-bridge
     app.kubernetes.io/component: keycloak-route-cert
@@ -331,13 +331,13 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: scim-bridge-route-cert
-    namespace: iam
+    namespace: mas-est
 ---
 apiVersion: batch/v1
 kind: Job
 metadata:
   name: scim-bridge-keycloak-route-cert
-  namespace: iam
+  namespace: mas-est
   labels:
     app.kubernetes.io/name: scim-bridge
     app.kubernetes.io/component: keycloak-route-cert
@@ -357,26 +357,26 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: SCIM_BRIDGE_KEYCLOAK_ROUTE_NAMESPACE
-              value: "iam"
+              value: "mas-est"
             - name: SCIM_BRIDGE_KEYCLOAK_ROUTE_NAME
               value: "scim-bridge-keycloak"
             - name: SCIM_BRIDGE_KEYCLOAK_ROUTE_CERT_DAYS
               value: "825"
             - name: SCIM_BRIDGE_KEYCLOAK_ROUTE_SERVICE
-              value: "mas-iam-sample"
+              value: "mas-est-iam"
             - name: SCIM_BRIDGE_NAMESPACE
-              value: "iam"
+              value: "mas-est"
           command:
             - /bin/bash
             - -ec
             - |
               set -euo pipefail
 
-              route_namespace="iam"
+              route_namespace="mas-est"
               route_name="scim-bridge-keycloak"
-              bridge_namespace="iam"
+              bridge_namespace="mas-est"
               cert_days="825"
-              route_service="mas-iam-sample"
+              route_service="mas-est-iam"
 
               if [[ -z "" || -z "" ]]; then
                 echo "error: route namespace/name is required" >&2
@@ -451,7 +451,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: scim-bridge-mas-profile-bootstrap
-  namespace: iam
+  namespace: mas-est
   labels:
     app.kubernetes.io/name: scim-bridge
     app.kubernetes.io/component: mas-profile-bootstrap

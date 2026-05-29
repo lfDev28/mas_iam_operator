@@ -8,10 +8,12 @@ import (
 )
 
 const (
-	DefaultNamespace           = "iam"
+	DefaultNamespace           = "mas-est"
 	DefaultProfileID           = "demo"
 	DefaultKeycloakBootstrap   = "script"
-	EnvNamespace               = "MAS_IAM_NAMESPACE"
+	DefaultIAMRelease          = "mas-est-iam"
+	EnvNamespace               = "MAS_EST_NAMESPACE"
+	LegacyEnvNamespace         = "MAS_IAM_NAMESPACE"
 	EnvMASBaseURL              = "SCIM_BRIDGE_MAS_BASE_URL"
 	EnvMASAPITokenName         = "SCIM_BRIDGE_MAS_API_TOKEN_NAME"
 	EnvMASAPITokenValue        = "SCIM_BRIDGE_MAS_API_TOKEN_VALUE"
@@ -20,10 +22,14 @@ const (
 	EnvStorageClass            = "POSTGRES_STORAGE_CLASS"
 	EnvSCIMBridgeStorageClass  = "SCIM_BRIDGE_STORAGE_CLASS"
 	EnvKeycloakBootstrapMethod = "SCIM_BRIDGE_KEYCLOAK_BOOTSTRAP_METHOD"
-	EnvWipeFirst               = "MAS_IAM_WIPE_FIRST"
-	EnvSkipProfileDelete       = "MAS_IAM_SKIP_PROFILE_DELETE"
-	EnvRepoRoot                = "MAS_IAM_REPO_ROOT"
-	EnvRendererBinary          = "MAS_IAM_RENDERER_BINARY"
+	EnvWipeFirst               = "MAS_EST_WIPE_FIRST"
+	LegacyEnvWipeFirst         = "MAS_IAM_WIPE_FIRST"
+	EnvSkipProfileDelete       = "MAS_EST_SKIP_PROFILE_DELETE"
+	LegacyEnvSkipProfileDelete = "MAS_IAM_SKIP_PROFILE_DELETE"
+	EnvRepoRoot                = "MAS_EST_REPO_ROOT"
+	LegacyEnvRepoRoot          = "MAS_IAM_REPO_ROOT"
+	EnvRendererBinary          = "MAS_EST_RENDERER_BINARY"
+	LegacyEnvRendererBinary    = "MAS_IAM_RENDERER_BINARY"
 )
 
 type InstallConfig struct {
@@ -58,7 +64,7 @@ func DefaultInstallConfig() InstallConfig {
 
 func LoadInstallConfigFromEnv() InstallConfig {
 	cfg := DefaultInstallConfig()
-	cfg.Namespace = envOrDefault(EnvNamespace, cfg.Namespace)
+	cfg.Namespace = envOrDefaultWithLegacy(EnvNamespace, LegacyEnvNamespace, cfg.Namespace)
 	cfg.MASBaseURL = envOrDefault(EnvMASBaseURL, cfg.MASBaseURL)
 	cfg.MASAPITokenName = envOrDefault(EnvMASAPITokenName, cfg.MASAPITokenName)
 	cfg.MASAPITokenValue = envOrDefault(EnvMASAPITokenValue, cfg.MASAPITokenValue)
@@ -67,7 +73,7 @@ func LoadInstallConfigFromEnv() InstallConfig {
 	cfg.StorageClass = envOrDefault(EnvStorageClass, cfg.StorageClass)
 	cfg.ScimBridgeStorageClass = envOrDefault(EnvSCIMBridgeStorageClass, cfg.ScimBridgeStorageClass)
 	cfg.KeycloakBootstrapMethod = envOrDefault(EnvKeycloakBootstrapMethod, cfg.KeycloakBootstrapMethod)
-	cfg.WipeFirst = boolEnvOrDefault(EnvWipeFirst, cfg.WipeFirst)
+	cfg.WipeFirst = boolEnvOrDefaultWithLegacy(EnvWipeFirst, LegacyEnvWipeFirst, cfg.WipeFirst)
 	return cfg
 }
 
@@ -80,9 +86,9 @@ func DefaultWipeConfig() WipeConfig {
 
 func LoadWipeConfigFromEnv() WipeConfig {
 	cfg := DefaultWipeConfig()
-	cfg.Namespace = envOrDefault(EnvNamespace, cfg.Namespace)
+	cfg.Namespace = envOrDefaultWithLegacy(EnvNamespace, LegacyEnvNamespace, cfg.Namespace)
 	cfg.ProfileID = envOrDefault(EnvProfileID, cfg.ProfileID)
-	cfg.SkipProfileDelete = boolEnvOrDefault(EnvSkipProfileDelete, cfg.SkipProfileDelete)
+	cfg.SkipProfileDelete = boolEnvOrDefaultWithLegacy(EnvSkipProfileDelete, LegacyEnvSkipProfileDelete, cfg.SkipProfileDelete)
 	cfg.MASBaseURL = envOrDefault(EnvMASBaseURL, cfg.MASBaseURL)
 	cfg.MASAPITokenName = envOrDefault(EnvMASAPITokenName, cfg.MASAPITokenName)
 	cfg.MASAPITokenValue = envOrDefault(EnvMASAPITokenValue, cfg.MASAPITokenValue)
@@ -184,6 +190,13 @@ func envOrDefault(name, fallback string) string {
 	return value
 }
 
+func envOrDefaultWithLegacy(name, legacyName, fallback string) string {
+	if value := envOrDefault(name, ""); value != "" {
+		return value
+	}
+	return envOrDefault(legacyName, fallback)
+}
+
 func boolEnvOrDefault(name string, fallback bool) bool {
 	value, ok := os.LookupEnv(name)
 	if !ok || strings.TrimSpace(value) == "" {
@@ -194,4 +207,15 @@ func boolEnvOrDefault(name string, fallback bool) bool {
 		return fallback
 	}
 	return parsed
+}
+
+func boolEnvOrDefaultWithLegacy(name, legacyName string, fallback bool) bool {
+	if value, ok := os.LookupEnv(name); ok && strings.TrimSpace(value) != "" {
+		parsed, err := strconv.ParseBool(value)
+		if err != nil {
+			return fallback
+		}
+		return parsed
+	}
+	return boolEnvOrDefault(legacyName, fallback)
 }

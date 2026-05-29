@@ -6,14 +6,14 @@ usage() {
   cat <<'EOF'
 Usage: reset-namespace.sh --namespace <ns> [--release <name>] [--purge-tls] [--force]
 
-Deletes MAS IAM stack resources created by the MAS IAM operator so that the
+Deletes MAS EST IAM stack resources created by the MAS EST IAM operator so that the
 namespace can be re-used for fresh installs. The TLS secret required by LDAP is
 left intact so you do not need to regenerate it for each reset (unless
 --purge-tls is used).
 
 Options:
-  -n, --namespace   Namespace that hosts the MAS IAM stack (required)
-      --release     Helm release / MasIamStack name (default: mas-iam-sample)
+  -n, --namespace   Namespace that hosts the MAS EST IAM stack (required)
+      --release     Helm release / MasIamStack name (default: mas-est-iam)
       --purge-tls   Delete the OpenLDAP TLS secret as part of the reset
   -f, --force       Do not prompt for confirmation
   -h, --help        Show this message and exit
@@ -21,7 +21,7 @@ EOF
 }
 
 namespace=""
-release="mas-iam-sample"
+release="mas-est-iam"
 force=false
 purge_tls=false
 
@@ -67,7 +67,7 @@ if ! command -v oc >/dev/null 2>&1; then
 fi
 
 if [[ "${force}" == false ]]; then
-  read -r -p "Delete MAS IAM stack '${release}' resources in namespace '${namespace}'? [y/N] " reply
+  read -r -p "Delete MAS EST IAM stack '${release}' resources in namespace '${namespace}'? [y/N] " reply
   case "${reply}" in
     y|Y|yes|YES)
       ;;
@@ -131,7 +131,7 @@ clear_finalizers() {
   fi
 }
 
-echo "Cleaning MAS IAM stack '${release}' in namespace '${namespace}'"
+echo "Cleaning MAS EST IAM stack '${release}' in namespace '${namespace}'"
 
 # Remove the MasIamStack custom resource first (handles both current and legacy API groups).
 clear_finalizers masiamstacks.iam.mas.ibm.com "${release}"

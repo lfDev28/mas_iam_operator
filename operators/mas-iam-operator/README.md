@@ -1,7 +1,7 @@
-# MAS IAM Operator (Helm-based)
+# MAS EST IAM Operator (Helm-based)
 
 This directory contains a Helm-based operator scaffold generated with
-`operator-sdk` to manage the MAS IAM stack chart.
+`operator-sdk` to manage the MAS EST IAM stack chart.
 
 ## Prerequisites
 
@@ -20,15 +20,15 @@ generates a random truststore password on each run. The password never appears
 in pod logs—retrieve it from the secret instead:
 
 ```bash
-kubectl get secret mas-iam-sample-keycloak-openldap-tls \
-  -n iam -o jsonpath='{.data.truststorePassword}' | base64 -d && echo
+kubectl get secret mas-est-iam-keycloak-openldap-tls \
+  -n mas-est -o jsonpath='{.data.truststorePassword}' | base64 -d && echo
 ```
 
 The helper script remains available if you need to regenerate the secret
 manually or outside the cluster:
 
 ```bash
-./scripts/dev-generate-openldap-tls.sh -n iam -r mas-iam-sample
+./scripts/dev-generate-openldap-tls.sh -n mas-est -r mas-est-iam
 ```
 
 ### TLS bootstrap image
@@ -117,10 +117,10 @@ The chart now requires a pre-created secret referenced by
 `keycloak.bootstrapAdmin.secretName`. Create it before applying the CR:
 
 ```bash
-kubectl create secret generic mas-iam-sample-bootstrap-admin \
+kubectl create secret generic mas-est-iam-bootstrap-admin \
   --from-literal=username=<admin-user> \
   --from-literal=password="$(openssl rand -base64 24)" \
-  -n iam
+  -n mas-est
 ```
 
 > For the dev sample manifest, the secret is created automatically with
@@ -171,7 +171,7 @@ After publishing the manager image, bundle, and catalog, you can install the
 operator with a manifest, then apply the optional sample stack once the CSV is ready.
 
 1. Apply the operator manifest (replace `<org>/<repo>` with this repository
-   path, and substitute `iam` in the manifest if you plan to use a different
+   path, and substitute `mas-est` in the manifest if you plan to use a different
    namespace):
 
    ```bash
@@ -190,7 +190,7 @@ operator with a manifest, then apply the optional sample stack once the CSV is r
 2. Wait for the CSV in the target namespace to report `Succeeded`:
 
    ```bash
-   oc get csv -n iam
+   oc get csv -n mas-est
    ```
 
 3. Apply the optional sample manifest (dev TLS job + example `MasIamStack`) once
@@ -259,7 +259,7 @@ spec:
           -----END CERTIFICATE-----
 EOF
 
-oc patch masiamstack mas-iam-sample -n iam --type merge --patch "$(cat keycloak-route-tls-patch.yaml)"
+oc patch masiamstack mas-est-iam -n mas-est --type merge --patch "$(cat keycloak-route-tls-patch.yaml)"
 ```
 
 Reapply the patch whenever you rotate the certificate. The route will begin
@@ -271,7 +271,7 @@ Use `scripts/reset-namespace.sh` to tear down an environment and start from a
 clean slate (add `--purge-tls` if you want to delete the OpenLDAP TLS secret):
 
 ```bash
-./scripts/reset-namespace.sh --namespace iam --release mas-iam-sample
+./scripts/reset-namespace.sh --namespace mas-est --release mas-est-iam
 ```
 
 Add `--force` to skip the confirmation prompt. The script deletes the
@@ -290,8 +290,8 @@ If you cannot use the helper script, run the equivalent `oc` commands manually
 (adjust `RELEASE`/`NAMESPACE` if you customised them):
 
 ```bash
-NAMESPACE=iam
-RELEASE=mas-iam-sample
+NAMESPACE=mas-est
+RELEASE=mas-est-iam
 
 oc delete masiamstack "${RELEASE}" -n "${NAMESPACE}" --ignore-not-found
 oc delete keycloakstack "${RELEASE}" -n "${NAMESPACE}" --ignore-not-found || true
@@ -328,8 +328,8 @@ Credentials`.
 
 1. Retrieve the password from your OpenLDAP admin secret:
    ```bash
-   oc get secret mas-iam-sample-openldap-admin \
-     -n iam -o jsonpath='{.data.password}' | base64 --decode
+   oc get secret mas-est-iam-openldap-admin \
+     -n mas-est -o jsonpath='{.data.password}' | base64 --decode
    ```
 2. Paste the password into the **Bind credential** field before clicking **Test
    authentication** or saving updates in the console.
@@ -338,7 +338,7 @@ To validate the connection non-interactively, run the helper script (it executes
 `ldapwhoami` inside the OpenLDAP pod and prints the DN returned by the server):
 
 ```bash
-scripts/test-openldap-bind.sh --namespace iam --release mas-iam-sample
+scripts/test-openldap-bind.sh --namespace mas-est --release mas-est-iam
 ```
 
 Override `--base-dn` or `--bind-dn` if you customised the LDAP hierarchy in
@@ -400,14 +400,14 @@ oc image info --filter-by-os=linux/arm64 quay.io/<org>/mas-iam-operator:postgres
 ```
 
 Repeat for the OpenLDAP tag. Once the manifest publishes both architectures,
-redeploy (`oc rollout restart statefulset/mas-iam-sample-postgresql`, etc.) so
+redeploy (`oc rollout restart statefulset/mas-est-iam-postgresql`, etc.) so
 the pods pull the rebuilt images.
 
 ### LDAP auto-config job reruns every minute
 
 When the Helm-based operator reconciles a release it performs `helm upgrade`
 even if no values changed. Helm hooks run on every upgrade, so the
-`mas-iam-sample-ldap-config` job will restart each reconcile unless you disable
+`mas-est-iam-ldap-config` job will restart each reconcile unless you disable
 post-upgrade hooks. Set `keycloak.ldap.autoConfigureOnUpgrade: false` in your
 `MasIamStack` spec (or `values.yaml` when using plain Helm) to keep the job as a
 *post-install* hook only. The job still runs once on the initial install, and

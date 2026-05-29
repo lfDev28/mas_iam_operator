@@ -26,7 +26,7 @@ func newStatusCommand() *cobra.Command {
 
 	command := &cobra.Command{
 		Use:   "status",
-		Short: "Show the current health of MAS IAM components",
+		Short: "Show the current health of MAS EST IAM components",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return opts.run(cmd.Context())
 		},
@@ -59,16 +59,16 @@ func printMASIAMStatus(w io.Writer, ctx context.Context, client *oc.Client, name
 	operator, err := client.Deployment(ctx, namespace, "mas-iam-operator-controller-manager")
 	printStatusLine(w, "Operator controller", err, deploymentSummary(operator))
 
-	keycloak, err := client.Deployment(ctx, namespace, "mas-iam-sample")
+	keycloak, err := client.Deployment(ctx, namespace, "mas-est-iam")
 	printStatusLine(w, "IAM core", err, deploymentSummary(keycloak))
 
-	openldap, err := client.Deployment(ctx, namespace, "mas-iam-sample-openldap")
+	openldap, err := client.Deployment(ctx, namespace, "mas-est-iam-openldap")
 	printStatusLine(w, "OpenLDAP", err, deploymentSummary(openldap))
 	if err == nil {
-		fmt.Fprintf(w, "LDAP details: mas-iam ldap-info --namespace %s\n", namespace)
+		fmt.Fprintf(w, "LDAP details: mas-est ldap-info --namespace %s\n", namespace)
 	}
 
-	postgres, err := client.Pod(ctx, namespace, "mas-iam-sample-postgresql-0")
+	postgres, err := client.Pod(ctx, namespace, "mas-est-iam-postgresql-0")
 	printStatusLine(w, "PostgreSQL", err, podSummary(postgres))
 
 	bridge, err := client.Deployment(ctx, namespace, "scim-bridge")
@@ -80,11 +80,11 @@ func printMASIAMStatus(w io.Writer, ctx context.Context, client *oc.Client, name
 		missingNote string
 	}{
 		{
-			name:        "mas-iam-sample-generate-openldap-tls",
+			name:        "mas-est-iam-generate-openldap-tls",
 			missingNote: "ttl-cleaned after completion",
 		},
 		{
-			name: "mas-iam-sample-ldap-config",
+			name: "mas-est-iam-ldap-config",
 		},
 		{
 			name:        "scim-bridge-keycloak-bootstrap",

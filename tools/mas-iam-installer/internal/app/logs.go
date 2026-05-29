@@ -29,7 +29,7 @@ func newLogsCommand() *cobra.Command {
 
 	command := &cobra.Command{
 		Use:   "logs",
-		Short: "Show logs for MAS IAM components",
+		Short: "Show logs for MAS EST IAM components",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return opts.run(cmd.Context())
 		},
@@ -64,7 +64,7 @@ func (o *logsOptions) componentArgs() ([]string, error) {
 	case "operator":
 		args = append(args, "deployment/mas-iam-operator-controller-manager")
 	case "keycloak":
-		args = append(args, "deployment/mas-iam-sample")
+		args = append(args, "deployment/mas-est-iam")
 	case "bridge":
 		args = append(args, "deployment/scim-bridge")
 	case "profile-bootstrap":

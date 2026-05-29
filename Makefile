@@ -1,5 +1,5 @@
-NAMESPACE            ?= iam
-RELEASE              ?= mas-iam
+NAMESPACE            ?= mas-est
+RELEASE              ?= mas-est-iam
 CHART                ?= charts/mas-iam-stack
 CONTAINER_ENGINE     ?= podman
 KEYCLOAK_BASE_IMAGE  ?= quay.io/keycloak/keycloak:26.0.5

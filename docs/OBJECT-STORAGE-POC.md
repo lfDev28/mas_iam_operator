@@ -32,14 +32,14 @@ The Ceph cluster may report health warnings. Check those before treating PVC or 
 From a logged-in OpenShift shell:
 
 ```bash
-mas-iam object-storage install-minio \
+mas-est object-storage install-minio \
   --mas-instance-id lfmas
 ```
 
 The command derives these defaults:
 
 - MAS core namespace: `mas-<instance-id>-core`
-- MinIO namespace: `mas-external-services`
+- MinIO namespace: `mas-est`
 - MinIO deployment/service name: `mas-minio`
 - PVC storage class: `rook-ceph-block`
 - PVC size: `20Gi`
@@ -52,10 +52,10 @@ The command derives these defaults:
 Use explicit flags when testing a different cluster layout:
 
 ```bash
-mas-iam object-storage install-minio \
+mas-est object-storage install-minio \
   --mas-instance-id lfmas \
   --mas-core-namespace mas-lfmas-core \
-  --namespace mas-external-services \
+  --namespace mas-est \
   --storage-class rook-ceph-block \
   --pvc-size 20Gi \
   --bucket mas-s3-demo
@@ -79,7 +79,7 @@ The command creates or updates:
 MAS is configured to use the internal cluster URL:
 
 ```text
-http://mas-minio.mas-external-services.svc.cluster.local:9000
+http://mas-minio.mas-est.svc.cluster.local:9000
 ```
 
 The external S3 API route is mainly for manual testing from outside the cluster. The Console route is the browser UI for uploading files and managing buckets.
@@ -87,9 +87,9 @@ The external S3 API route is mainly for manual testing from outside the cluster.
 Retrieve the MinIO Console credentials from the root secret:
 
 ```bash
-oc get secret mas-minio-root -n mas-external-services -o jsonpath='{.data.MINIO_ROOT_USER}' | base64 -d
+oc get secret mas-minio-root -n mas-est -o jsonpath='{.data.MINIO_ROOT_USER}' | base64 -d
 echo
-oc get secret mas-minio-root -n mas-external-services -o jsonpath='{.data.MINIO_ROOT_PASSWORD}' | base64 -d
+oc get secret mas-minio-root -n mas-est -o jsonpath='{.data.MINIO_ROOT_PASSWORD}' | base64 -d
 echo
 ```
 
@@ -104,7 +104,7 @@ oc get secret mas-minio-objectstorage-credentials -n mas-lfmas-core
 The older Rook Ceph RGW path remains available for clusters where a Rook object gateway is the thing being tested directly:
 
 ```bash
-mas-iam object-storage install-rook-ceph \
+mas-est object-storage install-rook-ceph \
   --mas-instance-id lfmas
 ```
 
@@ -123,7 +123,7 @@ The command derives these defaults:
 Use explicit flags when testing a different cluster layout:
 
 ```bash
-mas-iam object-storage install-rook-ceph \
+mas-est object-storage install-rook-ceph \
   --mas-instance-id lfmas \
   --mas-core-namespace mas-lfmas-core \
   --rook-namespace rook-ceph \
@@ -161,10 +161,7 @@ Typical follow-on Manage work includes bucket-specific properties such as endpoi
 
 ## Future Installer Direction
 
-This feature is one reason the project may eventually be renamed from an IAM-only tool to something broader, such as:
-
-- `MAS External Services Toolkit`
-- `MAS Open Services Installer`
+This feature now sits under the broader MAS External Services Toolkit direction.
 
 Potential future providers:
 

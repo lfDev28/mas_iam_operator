@@ -15,10 +15,7 @@ import (
 	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/ui"
 )
 
-const (
-	defaultLDAPRelease = "mas-iam-sample"
-	defaultLDAPBaseDN  = "dc=demo,dc=local"
-)
+const defaultLDAPBaseDN = "dc=demo,dc=local"
 
 type ldapInfoOptions struct {
 	namespace         string
@@ -32,7 +29,7 @@ func newLDAPInfoCommand() *cobra.Command {
 	defaults := config.LoadInstallConfigFromEnv()
 	opts := &ldapInfoOptions{
 		namespace: defaults.Namespace,
-		release:   defaultLDAPRelease,
+		release:   config.DefaultIAMRelease,
 		baseDN:    defaultLDAPBaseDN,
 	}
 
@@ -46,7 +43,7 @@ func newLDAPInfoCommand() *cobra.Command {
 
 	flags := command.Flags()
 	flags.StringVar(&opts.namespace, "namespace", opts.namespace, "Target namespace")
-	flags.StringVar(&opts.release, "release", opts.release, "MAS IAM stack release name")
+	flags.StringVar(&opts.release, "release", opts.release, "MAS EST IAM stack release name")
 	flags.StringVar(&opts.baseDN, "base-dn", opts.baseDN, "LDAP base DN")
 	flags.BoolVar(&opts.showPassword, "show-password", false, "Print the LDAP admin bind password")
 	flags.BoolVar(&opts.showUserPasswords, "show-user-passwords", false, "Print seeded demo user passwords")
@@ -63,7 +60,7 @@ func (o *ldapInfoOptions) run(ctx context.Context) error {
 
 	release := strings.TrimSpace(o.release)
 	if release == "" {
-		release = defaultLDAPRelease
+		release = config.DefaultIAMRelease
 	}
 	namespace := strings.TrimSpace(o.namespace)
 	if namespace == "" {

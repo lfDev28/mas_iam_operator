@@ -12,7 +12,7 @@ Usage: status-all-in-one.sh [--namespace <ns>]
 EOF
 }
 
-NAMESPACE="${TARGET_NAMESPACE:-iam}"
+NAMESPACE="${TARGET_NAMESPACE:-mas-est}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -118,18 +118,18 @@ if [[ -n "${csv_name}" ]]; then
   csv_phase="$(oc get csv -n "${NAMESPACE}" "${csv_name}" -o jsonpath='{.status.phase}' 2>/dev/null || true)"
   log_result "operator_csv=${csv_name} phase=${csv_phase:-Unknown}"
 else
-  log_warn "MAS IAM operator CSV not found in namespace ${NAMESPACE}"
+  log_warn "MAS EST IAM operator CSV not found in namespace ${NAMESPACE}"
 fi
 
 report_deployment_status "mas-iam-operator-controller-manager"
-report_deployment_status "mas-iam-sample"
-report_deployment_status "mas-iam-sample-openldap"
+report_deployment_status "mas-est-iam"
+report_deployment_status "mas-est-iam-openldap"
 report_deployment_status "scim-bridge"
 
-report_pod_status "mas-iam-sample-postgresql-0"
+report_pod_status "mas-est-iam-postgresql-0"
 
-report_job_status "mas-iam-sample-generate-openldap-tls" "ttl-cleaned after completion"
-report_job_status "mas-iam-sample-ldap-config"
+report_job_status "mas-est-iam-generate-openldap-tls" "ttl-cleaned after completion"
+report_job_status "mas-est-iam-ldap-config"
 report_job_status "scim-bridge-keycloak-bootstrap" "not created when keycloak bootstrap mode=script"
 report_job_status "scim-bridge-keycloak-route-cert" "not created when route cert automation is disabled"
 report_job_status "scim-bridge-mas-profile-bootstrap"

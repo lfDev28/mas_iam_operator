@@ -8,7 +8,7 @@ metadata:
           "apiVersion": "iam.mas.ibm.com/v1alpha1",
           "kind": "MasIamStack",
           "metadata": {
-            "name": "mas-iam-sample"
+            "name": "mas-est-iam"
           },
           "spec": {
             "keycloak": {
@@ -18,7 +18,7 @@ metadata:
               "bootstrapAdmin": {
                 "createSecret": false,
                 "passwordKey": "password",
-                "secretName": "mas-iam-sample-bootstrap-admin",
+                "secretName": "mas-est-iam-bootstrap-admin",
                 "username": "admin",
                 "usernameKey": "username"
               },
@@ -54,7 +54,7 @@ metadata:
                 "autoConfigureOnUpgrade": false,
                 "baseDn": "dc=demo,dc=local",
                 "bindCredentialKey": "password",
-                "bindCredentialSecret": "mas-iam-sample-openldap-admin",
+                "bindCredentialSecret": "mas-est-iam-openldap-admin",
                 "bindDn": "cn=admin,dc=demo,dc=local",
                 "cachePolicy": "DEFAULT",
                 "changedSyncPeriod": 600,
@@ -70,7 +70,7 @@ metadata:
                 "syncPeriod": 3600,
                 "tls": {
                   "caBundleKey": "ca.crt",
-                  "caSecret": "mas-iam-sample-keycloak-openldap-tls",
+                  "caSecret": "mas-est-iam-keycloak-openldap-tls",
                   "enabled": true,
                   "hostnameVerificationPolicy": "ANY",
                   "truststoreFile": "ldap-truststore.p12",
@@ -121,7 +121,7 @@ metadata:
                 "configPasswordKey": "configPassword",
                 "createSecret": false,
                 "passwordKey": "password",
-                "secretName": "mas-iam-sample-openldap-admin"
+                "secretName": "mas-est-iam-openldap-admin"
               },
               "affinity": {},
               "config": {
@@ -199,14 +199,14 @@ metadata:
                 "enabled": true,
                 "enforce": false,
                 "privateKeyKey": "tls.key",
-                "secretName": "mas-iam-sample-keycloak-openldap-tls",
+                "secretName": "mas-est-iam-keycloak-openldap-tls",
                 "truststoreKey": "ldap-truststore.p12",
                 "truststorePasswordKey": "truststorePassword"
               },
               "tolerations": [],
               "userPasswords": {
                 "createSecret": false,
-                "secretName": "mas-iam-sample-openldap-user-passwords"
+                "secretName": "mas-est-iam-openldap-user-passwords"
               }
             },
             "postgresql": {
@@ -224,7 +224,7 @@ metadata:
               "auth": {
                 "database": "keycloak",
                 "enablePostgresUser": true,
-                "existingSecret": "mas-iam-sample-postgresql",
+                "existingSecret": "mas-est-iam-postgresql",
                 "replicationUsername": "",
                 "secretKeys": {
                   "adminPasswordKey": "postgres-password",

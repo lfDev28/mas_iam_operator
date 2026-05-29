@@ -77,18 +77,18 @@ func TestObjectStorageDefaultAndValidateDerivesInstanceID(t *testing.T) {
 
 func TestMinIOInternalEndpointURL(t *testing.T) {
 	opts := &minioInstallOptions{
-		namespace: "mas-external-services",
+		namespace: "mas-est",
 		name:      "mas-minio",
 	}
 
-	if got := opts.internalEndpointURL(); got != "http://mas-minio.mas-external-services.svc.cluster.local:9000" {
+	if got := opts.internalEndpointURL(); got != "http://mas-minio.mas-est.svc.cluster.local:9000" {
 		t.Fatalf("internalEndpointURL() = %q", got)
 	}
 }
 
 func TestMinIORoutesUseSeparateServicePorts(t *testing.T) {
 	opts := &minioInstallOptions{
-		namespace: "mas-external-services",
+		namespace: "mas-est",
 		name:      "mas-minio",
 	}
 

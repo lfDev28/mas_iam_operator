@@ -1,6 +1,6 @@
-# MAS IAM Internal Team Note
+# MAS External Services Toolkit Internal Team Note
 
-This is the short internal note I want the team to use for the first rollout of `mas-iam`.
+This is the short internal note I want the team to use for the first rollout of `mas-est`.
 
 ## Why I Built It
 
@@ -14,11 +14,11 @@ For support work, that usually means we need some mix of the following in place 
 - certificates and trust wiring between the components
 - demo users and other seed data
 
-We were effectively rebuilding that setup by hand too often. `mas-iam` exists to turn that into one repeatable path.
+We were effectively rebuilding that setup by hand too often. `mas-est` exists to turn that into one repeatable path.
 
 ## What This Tool Is
 
-`mas-iam` is an all-in-one helper for standing up a working MAS IAM plus SCIM bridge setup on OpenShift.
+`mas-est` is an all-in-one helper for standing up a working MAS External Services Toolkit plus SCIM bridge setup on OpenShift.
 
 In practical terms, it gives us a quick way to stand up:
 
@@ -56,7 +56,7 @@ That is enough for an internal team rollout. I would still treat it as something
 
 ## What I Want It Used For
 
-Use `mas-iam` when you need to get up and running quickly for IAM cases, especially:
+Use `mas-est` when you need to get up and running quickly for IAM cases, especially:
 
 - reproducing SCIM issues
 - reproducing generic user lifecycle issues
@@ -84,7 +84,7 @@ Keycloak is not Entra, but it is a good open-source stand-in for the kinds of fl
 - SCIM provisioning into MAS
 - certificate and trust chain behavior
 
-That means we can use `mas-iam` to answer questions like:
+That means we can use `mas-est` to answer questions like:
 
 - can MAS consume the user correctly at all?
 - does the SCIM update behave as expected?
@@ -105,17 +105,17 @@ It also has clear limits:
 - it does not model every Entra-specific attribute mapping or provisioning expression
 - it does not prove behaviour that is unique to a customer's exact IdP product or tenant configuration
 
-So if the problem is tied to an IdP-specific feature, we still need to validate that in the customer flow itself. `mas-iam` helps us narrow the problem space, not replace customer-specific testing.
+So if the problem is tied to an IdP-specific feature, we still need to validate that in the customer flow itself. `mas-est` helps us narrow the problem space, not replace customer-specific testing.
 
 ## How The Team Should Use It
 
 The supported flow is:
 
-1. bootstrap the local `mas-iam` command from the container image
-2. run `mas-iam preflight`
-3. run `mas-iam install`
-4. use `mas-iam status` and `mas-iam logs` for checks
-5. use `mas-iam wipe` when you want to reset and rerun
+1. bootstrap the local `mas-est` command from the container image
+2. run `mas-est preflight`
+3. run `mas-est install`
+4. use `mas-est status` and `mas-est logs` for checks
+5. use `mas-est wipe` when you want to reset and rerun
 
 The full install steps are in:
 
@@ -147,7 +147,7 @@ The way I would frame this internally is:
 - not a claim that we emulate Entra feature-for-feature
 - not a claim that every SAML or SCIM issue can be reproduced without the customer's own IdP
 
-If a case depends on Entra-only behavior, proprietary provisioning expressions, or tenant-specific policy, we should expect to use `mas-iam` for partial reproduction and isolation, not as the final proof by itself.
+If a case depends on Entra-only behavior, proprietary provisioning expressions, or tenant-specific policy, we should expect to use `mas-est` for partial reproduction and isolation, not as the final proof by itself.
 
 ## Known Reality
 
@@ -167,11 +167,11 @@ Please capture:
 ```bash
 oc whoami
 oc whoami --show-server
-mas-iam preflight
-mas-iam status --namespace iam
-mas-iam logs --namespace iam --component operator
-mas-iam logs --namespace iam --component keycloak
-mas-iam logs --namespace iam --component bridge
+mas-est preflight
+mas-est status --namespace mas-est
+mas-est logs --namespace mas-est --component operator
+mas-est logs --namespace mas-est --component keycloak
+mas-est logs --namespace mas-est --component bridge
 ```
 
 That is usually enough for me to tell whether the issue is:

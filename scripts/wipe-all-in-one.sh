@@ -17,7 +17,7 @@ Optional environment variables for MAS profile deletion:
 EOF
 }
 
-NAMESPACE="iam"
+NAMESPACE="mas-est"
 PROFILE_ID="${SCIM_BRIDGE_MAS_PROFILE_ID:-demo}"
 SKIP_PROFILE_DELETE=false
 
