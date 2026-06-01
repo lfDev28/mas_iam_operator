@@ -17,7 +17,7 @@ Required environment variables:
   SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WORKSPACE_ID
 
 Optional environment variables:
-  SCIM_BRIDGE_IMAGE (default: quay.io/lee_forster/mas-iam-scim-bridge:scim-bridge-v0.1.0)
+  SCIM_BRIDGE_IMAGE (default: quay.io/lee_forster/mas-iam-scim-bridge:scim-bridge-v0.1.1)
   SCIM_BRIDGE_MAS_PROFILE_ID (default: demo)
   SCIM_BRIDGE_KEYCLOAK_CLIENT_ID (default: scim-admin)
   SCIM_BRIDGE_KEYCLOAK_CLIENT_SECRET (default: maxadmin)
@@ -110,7 +110,7 @@ wait_for_namespaced_resource job mas-est-iam-ldap-config "${NAMESPACE}" 1200
 oc wait --for=condition=complete -n "${NAMESPACE}" job/mas-est-iam-ldap-config --timeout=20m
 
 log_install "deploying SCIM bridge"
-SCIM_BRIDGE_IMAGE="${SCIM_BRIDGE_IMAGE:-quay.io/lee_forster/mas-iam-scim-bridge:scim-bridge-v0.1.0}"
+SCIM_BRIDGE_IMAGE="${SCIM_BRIDGE_IMAGE:-quay.io/lee_forster/mas-iam-scim-bridge:scim-bridge-v0.1.1}"
 SCIM_BRIDGE_KEYCLOAK_CLIENT_ID="${SCIM_BRIDGE_KEYCLOAK_CLIENT_ID:-scim-admin}"
 SCIM_BRIDGE_KEYCLOAK_CLIENT_SECRET="${SCIM_BRIDGE_KEYCLOAK_CLIENT_SECRET:-maxadmin}"
 SCIM_BRIDGE_KEYCLOAK_REALM="${SCIM_BRIDGE_KEYCLOAK_REALM:-maximo}"

@@ -9,7 +9,7 @@ The supported delivery model is:
 
 Current published image:
 
-- `quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.6`
+- `quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.7`
 
 The CLI wraps the repo's hardened shell install engine. It does not replace it.
 
@@ -23,6 +23,8 @@ The CLI wraps the repo's hardened shell install engine. It does not replace it.
 - `support-bundle`
 - `config view`
 - `config set mas-api-token`
+- `config set bridge`
+- `restart bridge`
 - `object-storage install-minio` (experimental)
 - `object-storage install-rook-ceph` (experimental)
 - `logs`
@@ -34,7 +36,7 @@ The CLI wraps the repo's hardened shell install engine. It does not replace it.
 Set the image once:
 
 ```bash
-export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.6'
+export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.7'
 ```
 
 Bootstrap the host command:
@@ -56,6 +58,8 @@ mas-est status --namespace mas-est
 mas-est support-bundle --namespace mas-est
 mas-est config view --namespace mas-est
 mas-est config set mas-api-token --namespace mas-est --token-name '<token-name>' --token-value '<token-value>'
+mas-est config set bridge --namespace mas-est --log-level debug --payload-logging true
+mas-est restart bridge --namespace mas-est
 mas-est object-storage install-minio --mas-instance-id '<instance-id>'
 mas-est ldap-info --namespace mas-est
 mas-est logs --namespace mas-est --component bridge

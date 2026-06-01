@@ -56,6 +56,8 @@ func run(ctx context.Context, args []string) error {
 	fs.StringVar(&cfg.Bridge.StatePath, "bridge-state-path", cfg.Bridge.StatePath, "Path to correlation state file (filesystem backend)")
 	fs.BoolVar(&cfg.Bridge.DryRun, "bridge-dry-run", cfg.Bridge.DryRun, "If true, skip MAS API calls and only log actions")
 	fs.BoolVar(&cfg.Bridge.AllowUpdates, "bridge-allow-updates", cfg.Bridge.AllowUpdates, "Allow MAS updates; when false, updates are logged as skipped")
+	fs.StringVar(&cfg.Bridge.LogLevel, "bridge-log-level", cfg.Bridge.LogLevel, "Bridge log level: debug, info, warn, or error")
+	fs.BoolVar(&cfg.Bridge.PayloadLogging, "bridge-payload-logging", cfg.Bridge.PayloadLogging, "Log redacted outbound SCIM payloads (support/debug only)")
 
 	includeUsernames := strings.Join(cfg.Bridge.IncludeUsernames, ",")
 	includePrefix := cfg.Bridge.IncludeUsernamePrefix

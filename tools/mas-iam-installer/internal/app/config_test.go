@@ -102,6 +102,39 @@ func TestMASAPITokenSecretMergePatchPreservesOtherKeysByOnlyTargetingTokenKeys(t
 	}
 }
 
+func TestConfigMapMergePatchOnlyTargetsProvidedBridgeKeys(t *testing.T) {
+	patch, err := configMapMergePatch(map[string]string{
+		bridgeLogLevelKey:   "debug",
+		bridgePayloadLogKey: "true",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var payload struct {
+		Data map[string]string `json:"data"`
+	}
+	if err := json.Unmarshal(patch, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Data) != 2 {
+		t.Fatalf("patch should only include bridge keys, got: %#v", payload.Data)
+	}
+	if payload.Data[bridgeLogLevelKey] != "debug" {
+		t.Fatalf("log level = %q, want debug", payload.Data[bridgeLogLevelKey])
+	}
+	if payload.Data[bridgePayloadLogKey] != "true" {
+		t.Fatalf("payload logging = %q, want true", payload.Data[bridgePayloadLogKey])
+	}
+}
+
+func TestSortedMapKeys(t *testing.T) {
+	keys := sortedMapKeys(map[string]string{"b": "2", "a": "1"})
+	if strings.Join(keys, ",") != "a,b" {
+		t.Fatalf("sortedMapKeys() = %#v", keys)
+	}
+}
+
 func decodeTestSecretValue(t *testing.T, encoded string) string {
 	t.Helper()
 	raw, err := base64.StdEncoding.DecodeString(encoded)

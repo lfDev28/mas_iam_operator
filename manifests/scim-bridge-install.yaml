@@ -29,6 +29,8 @@ data:
   SCIM_BRIDGE_BRIDGE_STATE_PATH: "/var/lib/scim-bridge/state.json"
   SCIM_BRIDGE_BRIDGE_ALLOW_UPDATES: "true"
   SCIM_BRIDGE_BRIDGE_DRY_RUN: "false"
+  SCIM_BRIDGE_BRIDGE_LOG_LEVEL: "info"
+  SCIM_BRIDGE_BRIDGE_PAYLOAD_LOGGING: "false"
   SCIM_BRIDGE_INCLUDE_USERNAMES: ""
   SCIM_BRIDGE_INCLUDE_USERNAME_PREFIX: ""
 ---
@@ -81,7 +83,7 @@ spec:
 
       containers:
         - name: scim-bridge
-          image: "quay.io/lee_forster/mas-iam-scim-bridge:scim-bridge-v0.1.0"
+          image: "quay.io/lee_forster/mas-iam-scim-bridge:scim-bridge-v0.1.1"
           imagePullPolicy: Always
           args:
             - "--bridge-mode=poll"

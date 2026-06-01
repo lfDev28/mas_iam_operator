@@ -41,6 +41,7 @@ type MASConfig struct {
 	APITokenName        string
 	APITokenValue       string
 	InsecureSkipVerify  bool
+	PayloadLogging      bool
 }
 
 // BridgeConfig tunes runtime behavior for the reconciler.
@@ -53,6 +54,8 @@ type BridgeConfig struct {
 	AllowUpdates          bool
 	IncludeUsernames      []string
 	IncludeUsernamePrefix string
+	LogLevel              string
+	PayloadLogging        bool
 }
 
 // DefaultSettings seeds sane defaults for the CLI/env overrides.
@@ -75,6 +78,8 @@ func DefaultSettings() Settings {
 			AllowUpdates:          true,
 			IncludeUsernames:      nil,
 			IncludeUsernamePrefix: "",
+			LogLevel:              "info",
+			PayloadLogging:        false,
 		},
 	}
 }
@@ -150,6 +155,11 @@ func ApplyEnvOverrides(cfg *Settings) error {
 			cfg.Bridge.AllowUpdates = !(v == "0" || strings.EqualFold(v, "false"))
 			return nil
 		}},
+		{envName("BRIDGE_LOG_LEVEL"), func(v string) error { cfg.Bridge.LogLevel = strings.ToLower(strings.TrimSpace(v)); return nil }},
+		{envName("BRIDGE_PAYLOAD_LOGGING"), func(v string) error {
+			cfg.Bridge.PayloadLogging = v == "1" || strings.EqualFold(v, "true")
+			return nil
+		}},
 		{envName("INCLUDE_USERNAMES"), func(v string) error { cfg.Bridge.IncludeUsernames = ParseList(v); return nil }},
 		{envName("INCLUDE_USERNAME_PREFIX"), func(v string) error { cfg.Bridge.IncludeUsernamePrefix = v; return nil }},
 	}
@@ -213,6 +223,11 @@ func (s Settings) Validate() error {
 	case "memory", "filesystem", "postgresql":
 	default:
 		return fmt.Errorf("state backend must be memory, filesystem, or postgresql")
+	}
+	switch s.Bridge.LogLevel {
+	case "debug", "info", "warn", "error":
+	default:
+		return fmt.Errorf("bridge log level must be debug, info, warn, or error")
 	}
 	if s.Bridge.StateBackend == "filesystem" && s.Bridge.StatePath == "" {
 		return fmt.Errorf("bridge.state_path is required when state backend is filesystem")

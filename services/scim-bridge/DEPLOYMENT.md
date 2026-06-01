@@ -123,6 +123,8 @@ The Deployment includes a small sidecar container named `state-tools` with a hel
 
 - `SCIM_BRIDGE_BRIDGE_POLL_INTERVAL` / `--bridge-poll-interval` accepts standard Go durations (e.g., `30s`, `1m`, `5m`). Recommended: dev 30–60s; prod 5–10m.
 - `SCIM_BRIDGE_BRIDGE_MODE=run-once` performs a single reconciliation pass and exits (non-zero on critical errors). Useful for cron-driven backfills; omit in long-running deployments to keep polling.
+- `SCIM_BRIDGE_BRIDGE_LOG_LEVEL=debug` increases bridge-side diagnostics. Use `info` for normal operation.
+- `SCIM_BRIDGE_BRIDGE_PAYLOAD_LOGGING=true` logs redacted outbound MAS SCIM payloads for short support windows. The redaction is best-effort and logs can still contain identity data such as usernames and email addresses.
 
 ### State backfill mode
 

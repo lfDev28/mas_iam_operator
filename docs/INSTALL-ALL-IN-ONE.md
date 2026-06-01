@@ -45,7 +45,7 @@ The beta has been tested on a small number of clusters, but it cannot cover ever
 Set the image:
 
 ```bash
-export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.6'
+export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.7'
 ```
 
 Bootstrap the local command:
@@ -318,7 +318,25 @@ secret/scim-bridge-secret
 After editing either object, restart the bridge:
 
 ```bash
-oc rollout restart deployment/scim-bridge -n mas-est
+mas-est restart bridge --namespace mas-est
+```
+
+To enable bridge debug logging without reinstalling:
+
+```bash
+mas-est config set bridge --namespace mas-est --log-level debug
+```
+
+Payload logging is disabled by default. Only enable it for support debugging:
+
+```bash
+mas-est config set bridge --namespace mas-est --payload-logging true
+```
+
+Payload logs are redacted on a best-effort basis, but they can still contain customer-sensitive identity data such as usernames, names, and email addresses. Disable it after collecting evidence:
+
+```bash
+mas-est config set bridge --namespace mas-est --log-level info --payload-logging false
 ```
 
 Common editable values in `scim-bridge-config`:
@@ -332,6 +350,8 @@ Common editable values in `scim-bridge-config`:
 | `SCIM_BRIDGE_BRIDGE_POLL_INTERVAL` | bridge poll interval, for example `5m` | yes |
 | `SCIM_BRIDGE_BRIDGE_ALLOW_UPDATES` | allow updates to existing users | yes |
 | `SCIM_BRIDGE_BRIDGE_DRY_RUN` | plan without writing changes | yes |
+| `SCIM_BRIDGE_BRIDGE_LOG_LEVEL` | bridge logging level: `debug`, `info`, `warn`, or `error` | yes |
+| `SCIM_BRIDGE_BRIDGE_PAYLOAD_LOGGING` | redacted outbound MAS SCIM payload logging for support debugging | yes |
 | `SCIM_BRIDGE_INCLUDE_USERNAMES` | optional comma-separated allow list | yes |
 | `SCIM_BRIDGE_INCLUDE_USERNAME_PREFIX` | optional username prefix filter | yes |
 
@@ -495,7 +515,7 @@ Review customer-sensitive hostnames and identifiers before sharing outside the t
 
 Likely post-beta work:
 
-- continued tagged beta/release images after `v0.1.0-beta.6`
+- continued tagged beta/release images after `v0.1.0-beta.7`
 - CLI-backed config editing and token rotation
 - better bridge sync summaries and diagnostics
 - safer reconciliation for existing MAS users

@@ -76,6 +76,8 @@ oc process -f https://raw.githubusercontent.com/<org>/<repo>/main/manifests/scim
 | `--bridge-state-path` | `SCIM_BRIDGE_BRIDGE_STATE_PATH` | File to persist correlations when backend=`filesystem`. |
 | `--bridge-dry-run` | `SCIM_BRIDGE_BRIDGE_DRY_RUN` | Skip MAS HTTP calls, only log + store simulated IDs (default `true`). |
 | `--bridge-allow-updates` | `SCIM_BRIDGE_BRIDGE_ALLOW_UPDATES` | When `false`, log update attempts as “updates disabled” and skip MAS PUTs (creates still run). |
+| `--bridge-log-level` | `SCIM_BRIDGE_BRIDGE_LOG_LEVEL` | `debug`, `info`, `warn`, or `error` (default `info`). |
+| `--bridge-payload-logging` | `SCIM_BRIDGE_BRIDGE_PAYLOAD_LOGGING` | Logs redacted outbound MAS SCIM payloads for support debugging. Keep disabled by default. |
 | `--include-usernames` | `SCIM_BRIDGE_INCLUDE_USERNAMES` | Optional comma-separated allowlist of usernames to reconcile. |
 | `--include-username-prefix` | `SCIM_BRIDGE_INCLUDE_USERNAME_PREFIX` | Optional prefix filter applied to Keycloak usernames; combined with `--include-usernames` when both are set. |
 

@@ -69,7 +69,7 @@ Start here:
 Short version:
 
 ```bash
-export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.6'
+export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.7'
 
 mkdir -p "$HOME/mas-est"
 podman run -ti --rm -v "$HOME/mas-est:/tmp" --pull always "$MAS_EST_IMAGE"
@@ -122,7 +122,7 @@ The near-term plan is:
 2. keep the supported install surface focused on `mas-est preflight`, `install`, `status`, `logs`, `ldap-info`, and `uninstall`
 3. collect real cluster failures and fix them as beta bug reports
 4. tighten docs from real user feedback
-5. publish immutable beta/release image tags, starting with `v0.1.0-beta.6`
+5. publish immutable beta/release image tags, starting with `v0.1.0-beta.7`
 
 Post-beta work is tracked in [docs/INITIAL-RELEASE-PLAN.md](docs/INITIAL-RELEASE-PLAN.md) and [specs/post-beta-roadmap.md](specs/post-beta-roadmap.md). The strongest next candidates are API key/config update workflows, support bundle collection, better diagnostics, and group-based profile routing.
 
