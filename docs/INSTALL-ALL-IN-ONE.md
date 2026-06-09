@@ -45,7 +45,7 @@ The beta has been tested on a small number of clusters, but it cannot cover ever
 Set the image:
 
 ```bash
-export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.7'
+export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.9'
 ```
 
 Bootstrap the local command:
@@ -88,13 +88,13 @@ mas-est install
 
 The installer prompts for:
 
-- MAS SCIM base URL
-- MAS API token name
-- MAS API token value
-- MAS workspace ID
-- MAS profile ID
-- PostgreSQL storage class
-- SCIM bridge storage class
+- products to install: LDAP, Keycloak, SCIM bridge, S3 object storage, and/or SMTP capture
+- MAS SCIM base URL, API token, workspace ID, and profile ID when SCIM is selected
+- MAS instance/core namespace when S3 object storage is selected
+- primary storage class for Keycloak PostgreSQL and/or MinIO
+- SCIM bridge storage class when SCIM is selected
+
+Selecting SCIM automatically includes Keycloak and LDAP. Selecting Keycloak automatically includes LDAP. LDAP-only installs are supported through the same operator profile without deploying Keycloak or PostgreSQL.
 
 The MAS SCIM base URL must include `/scim/v2`:
 
@@ -114,6 +114,7 @@ export SCIM_BRIDGE_MAS_API_TOKEN_NAME='<mas-api-token-name>'
 export SCIM_BRIDGE_MAS_API_TOKEN_VALUE='<mas-api-token-value>'
 export SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WORKSPACE_ID='<workspace-id>'
 export SCIM_BRIDGE_MAS_PROFILE_ID='demo'
+export MAS_EST_COMPONENTS='ldap,keycloak,scim'
 export POSTGRES_STORAGE_CLASS='<rbd-storage-class>'
 export SCIM_BRIDGE_STORAGE_CLASS='<rbd-storage-class>'
 
@@ -125,6 +126,7 @@ Equivalent install flags:
 ```bash
 mas-est install \
   --non-interactive \
+  --components ldap,keycloak,scim \
   --mas-base-url 'https://api.<mas-host>/scim/v2' \
   --mas-api-token-name '<mas-api-token-name>' \
   --mas-api-token-value '<mas-api-token-value>' \
@@ -133,6 +135,40 @@ mas-est install \
   --storage-class '<rbd-storage-class>' \
   --scim-bridge-storage-class '<rbd-storage-class>'
 ```
+
+Other component examples:
+
+```bash
+mas-est install --components ldap --non-interactive
+mas-est install --components ldap,keycloak --non-interactive
+mas-est install --components s3 --mas-instance-id '<instance-id>' --non-interactive
+mas-est install --components smtp --non-interactive
+mas-est install --components ldap,keycloak,scim,s3,smtp --mas-instance-id '<instance-id>' --non-interactive
+```
+
+For S3/MinIO lab testing, use these Manage cron or doclinks values after install:
+
+```text
+Endpoint URL: http://mas-est.svc.cluster.local:9000
+Bucket: mas-s3-demo
+Region: us-east-1
+Access key: value from MAS credential secret key username
+Secret key: value from MAS credential secret key password
+```
+
+The installer creates both Manage bucket layouts: sibling buckets (`mas-s3-demo`, `mas-s3-demorecovery`, `mas-s3-demobackup`) and root prefixes (`recovery/`, `backup/`). The external HTTPS MinIO route is mainly for browser/manual testing and may require additional certificate trust before Manage can use it.
+
+For SMTP lab testing, the installer deploys Mailpit as a capture-only SMTP server. Use these MAS SMTP values after install:
+
+```text
+Display name: MAS EST SMTP Capture
+SMTP host: mas-mailpit.mas-est.svc.cluster.local
+SMTP port: 1025
+TLS/security: disabled
+Authentication: none
+```
+
+Open the Mailpit route printed by the installer to inspect captured messages. Mailpit does not relay messages externally; it stores them in the browser UI for testing MAS notification flows.
 
 ## Check Health
 
@@ -150,6 +186,9 @@ mas-est logs --namespace mas-est --component operator
 mas-est logs --namespace mas-est --component keycloak
 mas-est logs --namespace mas-est --component bridge
 mas-est logs --namespace mas-est --component profile-bootstrap
+mas-est logs --namespace mas-est --component minio
+mas-est logs --namespace mas-est --component minio-init
+mas-est logs --namespace mas-est --component smtp
 ```
 
 A healthy install should show:
@@ -161,6 +200,8 @@ A healthy install should show:
 - `statefulset/mas-est-iam-postgresql` ready
 - `deployment/scim-bridge` ready
 - `job/scim-bridge-mas-profile-bootstrap` complete
+- optional `deployment/mas-minio` ready when S3 is selected
+- optional `deployment/mas-mailpit` ready when SMTP is selected
 - PostgreSQL PVC bound
 - `pvc/scim-bridge-state` bound
 
@@ -515,7 +556,7 @@ Review customer-sensitive hostnames and identifiers before sharing outside the t
 
 Likely post-beta work:
 
-- continued tagged beta/release images after `v0.1.0-beta.7`
+- continued tagged beta/release images after `v0.1.0-beta.9`
 - CLI-backed config editing and token rotation
 - better bridge sync summaries and diagnostics
 - safer reconciliation for existing MAS users

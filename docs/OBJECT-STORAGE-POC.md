@@ -48,6 +48,7 @@ The command derives these defaults:
 - external MinIO Console route: `mas-minio-console.<default OpenShift apps domain>`
 - MAS credential secret: `mas-minio-objectstorage-credentials`
 - MAS ObjectStorageCfg: `ibm-mas-<instance-id>-objectstoragecfg-system`
+- Manage endpoint URL: `http://mas-est.svc.cluster.local:9000`
 
 Use explicit flags when testing a different cluster layout:
 
@@ -73,6 +74,7 @@ The command creates or updates:
 - OpenShift route for the S3 API
 - OpenShift route for the MinIO Console UI
 - bucket initialization `Job`
+- Manage-compatible bucket service aliases for virtual-hosted-style S3
 - MAS-compatible credential `Secret` with `username` and `password`
 - MAS `ObjectStorageCfg`
 
@@ -82,7 +84,37 @@ MAS is configured to use the internal cluster URL:
 http://mas-minio.mas-est.svc.cluster.local:9000
 ```
 
+Manage cron tasks and doclinks should use the virtual-host base endpoint:
+
+```text
+http://mas-est.svc.cluster.local:9000
+```
+
+The installer creates both documented Manage bucket layouts:
+
+```text
+mas-s3-demo
+mas-s3-demorecovery
+mas-s3-demobackup
+```
+
+and root-bucket prefixes:
+
+```text
+mas-s3-demo/recovery/
+mas-s3-demo/backup/
+```
+
+It also creates matching Kubernetes service aliases so Manage's AWS SDK can resolve virtual-hosted bucket names such as:
+
+```text
+mas-s3-demo.mas-est.svc.cluster.local
+mas-s3-demorecovery.mas-est.svc.cluster.local
+mas-s3-demobackup.mas-est.svc.cluster.local
+```
+
 The external S3 API route is mainly for manual testing from outside the cluster. The Console route is the browser UI for uploading files and managing buckets.
+If Manage is pointed at the external HTTPS route, it may fail with PKIX/certificate trust errors unless that route certificate chain is trusted by Manage. The internal HTTP endpoint avoids that trust issue for lab testing.
 
 Retrieve the MinIO Console credentials from the root secret:
 
@@ -158,6 +190,16 @@ MAS validates S3 object storage by calling S3 `list_buckets()` using:
 The current POC only creates the MAS object storage configuration. Manage attachment properties should be configured after the endpoint is verified.
 
 Typical follow-on Manage work includes bucket-specific properties such as endpoint, bucket name, region, access key, secret key, and attachment storage mode.
+
+Recommended Manage test values for MinIO are:
+
+```text
+Endpoint URL: http://mas-est.svc.cluster.local:9000
+Bucket: mas-s3-demo
+Region: us-east-1
+Access key: value from secret key username
+Secret key: value from secret key password
+```
 
 ## Future Installer Direction
 

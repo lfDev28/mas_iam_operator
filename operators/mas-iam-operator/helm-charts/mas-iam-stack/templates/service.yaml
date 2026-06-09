@@ -1,3 +1,4 @@
+{{- if ne (toString .Values.keycloak.enabled) "false" -}}
 apiVersion: v1
 kind: Service
 metadata:
@@ -14,3 +15,4 @@ spec:
       port: 8080
       targetPort: 8080
       protocol: TCP
+{{- end }}

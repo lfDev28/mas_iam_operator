@@ -1,3 +1,4 @@
+{{- if ne (toString .Values.keycloak.enabled) "false" -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -96,3 +97,4 @@ data:
     else
       printf '%s' "$body"
     fi
+{{- end }}

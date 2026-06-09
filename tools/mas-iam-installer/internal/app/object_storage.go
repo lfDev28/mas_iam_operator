@@ -279,7 +279,12 @@ func (o *minioInstallOptions) run(ctx context.Context) error {
 	if err := o.runBucketInitJob(ctx, client); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stdout, "[object-storage] bucket ready: %s\n", o.bucket)
+	fmt.Fprintf(os.Stdout, "[object-storage] Manage buckets ready: %s\n", strings.Join(o.manageBucketNames(), ", "))
+
+	if err := o.enableVirtualHostStyle(ctx, client); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stdout, "[object-storage] MinIO virtual-host routing enabled: %s\n", o.virtualHostDomain())
 
 	details, err := o.bucketDetails(ctx, client)
 	if err != nil {
@@ -445,7 +450,7 @@ func (o *minioInstallOptions) installManifests() []map[string]any {
 	return []map[string]any{
 		minioPVCManifest(o),
 		minioServiceManifest(o),
-		minioDeploymentManifest(o),
+		minioDeploymentManifest(o, false),
 		minioRouteManifest(o, o.name+"-api", o.apiRouteHost, "api"),
 		minioRouteManifest(o, o.name+"-console", o.consoleRouteHost, "console"),
 	}
@@ -494,6 +499,21 @@ func (o *minioInstallOptions) runBucketInitJob(ctx context.Context, client *oc.C
 	return nil
 }
 
+func (o *minioInstallOptions) enableVirtualHostStyle(ctx context.Context, client *oc.Client) error {
+	for _, bucket := range o.manageBucketNames() {
+		if err := applyObjectStorageManifest(ctx, client, minioBucketAliasServiceManifest(o, bucket)); err != nil {
+			return err
+		}
+	}
+	if err := applyObjectStorageManifest(ctx, client, minioDeploymentManifest(o, true)); err != nil {
+		return err
+	}
+	if _, err := client.RolloutStatus(ctx, o.namespace, "deployment/"+o.name, o.timeout.String()); err != nil {
+		return fmt.Errorf("wait for deployment/%s in namespace %s after enabling virtual-host routing: %w", o.name, o.namespace, err)
+	}
+	return nil
+}
+
 func (o *minioInstallOptions) bucketDetails(ctx context.Context, client *oc.Client) (s3BucketDetails, error) {
 	secret, err := client.SecretData(ctx, o.namespace, o.rootSecretName)
 	if err != nil {
@@ -516,6 +536,26 @@ func (o *minioInstallOptions) bucketDetails(ctx context.Context, client *oc.Clie
 
 func (o *minioInstallOptions) internalEndpointURL() string {
 	return fmt.Sprintf("http://%s.%s.svc.cluster.local:9000", o.name, o.namespace)
+}
+
+func (o *minioInstallOptions) adminEndpointURL() string {
+	return fmt.Sprintf("http://%s:9000", o.name)
+}
+
+func (o *minioInstallOptions) manageEndpointURL() string {
+	return fmt.Sprintf("http://%s.svc.cluster.local:9000", o.namespace)
+}
+
+func (o *minioInstallOptions) virtualHostDomain() string {
+	return fmt.Sprintf("%s.svc.cluster.local", o.namespace)
+}
+
+func (o *minioInstallOptions) manageBucketNames() []string {
+	return []string{o.bucket, o.bucket + "recovery", o.bucket + "backup"}
+}
+
+func (o *minioInstallOptions) serviceCompatibilityBucketName() string {
+	return o.name
 }
 
 func (o *objectStorageInstallOptions) waitForBucketDetails(ctx context.Context, client *oc.Client) (s3BucketDetails, error) {
@@ -699,8 +739,11 @@ func (o *minioInstallOptions) printSummary(details s3BucketDetails) {
 	fmt.Fprintln(os.Stdout, "MinIO S3 details")
 	fmt.Fprintf(os.Stdout, "  External S3 API URL: https://%s\n", o.apiRouteHost)
 	fmt.Fprintf(os.Stdout, "  MinIO Console URL: https://%s\n", o.consoleRouteHost)
-	fmt.Fprintf(os.Stdout, "  MAS internal endpoint URL: %s\n", o.internalEndpointURL())
+	fmt.Fprintf(os.Stdout, "  Manage endpoint URL: %s\n", o.manageEndpointURL())
+	fmt.Fprintf(os.Stdout, "  MAS ObjectStorageCfg endpoint URL: %s\n", o.internalEndpointURL())
 	fmt.Fprintf(os.Stdout, "  Bucket: %s\n", details.Bucket)
+	fmt.Fprintf(os.Stdout, "  Manage sibling buckets: %s\n", strings.Join(o.manageBucketNames(), ", "))
+	fmt.Fprintln(os.Stdout, "  Manage root bucket prefixes: recovery/, backup/")
 	fmt.Fprintf(os.Stdout, "  Region: %s\n", details.Region)
 	fmt.Fprintf(os.Stdout, "  MinIO root credential secret: %s/%s keys MINIO_ROOT_USER,MINIO_ROOT_PASSWORD\n", o.namespace, o.rootSecretName)
 	if !o.skipMASConfig {
@@ -843,8 +886,62 @@ func minioServiceManifest(o *minioInstallOptions) map[string]any {
 	}
 }
 
-func minioDeploymentManifest(o *minioInstallOptions) map[string]any {
+func minioBucketAliasServiceManifest(o *minioInstallOptions, bucket string) map[string]any {
+	return map[string]any{
+		"apiVersion": "v1",
+		"kind":       "Service",
+		"metadata": map[string]any{
+			"name":      bucket,
+			"namespace": o.namespace,
+			"labels":    minioLabels(o),
+		},
+		"spec": map[string]any{
+			"type": "ClusterIP",
+			"selector": map[string]string{
+				"app.kubernetes.io/instance": o.name,
+				"app.kubernetes.io/name":     "minio",
+			},
+			"ports": []map[string]any{
+				{
+					"name":       "api",
+					"port":       9000,
+					"protocol":   "TCP",
+					"targetPort": 9000,
+				},
+			},
+		},
+	}
+}
+
+func minioDeploymentManifest(o *minioInstallOptions, enableVirtualHostStyle bool) map[string]any {
 	labels := minioLabels(o)
+	env := []map[string]any{
+		{
+			"name": "MINIO_ROOT_USER",
+			"valueFrom": map[string]any{
+				"secretKeyRef": map[string]string{
+					"name": o.rootSecretName,
+					"key":  "MINIO_ROOT_USER",
+				},
+			},
+		},
+		{
+			"name": "MINIO_ROOT_PASSWORD",
+			"valueFrom": map[string]any{
+				"secretKeyRef": map[string]string{
+					"name": o.rootSecretName,
+					"key":  "MINIO_ROOT_PASSWORD",
+				},
+			},
+		},
+	}
+	if enableVirtualHostStyle {
+		env = append(env, map[string]any{
+			"name":  "MINIO_DOMAIN",
+			"value": o.virtualHostDomain(),
+		})
+	}
+
 	return map[string]any{
 		"apiVersion": "apps/v1",
 		"kind":       "Deployment",
@@ -871,26 +968,7 @@ func minioDeploymentManifest(o *minioInstallOptions) map[string]any {
 							"name":  "minio",
 							"image": o.image,
 							"args":  []string{"server", "/data", "--console-address", ":9001"},
-							"env": []map[string]any{
-								{
-									"name": "MINIO_ROOT_USER",
-									"valueFrom": map[string]any{
-										"secretKeyRef": map[string]string{
-											"name": o.rootSecretName,
-											"key":  "MINIO_ROOT_USER",
-										},
-									},
-								},
-								{
-									"name": "MINIO_ROOT_PASSWORD",
-									"valueFrom": map[string]any{
-										"secretKeyRef": map[string]string{
-											"name": o.rootSecretName,
-											"key":  "MINIO_ROOT_PASSWORD",
-										},
-									},
-								},
-							},
+							"env":   env,
 							"ports": []map[string]any{
 								{
 									"name":          "api",
@@ -1017,10 +1095,18 @@ func minioBucketInitJobManifest(o *minioInstallOptions, jobName string) map[stri
 									"name":  "MINIO_BUCKET",
 									"value": o.bucket,
 								},
+								{
+									"name":  "MINIO_MANAGE_BUCKETS",
+									"value": strings.Join(o.manageBucketNames(), " "),
+								},
+								{
+									"name":  "MINIO_SERVICE_BUCKET",
+									"value": o.serviceCompatibilityBucketName(),
+								},
 							},
 							"command": []string{"/bin/sh", "-c"},
 							"args": []string{
-								fmt.Sprintf("set -eu\nmkdir -p \"$MC_CONFIG_DIR\"\nuntil mc alias set local %q \"$MINIO_ROOT_USER\" \"$MINIO_ROOT_PASSWORD\"; do sleep 5; done\nmc mb --ignore-existing \"local/$MINIO_BUCKET\"\n", o.internalEndpointURL()),
+								fmt.Sprintf("set -eu\nmkdir -p \"$MC_CONFIG_DIR\"\nuntil mc alias set local %q \"$MINIO_ROOT_USER\" \"$MINIO_ROOT_PASSWORD\"; do sleep 5; done\nfor bucket in $MINIO_MANAGE_BUCKETS; do\n  mc mb --ignore-existing \"local/$bucket\"\ndone\nmc mb --ignore-existing \"local/$MINIO_SERVICE_BUCKET\"\nempty=/tmp/mas-est-empty\n: > \"$empty\"\nmc cp \"$empty\" \"local/$MINIO_BUCKET/recovery/.keep\"\nmc cp \"$empty\" \"local/$MINIO_BUCKET/backup/.keep\"\nmc ls local\n", o.adminEndpointURL()),
 							},
 						},
 					},

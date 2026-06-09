@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM golang:1.25-bookworm AS builder
+FROM --platform=$BUILDPLATFORM golang:1.25-bookworm AS builder
 
 WORKDIR /src
 COPY tools/mas-iam-installer/go.mod tools/mas-iam-installer/go.sum /src/tools/mas-iam-installer/
@@ -21,31 +21,10 @@ RUN --mount=type=cache,target=/go/pkg/mod \
         go build -trimpath -ldflags="-s -w" -o "/out/bin/$1-$2/est" ./cmd/mas-iam-installer; \
     done
 
-FROM debian:bookworm-slim
+ARG TARGETARCH=amd64
+FROM quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.7-${TARGETARCH}
 
 ARG TARGETARCH=amd64
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-      bash \
-      ca-certificates \
-      coreutils \
-      curl \
-      gettext-base \
-      grep \
-      openssl \
-      ripgrep \
-      sed \
-      tar \
-    && rm -rf /var/lib/apt/lists/* \
-    && case "${TARGETARCH}" in \
-      amd64) OCP_ARCH="x86_64" ;; \
-      arm64) OCP_ARCH="aarch64" ;; \
-      *) echo "unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
-    esac \
-    && curl -fsSL "https://mirror.openshift.com/pub/openshift-v4/${OCP_ARCH}/clients/ocp/stable/openshift-client-linux.tar.gz" -o /tmp/openshift-client-linux.tar.gz \
-    && tar -xzf /tmp/openshift-client-linux.tar.gz -C /usr/local/bin oc kubectl \
-    && chmod +x /usr/local/bin/oc /usr/local/bin/kubectl \
-    && rm -f /tmp/openshift-client-linux.tar.gz
 
 ENV MAS_EST_REPO_ROOT=/opt/mas-est
 WORKDIR /opt/mas-est

@@ -1,4 +1,4 @@
-{{- if and .Values.keycloak.realmImport.enabled .Values.keycloak.realmImport.files }}
+{{- if and (ne (toString .Values.keycloak.enabled) "false") .Values.keycloak.realmImport.enabled .Values.keycloak.realmImport.files }}
 apiVersion: v1
 kind: ConfigMap
 metadata:

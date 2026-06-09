@@ -72,7 +72,13 @@ func DiscoverPaths(override string) (Paths, error) {
 }
 
 func RunInstall(ctx context.Context, runner *executil.Runner, paths Paths, cfg config.InstallConfig, output io.Writer) error {
-	args := []string{paths.InstallScript, "--namespace", cfg.Namespace, "--keycloak-bootstrap", cfg.KeycloakBootstrapMethod}
+	iamComponents := IAMInstallComponents(cfg.Components)
+	args := []string{
+		paths.InstallScript,
+		"--namespace", cfg.Namespace,
+		"--components", config.InstallComponentsString(iamComponents),
+		"--keycloak-bootstrap", cfg.KeycloakBootstrapMethod,
+	}
 	if cfg.StorageClass != "" {
 		args = append(args, "--storage-class", cfg.StorageClass)
 	}
@@ -85,6 +91,21 @@ func RunInstall(ctx context.Context, runner *executil.Runner, paths Paths, cfg c
 		Dir:  paths.RepoRoot,
 		Env:  env,
 	}, output, output)
+}
+
+func IAMInstallComponents(components []string) []string {
+	normalized, err := config.NormalizeInstallComponents(components)
+	if err != nil {
+		return components
+	}
+	iamComponents := []string{}
+	for _, component := range normalized {
+		switch component {
+		case config.InstallComponentLDAP, config.InstallComponentKeycloak, config.InstallComponentSCIM:
+			iamComponents = append(iamComponents, component)
+		}
+	}
+	return iamComponents
 }
 
 func RunWipe(ctx context.Context, runner *executil.Runner, paths Paths, cfg config.WipeConfig, output io.Writer) error {

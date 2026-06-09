@@ -1,6 +1,7 @@
 package app
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/oc"
@@ -83,6 +84,142 @@ func TestMinIOInternalEndpointURL(t *testing.T) {
 
 	if got := opts.internalEndpointURL(); got != "http://mas-minio.mas-est.svc.cluster.local:9000" {
 		t.Fatalf("internalEndpointURL() = %q", got)
+	}
+	if got := opts.adminEndpointURL(); got != "http://mas-minio:9000" {
+		t.Fatalf("adminEndpointURL() = %q", got)
+	}
+}
+
+func TestMinIOManageEndpointURL(t *testing.T) {
+	opts := &minioInstallOptions{
+		namespace: "mas-est",
+	}
+
+	if got := opts.manageEndpointURL(); got != "http://mas-est.svc.cluster.local:9000" {
+		t.Fatalf("manageEndpointURL() = %q", got)
+	}
+	if got := opts.virtualHostDomain(); got != "mas-est.svc.cluster.local" {
+		t.Fatalf("virtualHostDomain() = %q", got)
+	}
+}
+
+func TestMinIOManageBucketNames(t *testing.T) {
+	opts := &minioInstallOptions{bucket: "mas-s3-demo"}
+
+	got := opts.manageBucketNames()
+	want := []string{"mas-s3-demo", "mas-s3-demorecovery", "mas-s3-demobackup"}
+	if len(got) != len(want) {
+		t.Fatalf("manageBucketNames() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("manageBucketNames() = %v, want %v", got, want)
+		}
+	}
+}
+
+func TestMinIOBucketAliasServiceManifest(t *testing.T) {
+	opts := &minioInstallOptions{
+		namespace: "mas-est",
+		name:      "mas-minio",
+	}
+
+	manifest := minioBucketAliasServiceManifest(opts, "mas-s3-demorecovery")
+	metadata := manifest["metadata"].(map[string]any)
+	if metadata["name"] != "mas-s3-demorecovery" {
+		t.Fatalf("service name = %q", metadata["name"])
+	}
+	spec := manifest["spec"].(map[string]any)
+	selector := spec["selector"].(map[string]string)
+	if selector["app.kubernetes.io/instance"] != "mas-minio" {
+		t.Fatalf("selector = %v", selector)
+	}
+	ports := spec["ports"].([]map[string]any)
+	if ports[0]["port"] != 9000 || ports[0]["targetPort"] != 9000 {
+		t.Fatalf("ports = %v", ports)
+	}
+}
+
+func TestMinIODeploymentCanEnableVirtualHostDomain(t *testing.T) {
+	opts := &minioInstallOptions{
+		namespace:      "mas-est",
+		name:           "mas-minio",
+		image:          "quay.io/minio/minio:latest",
+		rootSecretName: "mas-minio-root",
+	}
+
+	manifest := minioDeploymentManifest(opts, true)
+	spec := manifest["spec"].(map[string]any)
+	template := spec["template"].(map[string]any)
+	podSpec := template["spec"].(map[string]any)
+	containers := podSpec["containers"].([]map[string]any)
+	env := containers[0]["env"].([]map[string]any)
+
+	found := false
+	for _, item := range env {
+		if item["name"] == "MINIO_DOMAIN" {
+			found = true
+			if item["value"] != "mas-est.svc.cluster.local" {
+				t.Fatalf("MINIO_DOMAIN = %q", item["value"])
+			}
+		}
+	}
+	if !found {
+		t.Fatal("MINIO_DOMAIN env var was not rendered")
+	}
+}
+
+func TestMinIOBucketInitJobCreatesManageLayout(t *testing.T) {
+	opts := &minioInstallOptions{
+		namespace:      "mas-est",
+		name:           "mas-minio",
+		bucket:         "mas-s3-demo",
+		mcImage:        "quay.io/minio/mc:latest",
+		rootSecretName: "mas-minio-root",
+	}
+
+	manifest := minioBucketInitJobManifest(opts, "mas-minio-bucket-init")
+	spec := manifest["spec"].(map[string]any)
+	template := spec["template"].(map[string]any)
+	podSpec := template["spec"].(map[string]any)
+	containers := podSpec["containers"].([]map[string]any)
+	args := containers[0]["args"].([]string)
+	script := args[0]
+	env := containers[0]["env"].([]map[string]any)
+
+	for _, expected := range []string{
+		"http://mas-minio:9000",
+		"MINIO_MANAGE_BUCKETS",
+		"MINIO_SERVICE_BUCKET",
+		"local/$MINIO_SERVICE_BUCKET",
+		"local/$MINIO_BUCKET/recovery/.keep",
+		"local/$MINIO_BUCKET/backup/.keep",
+	} {
+		if !strings.Contains(script, expected) {
+			t.Fatalf("bucket init script missing %q:\n%s", expected, script)
+		}
+	}
+	foundBuckets := false
+	foundServiceBucket := false
+	for _, item := range env {
+		if item["name"] == "MINIO_MANAGE_BUCKETS" {
+			foundBuckets = true
+			if item["value"] != "mas-s3-demo mas-s3-demorecovery mas-s3-demobackup" {
+				t.Fatalf("MINIO_MANAGE_BUCKETS = %q", item["value"])
+			}
+		}
+		if item["name"] == "MINIO_SERVICE_BUCKET" {
+			foundServiceBucket = true
+			if item["value"] != "mas-minio" {
+				t.Fatalf("MINIO_SERVICE_BUCKET = %q", item["value"])
+			}
+		}
+	}
+	if !foundBuckets {
+		t.Fatal("MINIO_MANAGE_BUCKETS env var was not rendered")
+	}
+	if !foundServiceBucket {
+		t.Fatal("MINIO_SERVICE_BUCKET env var was not rendered")
 	}
 }
 

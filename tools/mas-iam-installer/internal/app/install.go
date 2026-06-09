@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -35,22 +36,26 @@ func newInstallCommand(root *RootOptions) *cobra.Command {
 
 	command := &cobra.Command{
 		Use:   "install",
-		Short: "Install or reinstall the MAS EST IAM services and SCIM bridge",
+		Short: "Install or reinstall selected MAS EST services",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return opts.run(cmd.Context(), root)
 		},
 	}
 
 	flags := command.Flags()
+	flags.StringSliceVar(&opts.config.Components, "components", opts.config.Components, "Comma-separated components to install: ldap,keycloak,scim,s3,smtp")
 	flags.StringVar(&opts.config.Namespace, "namespace", opts.config.Namespace, "Target namespace")
 	flags.StringVar(&opts.config.MASBaseURL, "mas-base-url", opts.config.MASBaseURL, "MAS SCIM base URL, including /scim/v2")
 	flags.StringVar(&opts.config.MASAPITokenName, "mas-api-token-name", opts.config.MASAPITokenName, "MAS API token name")
 	flags.StringVar(&opts.config.MASAPITokenValue, "mas-api-token-value", opts.config.MASAPITokenValue, "MAS API token value")
 	flags.StringVar(&opts.config.WorkspaceID, "workspace-id", opts.config.WorkspaceID, "MAS workspace ID for profile bootstrap")
 	flags.StringVar(&opts.config.ProfileID, "profile-id", opts.config.ProfileID, "MAS profile ID")
+	flags.StringVar(&opts.config.MASInstanceID, "mas-instance-id", opts.config.MASInstanceID, "MAS instance ID for S3 ObjectStorageCfg")
+	flags.StringVar(&opts.config.MASCoreNamespace, "mas-core-namespace", opts.config.MASCoreNamespace, "MAS core namespace for S3 ObjectStorageCfg")
 	flags.StringVar(&opts.config.StorageClass, "storage-class", opts.config.StorageClass, "PostgreSQL storage class override")
 	flags.StringVar(&opts.config.ScimBridgeStorageClass, "scim-bridge-storage-class", opts.config.ScimBridgeStorageClass, "SCIM bridge PVC storage class override")
 	flags.StringVar(&opts.config.KeycloakBootstrapMethod, "keycloak-bootstrap", opts.config.KeycloakBootstrapMethod, "Keycloak bootstrap mode passed to install-all-in-one.sh")
+	flags.BoolVar(&opts.config.SkipS3MASConfig, "skip-s3-mas-config", opts.config.SkipS3MASConfig, "Install S3 storage without creating MAS ObjectStorageCfg")
 	flags.BoolVar(&opts.config.WipeFirst, "uninstall-first", opts.config.WipeFirst, "Uninstall the namespace before install")
 	flags.BoolVar(&opts.config.WipeFirst, "wipe-first", opts.config.WipeFirst, "Deprecated alias for --uninstall-first")
 	flags.BoolVar(&opts.nonInteractive, "non-interactive", false, "Disable prompts and require flags/env vars")
@@ -101,13 +106,22 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 		if err != nil {
 			return err
 		}
-	} else if err := cfg.Validate(); err != nil {
+	}
+	if err := cfg.NormalizeComponents(); err != nil {
+		return err
+	}
+	cfg.DefaultMASCoreNamespace()
+	if err := cfg.Validate(); err != nil {
 		return err
 	}
 
+	masBaseURLForPreflight := ""
+	if cfg.HasComponent(config.InstallComponentSCIM) {
+		masBaseURLForPreflight = cfg.MASBaseURL
+	}
 	report := preflight.Run(ctx, client, preflight.Input{
 		Namespace:  cfg.Namespace,
-		MASBaseURL: cfg.MASBaseURL,
+		MASBaseURL: masBaseURLForPreflight,
 	})
 	preflight.Print(os.Stdout, report)
 	if report.HasFailures() {
@@ -162,19 +176,79 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 		}
 	}
 
-	fmt.Fprintln(output, "[install] running scripts/install-all-in-one.sh")
-	if err := installer.RunInstall(ctx, runner, paths, cfg, output); err != nil {
-		if logPath != "" {
-			fmt.Fprintf(os.Stderr, "[result] install failed; see %s\n", logPath)
+	if cfg.HasComponent(config.InstallComponentLDAP) ||
+		cfg.HasComponent(config.InstallComponentKeycloak) ||
+		cfg.HasComponent(config.InstallComponentSCIM) {
+		fmt.Fprintln(output, "[install] running scripts/install-all-in-one.sh")
+		if err := installer.RunInstall(ctx, runner, paths, cfg, output); err != nil {
+			if logPath != "" {
+				fmt.Fprintf(os.Stderr, "[result] install failed; see %s\n", logPath)
+			}
+			return err
 		}
-		return err
+	}
+
+	if cfg.HasComponent(config.InstallComponentS3) {
+		fmt.Fprintln(output, "[install] installing MinIO S3 service")
+		opts := minioInstallOptions{
+			masInstanceID:    cfg.MASInstanceID,
+			masCoreNamespace: cfg.MASCoreNamespace,
+			namespace:        cfg.Namespace,
+			storageClassName: cfg.StorageClass,
+			skipMASConfig:    cfg.SkipS3MASConfig,
+			name:             defaultMinIOName,
+			bucket:           defaultMinIOBucket,
+			pvcSize:          defaultMinIOPVCSize,
+			image:            defaultMinIOImage,
+			mcImage:          defaultMinIOMCImage,
+			timeout:          10 * time.Minute,
+		}
+		if err := opts.run(ctx); err != nil {
+			if logPath != "" {
+				fmt.Fprintf(os.Stderr, "[result] S3 install failed; see %s\n", logPath)
+			}
+			return err
+		}
+	}
+
+	if cfg.HasComponent(config.InstallComponentSMTP) {
+		fmt.Fprintln(output, "[install] installing Mailpit SMTP capture service")
+		opts := mailpitInstallOptions{
+			namespace: cfg.Namespace,
+			name:      defaultMailpitName,
+			image:     defaultMailpitImage,
+			timeout:   5 * time.Minute,
+		}
+		if err := opts.run(ctx); err != nil {
+			if logPath != "" {
+				fmt.Fprintf(os.Stderr, "[result] SMTP install failed; see %s\n", logPath)
+			}
+			return err
+		}
 	}
 
 	fmt.Fprintln(output, "[result] install completed")
 	fmt.Fprintf(output, "[result] verify with: oc get pods -n %s\n", cfg.Namespace)
-	fmt.Fprintf(output, "[result] logs shortcut: mas-est logs --namespace %s --component bridge\n", cfg.Namespace)
+	fmt.Fprintf(output, "[result] logs shortcut: mas-est logs --namespace %s --component %s\n", cfg.Namespace, installLogComponent(cfg))
 
 	return nil
+}
+
+func installLogComponent(cfg config.InstallConfig) string {
+	switch {
+	case cfg.HasComponent(config.InstallComponentSCIM):
+		return "bridge"
+	case cfg.HasComponent(config.InstallComponentSMTP):
+		return "smtp"
+	case cfg.HasComponent(config.InstallComponentS3):
+		return "minio"
+	case cfg.HasComponent(config.InstallComponentKeycloak):
+		return "keycloak"
+	case cfg.HasComponent(config.InstallComponentLDAP):
+		return "openldap"
+	default:
+		return "bridge"
+	}
 }
 
 func discoverInstallDiscovery(ctx context.Context, client *oc.Client) installDiscovery {

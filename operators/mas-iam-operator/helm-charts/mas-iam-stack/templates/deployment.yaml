@@ -1,3 +1,4 @@
+{{- if ne (toString .Values.keycloak.enabled) "false" -}}
 {{- $routeHost := (include "mas-iam-stack.routeHost" .) | trim }}
 {{- $bootstrap := .Values.keycloak.bootstrapAdmin -}}
 {{- $bootstrapSecretName := (include "mas-iam-stack.bootstrapAdminSecretName" .) | trim }}
@@ -316,3 +317,4 @@ spec:
                 path: {{ $ldapTlsCaKey | quote }}
             defaultMode: 0444
         {{- end }}
+{{- end }}

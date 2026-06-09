@@ -1,4 +1,5 @@
 keycloak:
+  enabled: true
   devMode:
     enabled: false
   image:

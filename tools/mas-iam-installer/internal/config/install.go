@@ -12,6 +12,12 @@ const (
 	DefaultProfileID           = "demo"
 	DefaultKeycloakBootstrap   = "script"
 	DefaultIAMRelease          = "mas-est-iam"
+	InstallComponentLDAP       = "ldap"
+	InstallComponentKeycloak   = "keycloak"
+	InstallComponentSCIM       = "scim"
+	InstallComponentS3         = "s3"
+	InstallComponentSMTP       = "smtp"
+	EnvComponents              = "MAS_EST_COMPONENTS"
 	EnvNamespace               = "MAS_EST_NAMESPACE"
 	LegacyEnvNamespace         = "MAS_IAM_NAMESPACE"
 	EnvMASBaseURL              = "SCIM_BRIDGE_MAS_BASE_URL"
@@ -22,6 +28,9 @@ const (
 	EnvStorageClass            = "POSTGRES_STORAGE_CLASS"
 	EnvSCIMBridgeStorageClass  = "SCIM_BRIDGE_STORAGE_CLASS"
 	EnvKeycloakBootstrapMethod = "SCIM_BRIDGE_KEYCLOAK_BOOTSTRAP_METHOD"
+	EnvMASInstanceID           = "MAS_INSTANCE_ID"
+	EnvMASCoreNamespace        = "MAS_CORE_NAMESPACE"
+	EnvSkipS3MASConfig         = "MAS_EST_SKIP_S3_MAS_CONFIG"
 	EnvUninstallFirst          = "MAS_EST_UNINSTALL_FIRST"
 	EnvWipeFirst               = "MAS_EST_WIPE_FIRST"
 	LegacyEnvWipeFirst         = "MAS_IAM_WIPE_FIRST"
@@ -34,12 +43,16 @@ const (
 )
 
 type InstallConfig struct {
+	Components              []string
 	Namespace               string
 	MASBaseURL              string
 	MASAPITokenName         string
 	MASAPITokenValue        string
 	WorkspaceID             string
 	ProfileID               string
+	MASInstanceID           string
+	MASCoreNamespace        string
+	SkipS3MASConfig         bool
 	StorageClass            string
 	ScimBridgeStorageClass  string
 	KeycloakBootstrapMethod string
@@ -65,12 +78,16 @@ func DefaultInstallConfig() InstallConfig {
 
 func LoadInstallConfigFromEnv() InstallConfig {
 	cfg := DefaultInstallConfig()
+	cfg.Components, _ = ParseInstallComponents(envOrDefault(EnvComponents, ""))
 	cfg.Namespace = envOrDefaultWithLegacy(EnvNamespace, LegacyEnvNamespace, cfg.Namespace)
 	cfg.MASBaseURL = envOrDefault(EnvMASBaseURL, cfg.MASBaseURL)
 	cfg.MASAPITokenName = envOrDefault(EnvMASAPITokenName, cfg.MASAPITokenName)
 	cfg.MASAPITokenValue = envOrDefault(EnvMASAPITokenValue, cfg.MASAPITokenValue)
 	cfg.WorkspaceID = envOrDefault(EnvWorkspaceID, cfg.WorkspaceID)
 	cfg.ProfileID = envOrDefault(EnvProfileID, cfg.ProfileID)
+	cfg.MASInstanceID = envOrDefault(EnvMASInstanceID, cfg.MASInstanceID)
+	cfg.MASCoreNamespace = envOrDefault(EnvMASCoreNamespace, cfg.MASCoreNamespace)
+	cfg.SkipS3MASConfig = boolEnvOrDefault(EnvSkipS3MASConfig, cfg.SkipS3MASConfig)
 	cfg.StorageClass = envOrDefault(EnvStorageClass, cfg.StorageClass)
 	cfg.ScimBridgeStorageClass = envOrDefault(EnvSCIMBridgeStorageClass, cfg.ScimBridgeStorageClass)
 	cfg.KeycloakBootstrapMethod = envOrDefault(EnvKeycloakBootstrapMethod, cfg.KeycloakBootstrapMethod)
@@ -97,24 +114,44 @@ func LoadWipeConfigFromEnv() WipeConfig {
 }
 
 func (c InstallConfig) Validate() error {
+	normalized, err := NormalizeInstallComponents(c.Components)
+	if err != nil {
+		return err
+	}
+	c.Components = normalized
+
 	missing := []string{}
 	if strings.TrimSpace(c.Namespace) == "" {
 		missing = append(missing, "--namespace / "+EnvNamespace)
 	}
-	if strings.TrimSpace(c.MASBaseURL) == "" {
-		missing = append(missing, "--mas-base-url / "+EnvMASBaseURL)
+	if !hasComponent(normalized, InstallComponentLDAP) &&
+		!hasComponent(normalized, InstallComponentKeycloak) &&
+		!hasComponent(normalized, InstallComponentSCIM) &&
+		!hasComponent(normalized, InstallComponentS3) &&
+		!hasComponent(normalized, InstallComponentSMTP) {
+		missing = append(missing, "--components / "+EnvComponents)
 	}
-	if strings.TrimSpace(c.MASAPITokenName) == "" {
-		missing = append(missing, "--mas-api-token-name / "+EnvMASAPITokenName)
+	if hasComponent(normalized, InstallComponentSCIM) {
+		if strings.TrimSpace(c.MASBaseURL) == "" {
+			missing = append(missing, "--mas-base-url / "+EnvMASBaseURL)
+		}
+		if strings.TrimSpace(c.MASAPITokenName) == "" {
+			missing = append(missing, "--mas-api-token-name / "+EnvMASAPITokenName)
+		}
+		if strings.TrimSpace(c.MASAPITokenValue) == "" {
+			missing = append(missing, "--mas-api-token-value / "+EnvMASAPITokenValue)
+		}
+		if strings.TrimSpace(c.WorkspaceID) == "" {
+			missing = append(missing, "--workspace-id / "+EnvWorkspaceID)
+		}
+		if strings.TrimSpace(c.ProfileID) == "" {
+			missing = append(missing, "--profile-id / "+EnvProfileID)
+		}
 	}
-	if strings.TrimSpace(c.MASAPITokenValue) == "" {
-		missing = append(missing, "--mas-api-token-value / "+EnvMASAPITokenValue)
-	}
-	if strings.TrimSpace(c.WorkspaceID) == "" {
-		missing = append(missing, "--workspace-id / "+EnvWorkspaceID)
-	}
-	if strings.TrimSpace(c.ProfileID) == "" {
-		missing = append(missing, "--profile-id / "+EnvProfileID)
+	if hasComponent(normalized, InstallComponentS3) && !c.SkipS3MASConfig {
+		if strings.TrimSpace(c.MASInstanceID) == "" && strings.TrimSpace(c.MASCoreNamespace) == "" {
+			missing = append(missing, "--mas-instance-id / "+EnvMASInstanceID)
+		}
 	}
 	if len(missing) == 0 {
 		return nil
@@ -138,11 +175,22 @@ func (c WipeConfig) Validate() error {
 
 func (c InstallConfig) ScriptEnv() map[string]string {
 	env := map[string]string{
-		EnvMASBaseURL:       c.MASBaseURL,
-		EnvMASAPITokenName:  c.MASAPITokenName,
-		EnvMASAPITokenValue: c.MASAPITokenValue,
-		EnvWorkspaceID:      c.WorkspaceID,
-		EnvProfileID:        c.ProfileID,
+		EnvComponents: InstallComponentsString(c.Components),
+	}
+	if c.MASBaseURL != "" {
+		env[EnvMASBaseURL] = c.MASBaseURL
+	}
+	if c.MASAPITokenName != "" {
+		env[EnvMASAPITokenName] = c.MASAPITokenName
+	}
+	if c.MASAPITokenValue != "" {
+		env[EnvMASAPITokenValue] = c.MASAPITokenValue
+	}
+	if c.WorkspaceID != "" {
+		env[EnvWorkspaceID] = c.WorkspaceID
+	}
+	if c.ProfileID != "" {
+		env[EnvProfileID] = c.ProfileID
 	}
 	if c.StorageClass != "" {
 		env[EnvStorageClass] = c.StorageClass
@@ -154,6 +202,94 @@ func (c InstallConfig) ScriptEnv() map[string]string {
 		env[EnvKeycloakBootstrapMethod] = c.KeycloakBootstrapMethod
 	}
 	return env
+}
+
+func ParseInstallComponents(raw string) ([]string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	return NormalizeInstallComponents(strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t' || r == '\n'
+	}))
+}
+
+func NormalizeInstallComponents(components []string) ([]string, error) {
+	selected := map[string]bool{}
+	for _, component := range components {
+		component = strings.ToLower(strings.TrimSpace(component))
+		if component == "" {
+			continue
+		}
+		switch component {
+		case InstallComponentLDAP, InstallComponentKeycloak, InstallComponentSCIM, InstallComponentS3, InstallComponentSMTP:
+			selected[component] = true
+		default:
+			return nil, fmt.Errorf("unknown install component %q; supported values are ldap, keycloak, scim, s3, smtp", component)
+		}
+	}
+
+	if selected[InstallComponentSCIM] {
+		selected[InstallComponentKeycloak] = true
+		selected[InstallComponentLDAP] = true
+	}
+	if selected[InstallComponentKeycloak] {
+		selected[InstallComponentLDAP] = true
+	}
+
+	order := []string{InstallComponentLDAP, InstallComponentKeycloak, InstallComponentSCIM, InstallComponentS3, InstallComponentSMTP}
+	normalized := []string{}
+	for _, component := range order {
+		if selected[component] {
+			normalized = append(normalized, component)
+		}
+	}
+	return normalized, nil
+}
+
+func InstallComponentsString(components []string) string {
+	normalized, err := NormalizeInstallComponents(components)
+	if err != nil {
+		return strings.Join(components, ",")
+	}
+	return strings.Join(normalized, ",")
+}
+
+func (c InstallConfig) HasComponent(component string) bool {
+	normalized, err := NormalizeInstallComponents(c.Components)
+	if err != nil {
+		return false
+	}
+	return hasComponent(normalized, component)
+}
+
+func (c *InstallConfig) NormalizeComponents() error {
+	components, err := NormalizeInstallComponents(c.Components)
+	if err != nil {
+		return err
+	}
+	c.Components = components
+	return nil
+}
+
+func (c *InstallConfig) DefaultMASCoreNamespace() {
+	c.MASInstanceID = strings.TrimSpace(c.MASInstanceID)
+	c.MASCoreNamespace = strings.TrimSpace(c.MASCoreNamespace)
+	if c.MASCoreNamespace == "" && c.MASInstanceID != "" {
+		c.MASCoreNamespace = "mas-" + c.MASInstanceID + "-core"
+	}
+	if c.MASInstanceID == "" && strings.HasPrefix(c.MASCoreNamespace, "mas-") && strings.HasSuffix(c.MASCoreNamespace, "-core") {
+		c.MASInstanceID = strings.TrimSuffix(strings.TrimPrefix(c.MASCoreNamespace, "mas-"), "-core")
+	}
+}
+
+func hasComponent(components []string, component string) bool {
+	for _, candidate := range components {
+		if candidate == component {
+			return true
+		}
+	}
+	return false
 }
 
 func (c WipeConfig) ScriptEnv() map[string]string {

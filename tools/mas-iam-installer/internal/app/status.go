@@ -74,6 +74,12 @@ func printMASIAMStatus(w io.Writer, ctx context.Context, client *oc.Client, name
 	bridge, err := client.Deployment(ctx, namespace, "scim-bridge")
 	printStatusLine(w, "SCIM bridge", err, deploymentSummary(bridge))
 
+	minio, err := client.Deployment(ctx, namespace, "mas-minio")
+	printStatusLine(w, "S3 MinIO", err, deploymentSummary(minio))
+
+	mailpit, err := client.Deployment(ctx, namespace, "mas-mailpit")
+	printStatusLine(w, "SMTP Mailpit", err, deploymentSummary(mailpit))
+
 	fmt.Fprintln(w, "Jobs:")
 	for _, jobSpec := range []struct {
 		name        string
@@ -96,6 +102,10 @@ func printMASIAMStatus(w io.Writer, ctx context.Context, client *oc.Client, name
 		},
 		{
 			name: "scim-bridge-mas-profile-bootstrap",
+		},
+		{
+			name:        "mas-minio-bucket-init",
+			missingNote: "not created unless S3 object storage is selected",
 		},
 	} {
 		job, err := client.Job(ctx, namespace, jobSpec.name)

@@ -69,7 +69,7 @@ Start here:
 Short version:
 
 ```bash
-export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.7'
+export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.9'
 
 mkdir -p "$HOME/mas-est"
 podman run -ti --rm -v "$HOME/mas-est:/tmp" --pull always "$MAS_EST_IMAGE"
@@ -80,7 +80,7 @@ mas-est install
 mas-est status --namespace mas-est
 ```
 
-The installer is interactive. It prompts for the MAS SCIM URL, MAS API token, workspace/profile details, and storage classes. Users should not need to hand-edit manifests for the normal beta path.
+The installer is interactive. It now opens with a product catalog so users can choose LDAP only, Keycloak + LDAP, the full SCIM stack, S3 object storage, SMTP capture, or all services together. Users should not need to hand-edit manifests for the normal beta path.
 
 ## Operations
 
@@ -122,7 +122,7 @@ The near-term plan is:
 2. keep the supported install surface focused on `mas-est preflight`, `install`, `status`, `logs`, `ldap-info`, and `uninstall`
 3. collect real cluster failures and fix them as beta bug reports
 4. tighten docs from real user feedback
-5. publish immutable beta/release image tags, starting with `v0.1.0-beta.7`
+5. publish immutable beta/release image tags, starting with `v0.1.0-beta.9`
 
 Post-beta work is tracked in [docs/INITIAL-RELEASE-PLAN.md](docs/INITIAL-RELEASE-PLAN.md) and [specs/post-beta-roadmap.md](specs/post-beta-roadmap.md). The strongest next candidates are API key/config update workflows, support bundle collection, better diagnostics, and group-based profile routing.
 

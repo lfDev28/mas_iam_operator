@@ -140,6 +140,15 @@ func Run(ctx context.Context, client *oc.Client, input Input) Report {
 		}
 	}
 
+	if strings.TrimSpace(input.MASBaseURL) == "" {
+		report.Results = append(report.Results, Result{
+			Name:    "mas-base-url",
+			Status:  StatusWarn,
+			Message: "skipped because no SCIM-backed component was selected",
+		})
+		return report
+	}
+
 	masHost, err := ParseMASHost(input.MASBaseURL)
 	if err != nil {
 		report.Results = append(report.Results, Result{
