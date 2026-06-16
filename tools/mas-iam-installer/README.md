@@ -25,9 +25,11 @@ The CLI wraps the repo's hardened shell install engine. It does not replace it.
 - `config set mas-api-token`
 - `config set bridge`
 - `restart bridge`
+- `mas-auth apply` (experimental)
 - `object-storage install-minio` (experimental)
 - `object-storage install-rook-ceph` (experimental)
 - `smtp install-mailpit` (experimental)
+- `details`
 - `logs`
 - `ldap-info`
 - `version`
@@ -61,8 +63,10 @@ mas-est config view --namespace mas-est
 mas-est config set mas-api-token --namespace mas-est --token-name '<token-name>' --token-value '<token-value>'
 mas-est config set bridge --namespace mas-est --log-level debug --payload-logging true
 mas-est restart bridge --namespace mas-est
+mas-est mas-auth apply --namespace mas-est --mas-instance-id '<instance-id>' --providers ldap,oidc,saml
 mas-est object-storage install-minio --mas-instance-id '<instance-id>'
 mas-est smtp install-mailpit --namespace mas-est
+mas-est details --namespace mas-est --component all
 mas-est ldap-info --namespace mas-est
 mas-est logs --namespace mas-est --component bridge
 mas-est uninstall --namespace mas-est --profile-id demo
@@ -76,6 +80,7 @@ The `install` command prompts for:
 - products to install: LDAP, Keycloak, SCIM bridge, S3 object storage, and/or SMTP capture
 - MAS base URL, token, workspace ID, and profile ID when SCIM is selected
 - MAS instance/core namespace when S3 is selected and MAS ObjectStorageCfg creation is enabled
+- whether to configure MAS auth providers, and which providers to create: LDAP, OIDC (MAS 9.1+), and/or SAML
 - primary storage class for Keycloak PostgreSQL and/or MinIO
 - SCIM bridge storage class when SCIM is selected
 - uninstall first
@@ -103,6 +108,10 @@ The `smtp install-mailpit` command is experimental post-beta work. It creates a 
 
 For MAS SMTP tests, use host `mas-mailpit.mas-est.svc.cluster.local`, port `1025`, no TLS, and no authentication.
 
+The `mas-auth apply` command is experimental post-beta work. It configures MAS `IDPCfg` resources for direct LDAP, OIDC, and SAML authentication using the installed OpenLDAP and Keycloak services. Use `--providers ldap,oidc,saml` to choose the providers. OIDC requires MAS 9.1 or later with `spec.oidc` support in the `IDPCfg` CRD. The generated provider IDs are `mas-est-ldap`, `mas-est-oidc`, and `mas-est-saml`.
+
+The `details` command reads `secret/mas-est-connection-details` and prints connection values for LDAP, OIDC, SAML, S3, and SMTP. Secret values are redacted by default.
+
 ## Non-Interactive Install
 
 Flags:
@@ -117,6 +126,10 @@ mas-est install \
   --workspace-id '<workspace-id>' \
   --profile-id demo \
   --mas-instance-id '<instance-id>' \
+  --configure-mas-auth \
+  --mas-auth-providers ldap,oidc,saml \
+  --mas-auth-instance-id '<instance-id>' \
+  --mas-auth-host 'auth.<mas-domain>' \
   --storage-class ocs-external-storagecluster-ceph-rbd \
   --scim-bridge-storage-class ocs-external-storagecluster-ceph-rbd \
   --non-interactive
@@ -133,6 +146,11 @@ Env vars:
 - `SCIM_BRIDGE_MAS_PROFILE_ID`
 - `MAS_INSTANCE_ID`
 - `MAS_CORE_NAMESPACE`
+- `MAS_EST_CONFIGURE_MAS_AUTH`
+- `MAS_EST_AUTH_PROVIDERS`
+- `MAS_AUTH_INSTANCE_ID`
+- `MAS_AUTH_CORE_NAMESPACE`
+- `MAS_AUTH_HOST`
 - `MAS_EST_SKIP_S3_MAS_CONFIG`
 - `POSTGRES_STORAGE_CLASS`
 - `SCIM_BRIDGE_STORAGE_CLASS`

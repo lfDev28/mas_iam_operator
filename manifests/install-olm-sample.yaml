@@ -229,10 +229,18 @@ metadata:
   namespace: mas-est
 type: Opaque
 stringData:
+  # NOTE: The operator's chart bundle still ships the old LDIF (sysadmin,
+  # jane.doe, joe.bloggs, alex.manager). Until the operator image is rebuilt
+  # with the trimmed dev-base.ldif, these keys must remain — they correspond
+  # to the @@PASSWORD{...}@@ placeholders the seed-init container expects.
+  # The SCIM bridge filter (include-username-prefix: scim.) ensures none of
+  # these legacy users reach MAS Core via the bridge.
   sysadmin: maxadmin
   jane.doe: maxadmin
   joe.bloggs: maxadmin
   alex.manager: maxadmin
+  ldap.user1: maxadmin
+  ldap.user2: maxadmin
 ---
 apiVersion: v1
 kind: Secret

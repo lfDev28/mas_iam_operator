@@ -115,6 +115,22 @@ func TestValidateS3RequiresMASInstanceUnlessSkipped(t *testing.T) {
 	}
 }
 
+func TestValidateConfigureMASAuthRequiresIAMAndMASTarget(t *testing.T) {
+	cfg := DefaultInstallConfig()
+	cfg.Components = []string{InstallComponentSMTP}
+	cfg.ConfigureMASAuth = true
+
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("Validate() error = nil, want missing IAM components and MAS target")
+	}
+
+	cfg.Components = []string{InstallComponentLDAP, InstallComponentKeycloak}
+	cfg.MASAuthInstanceID = "demo"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() with MAS auth target error = %v", err)
+	}
+}
+
 func TestDefaultMASCoreNamespaceDerivesBothDirections(t *testing.T) {
 	cfg := DefaultInstallConfig()
 	cfg.MASInstanceID = "demo"
@@ -128,5 +144,21 @@ func TestDefaultMASCoreNamespaceDerivesBothDirections(t *testing.T) {
 	cfg.DefaultMASCoreNamespace()
 	if cfg.MASInstanceID != "other" {
 		t.Fatalf("MASInstanceID = %q, want other", cfg.MASInstanceID)
+	}
+}
+
+func TestDefaultMASAuthTargetDerivesBothDirections(t *testing.T) {
+	cfg := DefaultInstallConfig()
+	cfg.MASAuthInstanceID = "demo"
+	cfg.DefaultMASAuthTarget()
+	if cfg.MASAuthCoreNamespace != "mas-demo-core" {
+		t.Fatalf("MASAuthCoreNamespace = %q, want mas-demo-core", cfg.MASAuthCoreNamespace)
+	}
+
+	cfg = DefaultInstallConfig()
+	cfg.MASAuthCoreNamespace = "mas-other-core"
+	cfg.DefaultMASAuthTarget()
+	if cfg.MASAuthInstanceID != "other" {
+		t.Fatalf("MASAuthInstanceID = %q, want other", cfg.MASAuthInstanceID)
 	}
 }

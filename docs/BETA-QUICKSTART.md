@@ -93,6 +93,14 @@ To print the bundled OpenLDAP connection values:
 mas-est ldap-info --namespace mas-est
 ```
 
+To print generated connection details for installed services:
+
+```bash
+mas-est details --namespace mas-est --component all
+```
+
+If you selected MAS auth auto-configuration during install, the generated provider IDs are `mas-est-ldap`, `mas-est-oidc`, and `mas-est-saml`. OIDC is MAS 9.1+ only; the installer checks for `spec.oidc` support before creating an OIDC provider.
+
 A healthy install should show:
 
 - operator CSV `Succeeded`

@@ -87,7 +87,9 @@ The installer is interactive. It now opens with a product catalog so users can c
 Common post-install tasks are documented in the install guide:
 
 - [Checking health](docs/INSTALL-ALL-IN-ONE.md#check-health)
+- [Connection details](docs/INSTALL-ALL-IN-ONE.md#connection-details)
 - [Getting LDAP connection details](docs/INSTALL-ALL-IN-ONE.md#ldap-connection-details)
+- [MAS auth auto-configuration](docs/INSTALL-ALL-IN-ONE.md#mas-auth-auto-configuration)
 - [Updating the MAS API key](docs/INSTALL-ALL-IN-ONE.md#updating-the-mas-api-key)
 - [Editable runtime values](docs/INSTALL-ALL-IN-ONE.md#editable-runtime-values)
 - [Uninstalling and reinstalling](docs/INSTALL-ALL-IN-ONE.md#uninstall-and-reinstall)
@@ -119,12 +121,12 @@ oc rollout restart deployment/scim-bridge -n mas-est
 The near-term plan is:
 
 1. release this as an internal beta
-2. keep the supported install surface focused on `mas-est preflight`, `install`, `status`, `logs`, `ldap-info`, and `uninstall`
+2. keep the supported install surface focused on `mas-est preflight`, `install`, `status`, `logs`, `details`, `ldap-info`, and `uninstall`
 3. collect real cluster failures and fix them as beta bug reports
 4. tighten docs from real user feedback
 5. publish immutable beta/release image tags, starting with `v0.1.0-beta.9`
 
-Post-beta work is tracked in [docs/INITIAL-RELEASE-PLAN.md](docs/INITIAL-RELEASE-PLAN.md) and [specs/post-beta-roadmap.md](specs/post-beta-roadmap.md). The strongest next candidates are API key/config update workflows, support bundle collection, better diagnostics, and group-based profile routing.
+Post-beta work is tracked in [docs/INITIAL-RELEASE-PLAN.md](docs/INITIAL-RELEASE-PLAN.md) and [specs/post-beta-roadmap.md](specs/post-beta-roadmap.md). The current experimental surface includes MinIO S3, Mailpit SMTP capture, and MAS LDAP/OIDC/SAML auth auto-configuration.
 
 ## Reporting Beta Issues
 

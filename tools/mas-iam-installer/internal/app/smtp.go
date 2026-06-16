@@ -17,9 +17,14 @@ import (
 const (
 	defaultMailpitNamespace = config.DefaultNamespace
 	defaultMailpitName      = "mas-mailpit"
-	defaultMailpitImage     = "docker.io/axllent/mailpit:latest"
-	defaultMailpitSMTPPort  = 1025
-	defaultMailpitUIPort    = 8025
+	// defaultMailpitImage points at the GitHub Container Registry mirror
+	// rather than Docker Hub: GHCR has no anonymous pull rate limit, which
+	// matters on clusters that share an egress IP with other workloads
+	// (Fyre, shared dev clusters, etc.). Tagged to a specific version so
+	// installs are reproducible — bump it when upstream cuts a new release.
+	defaultMailpitImage    = "ghcr.io/axllent/mailpit:v1.30.1"
+	defaultMailpitSMTPPort = 1025
+	defaultMailpitUIPort   = 8025
 )
 
 type mailpitInstallOptions struct {
@@ -85,6 +90,9 @@ func (o *mailpitInstallOptions) run(ctx context.Context) error {
 	if _, err := client.RolloutStatus(ctx, o.namespace, "deployment/"+o.name, o.timeout.String()); err != nil {
 		return fmt.Errorf("wait for deployment/%s in namespace %s: %w", o.name, o.namespace, err)
 	}
+	if err := applyConnectionDetails(ctx, client, o.namespace, o.details()); err != nil {
+		return err
+	}
 
 	fmt.Fprintf(os.Stdout, "[smtp] Mailpit rollout complete: %s/deployment/%s\n", o.namespace, o.name)
 	o.printSummary()
@@ -123,6 +131,22 @@ func (o *mailpitInstallOptions) serviceHost() string {
 
 func (o *mailpitInstallOptions) smtpURL() string {
 	return fmt.Sprintf("smtp://%s:%d", o.serviceHost(), defaultMailpitSMTPPort)
+}
+
+func (o *mailpitInstallOptions) details() map[string]string {
+	return map[string]string{
+		"smtp.displayName":    "MAS EST SMTP Capture",
+		"smtp.host":           o.serviceHost(),
+		"smtp.port":           fmt.Sprintf("%d", defaultMailpitSMTPPort),
+		"smtp.tls":            "disabled",
+		"smtp.authentication": "none",
+		"smtp.url":            o.smtpURL(),
+		"smtp.uiURL":          "https://" + o.routeHost,
+		"smtp.deliveryMode":   "capture-only",
+		"smtp.deployment":     o.name,
+		"smtp.namespace":      o.namespace,
+		"smtp.detailsCommand": fmt.Sprintf("mas-est details --namespace %s --component smtp", o.namespace),
+	}
 }
 
 func (o *mailpitInstallOptions) printSummary() {

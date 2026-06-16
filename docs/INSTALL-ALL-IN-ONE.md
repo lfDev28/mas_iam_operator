@@ -146,6 +146,36 @@ mas-est install --components smtp --non-interactive
 mas-est install --components ldap,keycloak,scim,s3,smtp --mas-instance-id '<instance-id>' --non-interactive
 ```
 
+To also create MAS-side LDAP, OIDC, and SAML authentication providers backed by the installed OpenLDAP and Keycloak services:
+
+```bash
+mas-est install \
+  --components ldap,keycloak,scim \
+  --configure-mas-auth \
+  --mas-auth-providers ldap,oidc,saml \
+  --mas-auth-instance-id '<instance-id>' \
+  --mas-auth-host 'auth.<mas-domain>' \
+  --non-interactive
+```
+
+The generated MAS provider IDs are:
+
+```text
+mas-est-ldap
+mas-est-oidc
+mas-est-saml
+```
+
+You can also run the MAS auth configuration after the services are installed:
+
+```bash
+mas-est mas-auth apply \
+  --namespace mas-est \
+  --providers ldap,oidc,saml \
+  --mas-instance-id '<instance-id>' \
+  --mas-auth-host 'auth.<mas-domain>'
+```
+
 For S3/MinIO lab testing, use these Manage cron or doclinks values after install:
 
 ```text
@@ -169,6 +199,53 @@ Authentication: none
 ```
 
 Open the Mailpit route printed by the installer to inspect captured messages. Mailpit does not relay messages externally; it stores them in the browser UI for testing MAS notification flows.
+
+## Connection Details
+
+The installer writes common connection values to:
+
+```text
+secret/mas-est-connection-details
+```
+
+Use the CLI to print those values without exposing secret material:
+
+```bash
+mas-est details --namespace mas-est --component all
+mas-est details --namespace mas-est --component s3
+mas-est details --namespace mas-est --component smtp
+mas-est details --namespace mas-est --component oidc
+```
+
+Secret values are redacted by default. Use `--show-secrets` only for local troubleshooting.
+
+The details secret stores references to the real credential secrets rather than duplicating all passwords. For example, S3 points to the MAS credential secret and key names, SMTP lists the internal service host and port, and LDAP points to the OpenLDAP admin password secret.
+
+## MAS Auth Auto-Configuration
+
+When `--configure-mas-auth` is selected, MAS-EST can configure:
+
+- one MAS LDAP `IDPCfg` pointing to `ldaps://mas-est-iam-openldap.mas-est.svc.cluster.local:636`
+- one MAS OIDC `IDPCfg` pointing to the Keycloak `maximo` realm
+- one MAS SAML `IDPCfg` using Keycloak SAML IdP metadata
+
+Use `--mas-auth-providers ldap,oidc,saml` on `install`, or `--providers ldap,oidc,saml` on `mas-auth apply`, to choose which providers to create. In the interactive installer this is shown as a checklist after you opt into MAS auth provisioning. OIDC requires MAS 9.1 or later with `spec.oidc` support in the `IDPCfg` CRD.
+
+The command also creates or updates the required Keycloak OIDC and SAML clients when those providers are selected. The OIDC redirect URI uses:
+
+```text
+https://<mas-auth-host>/oidcclient/redirect/mas-est-oidc
+```
+
+The MAS resources are created in the MAS core namespace, usually:
+
+```text
+mas-<instance-id>-core
+```
+
+This path uses the same `IDPCfg` resources created by the MAS Admin API underneath. If a cluster's MAS version rejects one provider shape, rerun with `mas-est support-bundle --namespace mas-est` and collect the MAS core `IDPCfg` status/events for review.
+
+OIDC auto-configuration requires a MAS version whose `idpcfgs.config.mas.ibm.com` CRD exposes `spec.oidc`. Older MAS versions may support LDAP and SAML only; in that case `mas-est mas-auth apply` stops before changing Keycloak or MAS auth resources.
 
 ## Check Health
 

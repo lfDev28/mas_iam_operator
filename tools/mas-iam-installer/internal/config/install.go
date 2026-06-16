@@ -17,7 +17,11 @@ const (
 	InstallComponentSCIM       = "scim"
 	InstallComponentS3         = "s3"
 	InstallComponentSMTP       = "smtp"
+	MASAuthProviderLDAP        = "ldap"
+	MASAuthProviderOIDC        = "oidc"
+	MASAuthProviderSAML        = "saml"
 	EnvComponents              = "MAS_EST_COMPONENTS"
+	EnvMASAuthProviders        = "MAS_EST_AUTH_PROVIDERS"
 	EnvNamespace               = "MAS_EST_NAMESPACE"
 	LegacyEnvNamespace         = "MAS_IAM_NAMESPACE"
 	EnvMASBaseURL              = "SCIM_BRIDGE_MAS_BASE_URL"
@@ -30,6 +34,11 @@ const (
 	EnvKeycloakBootstrapMethod = "SCIM_BRIDGE_KEYCLOAK_BOOTSTRAP_METHOD"
 	EnvMASInstanceID           = "MAS_INSTANCE_ID"
 	EnvMASCoreNamespace        = "MAS_CORE_NAMESPACE"
+	EnvConfigureMASAuth        = "MAS_EST_CONFIGURE_MAS_AUTH"
+	EnvMASAuthHost             = "MAS_AUTH_HOST"
+	EnvMASAuthCoreNamespace    = "MAS_AUTH_CORE_NAMESPACE"
+	EnvMASAuthInstanceID       = "MAS_AUTH_INSTANCE_ID"
+	EnvMASAuthUseCRApply       = "MAS_EST_AUTH_USE_CR_APPLY"
 	EnvSkipS3MASConfig         = "MAS_EST_SKIP_S3_MAS_CONFIG"
 	EnvUninstallFirst          = "MAS_EST_UNINSTALL_FIRST"
 	EnvWipeFirst               = "MAS_EST_WIPE_FIRST"
@@ -52,6 +61,12 @@ type InstallConfig struct {
 	ProfileID               string
 	MASInstanceID           string
 	MASCoreNamespace        string
+	ConfigureMASAuth        bool
+	MASAuthHost             string
+	MASAuthCoreNamespace    string
+	MASAuthInstanceID       string
+	MASAuthProviders        []string
+	MASAuthUseCRApply       bool
 	SkipS3MASConfig         bool
 	StorageClass            string
 	ScimBridgeStorageClass  string
@@ -87,6 +102,12 @@ func LoadInstallConfigFromEnv() InstallConfig {
 	cfg.ProfileID = envOrDefault(EnvProfileID, cfg.ProfileID)
 	cfg.MASInstanceID = envOrDefault(EnvMASInstanceID, cfg.MASInstanceID)
 	cfg.MASCoreNamespace = envOrDefault(EnvMASCoreNamespace, cfg.MASCoreNamespace)
+	cfg.ConfigureMASAuth = boolEnvOrDefault(EnvConfigureMASAuth, cfg.ConfigureMASAuth)
+	cfg.MASAuthProviders, _ = ParseMASAuthProviders(envOrDefault(EnvMASAuthProviders, ""))
+	cfg.MASAuthHost = envOrDefault(EnvMASAuthHost, cfg.MASAuthHost)
+	cfg.MASAuthCoreNamespace = envOrDefault(EnvMASAuthCoreNamespace, cfg.MASAuthCoreNamespace)
+	cfg.MASAuthInstanceID = envOrDefault(EnvMASAuthInstanceID, cfg.MASAuthInstanceID)
+	cfg.MASAuthUseCRApply = boolEnvOrDefault(EnvMASAuthUseCRApply, cfg.MASAuthUseCRApply)
 	cfg.SkipS3MASConfig = boolEnvOrDefault(EnvSkipS3MASConfig, cfg.SkipS3MASConfig)
 	cfg.StorageClass = envOrDefault(EnvStorageClass, cfg.StorageClass)
 	cfg.ScimBridgeStorageClass = envOrDefault(EnvSCIMBridgeStorageClass, cfg.ScimBridgeStorageClass)
@@ -151,6 +172,24 @@ func (c InstallConfig) Validate() error {
 	if hasComponent(normalized, InstallComponentS3) && !c.SkipS3MASConfig {
 		if strings.TrimSpace(c.MASInstanceID) == "" && strings.TrimSpace(c.MASCoreNamespace) == "" {
 			missing = append(missing, "--mas-instance-id / "+EnvMASInstanceID)
+		}
+	}
+	if c.ConfigureMASAuth {
+		authProviders, err := NormalizeMASAuthProviders(c.MASAuthProviders)
+		if err != nil {
+			return err
+		}
+		if len(authProviders) == 0 {
+			authProviders = DefaultMASAuthProviders()
+		}
+		if hasValue(authProviders, MASAuthProviderLDAP) && !hasComponent(normalized, InstallComponentLDAP) {
+			missing = append(missing, "--components ldap")
+		}
+		if (hasValue(authProviders, MASAuthProviderOIDC) || hasValue(authProviders, MASAuthProviderSAML)) && !hasComponent(normalized, InstallComponentKeycloak) {
+			missing = append(missing, "--components keycloak")
+		}
+		if strings.TrimSpace(c.MASAuthInstanceID) == "" && strings.TrimSpace(c.MASAuthCoreNamespace) == "" && strings.TrimSpace(c.MASInstanceID) == "" && strings.TrimSpace(c.MASCoreNamespace) == "" {
+			missing = append(missing, "--mas-auth-instance-id / "+EnvMASAuthInstanceID)
 		}
 	}
 	if len(missing) == 0 {
@@ -247,12 +286,69 @@ func NormalizeInstallComponents(components []string) ([]string, error) {
 	return normalized, nil
 }
 
+func DefaultMASAuthProviders() []string {
+	return []string{MASAuthProviderLDAP, MASAuthProviderOIDC, MASAuthProviderSAML}
+}
+
+func ParseMASAuthProviders(raw string) ([]string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	return NormalizeMASAuthProviders(strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t' || r == '\n'
+	}))
+}
+
+func NormalizeMASAuthProviders(providers []string) ([]string, error) {
+	selected := map[string]bool{}
+	for _, provider := range providers {
+		provider = strings.ToLower(strings.TrimSpace(provider))
+		if provider == "" {
+			continue
+		}
+		switch provider {
+		case MASAuthProviderLDAP, MASAuthProviderOIDC, MASAuthProviderSAML:
+			selected[provider] = true
+		default:
+			return nil, fmt.Errorf("unknown MAS auth provider %q; supported values are ldap, oidc, saml", provider)
+		}
+	}
+
+	normalized := []string{}
+	for _, provider := range DefaultMASAuthProviders() {
+		if selected[provider] {
+			normalized = append(normalized, provider)
+		}
+	}
+	return normalized, nil
+}
+
+func MASAuthProvidersString(providers []string) string {
+	normalized, err := NormalizeMASAuthProviders(providers)
+	if err != nil {
+		return strings.Join(providers, ",")
+	}
+	return strings.Join(normalized, ",")
+}
+
 func InstallComponentsString(components []string) string {
 	normalized, err := NormalizeInstallComponents(components)
 	if err != nil {
 		return strings.Join(components, ",")
 	}
 	return strings.Join(normalized, ",")
+}
+
+func (c InstallConfig) HasMASAuthProvider(provider string) bool {
+	providers, err := NormalizeMASAuthProviders(c.MASAuthProviders)
+	if err != nil {
+		return false
+	}
+	if len(providers) == 0 && c.ConfigureMASAuth {
+		providers = DefaultMASAuthProviders()
+	}
+	return hasValue(providers, provider)
 }
 
 func (c InstallConfig) HasComponent(component string) bool {
@@ -283,9 +379,31 @@ func (c *InstallConfig) DefaultMASCoreNamespace() {
 	}
 }
 
+func (c *InstallConfig) DefaultMASAuthTarget() {
+	c.MASAuthInstanceID = strings.TrimSpace(c.MASAuthInstanceID)
+	c.MASAuthCoreNamespace = strings.TrimSpace(c.MASAuthCoreNamespace)
+	c.MASAuthHost = strings.TrimSpace(c.MASAuthHost)
+	if c.MASAuthInstanceID == "" {
+		c.MASAuthInstanceID = strings.TrimSpace(c.MASInstanceID)
+	}
+	if c.MASAuthCoreNamespace == "" {
+		c.MASAuthCoreNamespace = strings.TrimSpace(c.MASCoreNamespace)
+	}
+	if c.MASAuthCoreNamespace == "" && c.MASAuthInstanceID != "" {
+		c.MASAuthCoreNamespace = "mas-" + c.MASAuthInstanceID + "-core"
+	}
+	if c.MASAuthInstanceID == "" && strings.HasPrefix(c.MASAuthCoreNamespace, "mas-") && strings.HasSuffix(c.MASAuthCoreNamespace, "-core") {
+		c.MASAuthInstanceID = strings.TrimSuffix(strings.TrimPrefix(c.MASAuthCoreNamespace, "mas-"), "-core")
+	}
+}
+
 func hasComponent(components []string, component string) bool {
-	for _, candidate := range components {
-		if candidate == component {
+	return hasValue(components, component)
+}
+
+func hasValue(values []string, value string) bool {
+	for _, candidate := range values {
+		if candidate == value {
 			return true
 		}
 	}

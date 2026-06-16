@@ -224,6 +224,9 @@ func (o *objectStorageInstallOptions) run(ctx context.Context) error {
 	fmt.Fprintf(os.Stdout, "[object-storage] endpoint: %s\n", endpointURL)
 
 	if o.skipMASConfig {
+		if err := applyConnectionDetails(ctx, client, o.masCoreNamespace, o.rookDetails(details, endpointURL)); err != nil {
+			return err
+		}
 		o.printSummary(details, endpointURL)
 		return nil
 	}
@@ -240,6 +243,9 @@ func (o *objectStorageInstallOptions) run(ctx context.Context) error {
 	}
 
 	fmt.Fprintf(os.Stdout, "[object-storage] MAS ObjectStorageCfg ready: %s/%s\n", o.masCoreNamespace, o.objectStorageCfg)
+	if err := applyConnectionDetails(ctx, client, o.masCoreNamespace, o.rookDetails(details, endpointURL)); err != nil {
+		return err
+	}
 	o.printSummary(details, endpointURL)
 	return nil
 }
@@ -291,6 +297,9 @@ func (o *minioInstallOptions) run(ctx context.Context) error {
 		return err
 	}
 	if o.skipMASConfig {
+		if err := applyConnectionDetails(ctx, client, o.namespace, o.minioDetails(details)); err != nil {
+			return err
+		}
 		o.printSummary(details)
 		return nil
 	}
@@ -312,6 +321,9 @@ func (o *minioInstallOptions) run(ctx context.Context) error {
 	}
 
 	fmt.Fprintf(os.Stdout, "[object-storage] MAS ObjectStorageCfg ready: %s/%s\n", o.masCoreNamespace, o.objectStorageCfg)
+	if err := applyConnectionDetails(ctx, client, o.namespace, o.minioDetails(details)); err != nil {
+		return err
+	}
 	o.printSummary(details)
 	return nil
 }
@@ -750,6 +762,46 @@ func (o *minioInstallOptions) printSummary(details s3BucketDetails) {
 		fmt.Fprintf(os.Stdout, "  MAS credential secret: %s/%s keys username,password\n", o.masCoreNamespace, o.masCredentialsName)
 		fmt.Fprintf(os.Stdout, "  MAS ObjectStorageCfg: %s/%s\n", o.masCoreNamespace, o.objectStorageCfg)
 	}
+}
+
+func (o *objectStorageInstallOptions) rookDetails(details s3BucketDetails, endpointURL string) map[string]string {
+	updates := map[string]string{
+		"s3.provider":        "rook-ceph-rgw",
+		"s3.endpointURL":     endpointURL,
+		"s3.bucket":          details.Bucket,
+		"s3.region":          details.Region,
+		"s3.accessKeySecret": fmt.Sprintf("%s/%s key AWS_ACCESS_KEY_ID", o.masCoreNamespace, o.bucketClaimName),
+		"s3.secretKeySecret": fmt.Sprintf("%s/%s key AWS_SECRET_ACCESS_KEY", o.masCoreNamespace, o.bucketClaimName),
+		"s3.namespace":       o.rookNamespace,
+		"s3.detailsCommand":  fmt.Sprintf("mas-est details --namespace %s --component s3", o.masCoreNamespace),
+	}
+	if !o.skipMASConfig {
+		updates["s3.masCredentialSecret"] = fmt.Sprintf("%s/%s keys username,password", o.masCoreNamespace, o.masCredentialsName)
+		updates["s3.objectStorageCfg"] = fmt.Sprintf("%s/%s", o.masCoreNamespace, o.objectStorageCfg)
+	}
+	return updates
+}
+
+func (o *minioInstallOptions) minioDetails(details s3BucketDetails) map[string]string {
+	updates := map[string]string{
+		"s3.provider":             "minio",
+		"s3.externalAPIURL":       "https://" + o.apiRouteHost,
+		"s3.consoleURL":           "https://" + o.consoleRouteHost,
+		"s3.manageEndpointURL":    o.manageEndpointURL(),
+		"s3.objectStorageCfgURL":  o.internalEndpointURL(),
+		"s3.bucket":               details.Bucket,
+		"s3.siblingBuckets":       strings.Join(o.manageBucketNames(), ","),
+		"s3.rootBucketPrefixes":   "recovery/,backup/",
+		"s3.region":               details.Region,
+		"s3.rootCredentialSecret": fmt.Sprintf("%s/%s keys MINIO_ROOT_USER,MINIO_ROOT_PASSWORD", o.namespace, o.rootSecretName),
+		"s3.namespace":            o.namespace,
+		"s3.detailsCommand":       fmt.Sprintf("mas-est details --namespace %s --component s3", o.namespace),
+	}
+	if !o.skipMASConfig {
+		updates["s3.masCredentialSecret"] = fmt.Sprintf("%s/%s keys username,password", o.masCoreNamespace, o.masCredentialsName)
+		updates["s3.objectStorageCfg"] = fmt.Sprintf("%s/%s", o.masCoreNamespace, o.objectStorageCfg)
+	}
+	return updates
 }
 
 func applyObjectStorageManifest(ctx context.Context, client *oc.Client, manifest map[string]any) error {

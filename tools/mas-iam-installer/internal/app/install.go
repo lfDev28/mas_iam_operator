@@ -52,6 +52,12 @@ func newInstallCommand(root *RootOptions) *cobra.Command {
 	flags.StringVar(&opts.config.ProfileID, "profile-id", opts.config.ProfileID, "MAS profile ID")
 	flags.StringVar(&opts.config.MASInstanceID, "mas-instance-id", opts.config.MASInstanceID, "MAS instance ID for S3 ObjectStorageCfg")
 	flags.StringVar(&opts.config.MASCoreNamespace, "mas-core-namespace", opts.config.MASCoreNamespace, "MAS core namespace for S3 ObjectStorageCfg")
+	flags.BoolVar(&opts.config.ConfigureMASAuth, "configure-mas-auth", opts.config.ConfigureMASAuth, "Create MAS LDAP, OIDC, and SAML IDPCfg resources for the installed IAM services")
+	flags.StringSliceVar(&opts.config.MASAuthProviders, "mas-auth-providers", opts.config.MASAuthProviders, "Comma-separated MAS auth providers to create: ldap,oidc,saml")
+	flags.StringVar(&opts.config.MASAuthHost, "mas-auth-host", opts.config.MASAuthHost, "MAS auth route host for MAS auth auto-configuration")
+	flags.StringVar(&opts.config.MASAuthInstanceID, "mas-auth-instance-id", opts.config.MASAuthInstanceID, "MAS instance ID for MAS auth auto-configuration")
+	flags.StringVar(&opts.config.MASAuthCoreNamespace, "mas-auth-core-namespace", opts.config.MASAuthCoreNamespace, "MAS core namespace for MAS auth auto-configuration")
+	flags.BoolVar(&opts.config.MASAuthUseCRApply, "mas-auth-use-cr-apply", opts.config.MASAuthUseCRApply, "Fall back to applying IDPCfg CRs directly instead of using the MAS Admin API")
 	flags.StringVar(&opts.config.StorageClass, "storage-class", opts.config.StorageClass, "PostgreSQL storage class override")
 	flags.StringVar(&opts.config.ScimBridgeStorageClass, "scim-bridge-storage-class", opts.config.ScimBridgeStorageClass, "SCIM bridge PVC storage class override")
 	flags.StringVar(&opts.config.KeycloakBootstrapMethod, "keycloak-bootstrap", opts.config.KeycloakBootstrapMethod, "Keycloak bootstrap mode passed to install-all-in-one.sh")
@@ -111,6 +117,7 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 		return err
 	}
 	cfg.DefaultMASCoreNamespace()
+	cfg.DefaultMASAuthTarget()
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
@@ -227,9 +234,41 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 		}
 	}
 
+	if cfg.ConfigureMASAuth {
+		fmt.Fprintln(output, "[install] configuring MAS LDAP/OIDC/SAML identity providers")
+		opts := masAuthApplyOptions{
+			namespace:        cfg.Namespace,
+			release:          config.DefaultIAMRelease,
+			realm:            defaultKeycloakRealm,
+			masInstanceID:    cfg.MASAuthInstanceID,
+			masCoreNamespace: cfg.MASAuthCoreNamespace,
+			masAuthHost:      cfg.MASAuthHost,
+			providers:        cfg.MASAuthProviders,
+			ldapProviderID:   defaultMASAuthLDAPID,
+			oidcProviderID:   defaultMASAuthOIDCID,
+			samlProviderID:   defaultMASAuthSAMLID,
+			wait:             true,
+			timeout:          10 * time.Minute,
+
+			useCRApply:         cfg.MASAuthUseCRApply,
+			apiBaseURL:         cfg.MASBaseURL,
+			apiTokenName:       cfg.MASAPITokenName,
+			apiTokenValue:      cfg.MASAPITokenValue,
+			insecureTLS:        true,
+			selfRegWorkspaceID: cfg.WorkspaceID,
+		}
+		if err := opts.run(ctx); err != nil {
+			if logPath != "" {
+				fmt.Fprintf(os.Stderr, "[result] MAS auth configuration failed; see %s\n", logPath)
+			}
+			return err
+		}
+	}
+
 	fmt.Fprintln(output, "[result] install completed")
 	fmt.Fprintf(output, "[result] verify with: oc get pods -n %s\n", cfg.Namespace)
 	fmt.Fprintf(output, "[result] logs shortcut: mas-est logs --namespace %s --component %s\n", cfg.Namespace, installLogComponent(cfg))
+	fmt.Fprintf(output, "[result] connection details: mas-est details --namespace %s --component all\n", cfg.Namespace)
 
 	return nil
 }

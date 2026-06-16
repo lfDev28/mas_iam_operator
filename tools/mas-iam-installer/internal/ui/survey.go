@@ -112,6 +112,55 @@ func PromptInstall(cfg config.InstallConfig, hints InstallDiscoveryHints, storag
 		}
 	}
 
+	if cfg.HasComponent(config.InstallComponentLDAP) {
+		if err := askOne(&survey.Confirm{
+			Message: "Configure MAS authentication providers?",
+			Default: cfg.ConfigureMASAuth,
+			Help:    "Creates MAS IDPCfg resources backed by the installed OpenLDAP and Keycloak services.",
+		}, &cfg.ConfigureMASAuth); err != nil {
+			return cfg, err
+		}
+	}
+	if cfg.ConfigureMASAuth {
+		if cfg.MASAuthProviders, err = askMASAuthProviders(cfg.MASAuthProviders, cfg); err != nil {
+			return cfg, err
+		}
+		if cfg.MASAuthInstanceID == "" {
+			cfg.MASAuthInstanceID = selectedInstanceID
+			if cfg.MASAuthInstanceID == "" && cfg.MASInstanceID != "" {
+				cfg.MASAuthInstanceID = cfg.MASInstanceID
+			}
+			if cfg.MASAuthInstanceID == "" && len(hints.MASRoutes) == 1 {
+				cfg.MASAuthInstanceID = hints.MASRoutes[0].InstanceID
+			}
+		}
+		if cfg.MASAuthInstanceID, err = askRequiredInput(
+			"MAS auth instance ID",
+			cfg.MASAuthInstanceID,
+			"MAS instance that should receive LDAP, OIDC, and SAML IDPCfg resources.",
+		); err != nil {
+			return cfg, err
+		}
+		cfg.DefaultMASAuthTarget()
+		if cfg.MASAuthCoreNamespace, err = askRequiredInput(
+			"MAS auth core namespace",
+			cfg.MASAuthCoreNamespace,
+			"Namespace containing MAS CoreIDP and IDPCfg resources.",
+		); err != nil {
+			return cfg, err
+		}
+		if cfg.MASAuthHost == "" {
+			cfg.MASAuthHost = authHostForInstance(cfg.MASAuthInstanceID, hints.MASRoutes)
+		}
+		if cfg.MASAuthHost, err = askRequiredInput(
+			"MAS auth host",
+			cfg.MASAuthHost,
+			"Host part of the MAS auth route, for example auth.<mas-domain>.",
+		); err != nil {
+			return cfg, err
+		}
+	}
+
 	if len(storageChoices) > 0 && (cfg.HasComponent(config.InstallComponentKeycloak) || cfg.HasComponent(config.InstallComponentS3)) {
 		if cfg.StorageClass, err = askStorageClassSelect(
 			"Primary storage class",
@@ -212,6 +261,66 @@ func askInstallComponents(current []string) ([]string, error) {
 			return normalized, nil
 		}
 		fmt.Println("Select at least one product.")
+	}
+}
+
+func askMASAuthProviders(current []string, cfg config.InstallConfig) ([]string, error) {
+	current, _ = config.NormalizeMASAuthProviders(current)
+
+	labelForProvider := map[string]string{
+		config.MASAuthProviderLDAP: "LDAP provider",
+		config.MASAuthProviderOIDC: "OIDC provider (MAS 9.1+)",
+		config.MASAuthProviderSAML: "SAML provider",
+	}
+	providerForLabel := map[string]string{}
+	options := []string{}
+	available := []string{}
+	if cfg.HasComponent(config.InstallComponentLDAP) {
+		available = append(available, config.MASAuthProviderLDAP)
+	}
+	if cfg.HasComponent(config.InstallComponentKeycloak) {
+		available = append(available, config.MASAuthProviderOIDC, config.MASAuthProviderSAML)
+	}
+	for _, provider := range available {
+		label := labelForProvider[provider]
+		providerForLabel[label] = provider
+		options = append(options, label)
+	}
+
+	defaultLabels := []string{}
+	defaultProviders := current
+	if len(defaultProviders) == 0 {
+		defaultProviders = available
+	}
+	for _, provider := range defaultProviders {
+		label := labelForProvider[provider]
+		if label != "" {
+			defaultLabels = append(defaultLabels, label)
+		}
+	}
+
+	for {
+		selectedLabels := defaultLabels
+		if err := askOne(&survey.MultiSelect{
+			Message: "MAS auth providers to create",
+			Options: options,
+			Default: defaultLabels,
+			Help:    "Use Space to select providers. OIDC requires MAS 9.1 or later with IDPCfg spec.oidc support.",
+		}, &selectedLabels); err != nil {
+			return nil, err
+		}
+		selected := []string{}
+		for _, label := range selectedLabels {
+			selected = append(selected, providerForLabel[label])
+		}
+		normalized, err := config.NormalizeMASAuthProviders(selected)
+		if err != nil {
+			return nil, err
+		}
+		if len(normalized) > 0 {
+			return normalized, nil
+		}
+		fmt.Println("Select at least one MAS auth provider.")
 	}
 }
 
@@ -525,6 +634,13 @@ func PrintInstallSummary(cfg config.InstallConfig) {
 		fmt.Printf("[config] mas_core_namespace=%s\n", cfg.MASCoreNamespace)
 		fmt.Printf("[config] s3_mas_config_enabled=%t\n", !cfg.SkipS3MASConfig)
 	}
+	if cfg.ConfigureMASAuth {
+		fmt.Printf("[config] configure_mas_auth=true\n")
+		fmt.Printf("[config] mas_auth_providers=%s\n", config.MASAuthProvidersString(cfg.MASAuthProviders))
+		fmt.Printf("[config] mas_auth_instance_id=%s\n", cfg.MASAuthInstanceID)
+		fmt.Printf("[config] mas_auth_core_namespace=%s\n", cfg.MASAuthCoreNamespace)
+		fmt.Printf("[config] mas_auth_host=%s\n", cfg.MASAuthHost)
+	}
 	if cfg.StorageClass != "" {
 		fmt.Printf("[config] primary_storage_class=%s\n", cfg.StorageClass)
 	}
@@ -532,6 +648,18 @@ func PrintInstallSummary(cfg config.InstallConfig) {
 		fmt.Printf("[config] scim_bridge_storage_class=%s\n", cfg.ScimBridgeStorageClass)
 	}
 	fmt.Printf("[config] uninstall_first=%t\n", cfg.WipeFirst)
+}
+
+func authHostForInstance(instanceID string, routes []oc.MASRoute) string {
+	if instanceID == "" {
+		return ""
+	}
+	for _, route := range routes {
+		if route.InstanceID == instanceID {
+			return strings.Replace(route.Host, "api.", "auth.", 1)
+		}
+	}
+	return ""
 }
 
 func PrintBanner(title string, lines ...string) {

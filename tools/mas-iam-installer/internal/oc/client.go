@@ -281,6 +281,45 @@ func (c *Client) ManageWorkspaces(ctx context.Context) ([]ManageWorkspace, error
 	return workspaces, nil
 }
 
+func (c *Client) IDPCfgSupportsOIDC(ctx context.Context) (bool, error) {
+	output, err := c.runner.Output(ctx, executil.Options{
+		Name: "oc",
+		Args: []string{"get", "crd", "idpcfgs.config.mas.ibm.com", "-o", "json"},
+	})
+	if err != nil {
+		return false, err
+	}
+
+	var payload struct {
+		Spec struct {
+			Versions []struct {
+				Schema struct {
+					OpenAPIV3Schema struct {
+						Properties map[string]struct {
+							Properties map[string]struct {
+								Properties map[string]any `json:"properties"`
+							} `json:"properties"`
+						} `json:"properties"`
+					} `json:"openAPIV3Schema"`
+				} `json:"schema"`
+			} `json:"versions"`
+		} `json:"spec"`
+	}
+	if err := json.Unmarshal([]byte(output), &payload); err != nil {
+		return false, fmt.Errorf("decode idpcfg CRD schema: %w", err)
+	}
+	for _, version := range payload.Spec.Versions {
+		spec, ok := version.Schema.OpenAPIV3Schema.Properties["spec"]
+		if !ok {
+			continue
+		}
+		if _, ok := spec.Properties["oidc"]; ok {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (c *Client) CSVPhase(ctx context.Context, namespace string) (CSVStatus, error) {
 	if csvName, err := c.subscriptionCurrentCSV(ctx, namespace); err == nil && csvName != "" {
 		return c.csvStatusByName(ctx, namespace, csvName)

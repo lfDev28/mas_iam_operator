@@ -156,6 +156,13 @@ if install_keycloak; then
   oc wait --for=condition=ready -n "${NAMESPACE}" pod/mas-est-iam-postgresql-0 --timeout=20m
   wait_for_namespaced_resource job mas-est-iam-ldap-config "${NAMESPACE}" 1200
   oc wait --for=condition=complete -n "${NAMESPACE}" job/mas-est-iam-ldap-config --timeout=20m
+
+  log_install "seeding grouped demo users into Keycloak realm (oidc.*, saml.*, scim.*)"
+  "${ROOT_DIR}/scripts/configure-demo-users.sh" \
+    --namespace "${NAMESPACE}" \
+    --release "mas-est-iam" \
+    --realm "${SCIM_BRIDGE_KEYCLOAK_REALM:-maximo}" \
+    --password "${MAS_EST_DEMO_USER_PASSWORD:-maxadmin}"
 fi
 
 if install_scim; then
@@ -186,6 +193,8 @@ if install_scim; then
   SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_ENABLED='true' \
   SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_ID="${SCIM_BRIDGE_MAS_PROFILE_ID}" \
   SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WORKSPACE_ID="${SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WORKSPACE_ID}" \
+  SCIM_BRIDGE_INCLUDE_USERNAME_PREFIX="${SCIM_BRIDGE_INCLUDE_USERNAME_PREFIX:-scim.}" \
+  SCIM_BRIDGE_INCLUDE_USERNAMES="${SCIM_BRIDGE_INCLUDE_USERNAMES:-}" \
   "${ROOT_DIR}/scripts/scim-bridge-02-deploy.sh"
 
   log_wait "verifying SCIM bridge rollout"
