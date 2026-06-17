@@ -190,6 +190,48 @@ func TestConditionSummaryFormatsConditions(t *testing.T) {
 	}
 }
 
+func TestSAMLIssuerURLMatchesLibertyDerivedIssuer(t *testing.T) {
+	got := samlIssuerURL("auth.mas91.apps.example.com", "mas-est-saml-sp")
+	want := "https://auth.mas91.apps.example.com/ibm/saml20/mas-est-saml-sp"
+	if got != want {
+		t.Fatalf("samlIssuerURL = %q, want %q", got, want)
+	}
+}
+
+func TestKeycloakMASClientScriptIncludesSAMLQuirks(t *testing.T) {
+	script := keycloakMASClientScript(map[string]string{
+		"KC_ADMIN_USER":      "admin",
+		"KC_ADMIN_PASSWORD":  "secret",
+		"KC_SERVICE":         "http://kc:8080",
+		"KC_REALM":           "maximo",
+		"CONFIGURE_OIDC":     "false",
+		"OIDC_CLIENT_ID":     "",
+		"OIDC_CLIENT_SECRET": "",
+		"OIDC_REDIRECT_URI":  "",
+		"CONFIGURE_SAML":     "true",
+		"SAML_CLIENT_ID":     "https://auth.mas91.apps.example.com/ibm/saml20/mas-est-saml-sp",
+		"SAML_SP_NAME":       "mas-est-saml-sp",
+		"SAML_REDIRECT_URI":  "https://auth.mas91.apps.example.com/*",
+		"SAML_SLO_URL":       "https://auth.mas91.apps.example.com/ibm/saml20/mas-est-saml-sp/slo",
+	})
+	for _, want := range []string{
+		// URL-form clientId, not the bare SP name
+		`SAML_CLIENT_ID='https://auth.mas91.apps.example.com/ibm/saml20/mas-est-saml-sp'`,
+		// SLO URLs in the client attributes block
+		`"saml_single_logout_service_url_post": "${SAML_SLO_URL}"`,
+		`"saml_single_logout_service_url_redirect": "${SAML_SLO_URL}"`,
+		// All four selfreg-aligned protocol mappers
+		"ensure_saml_mapper preferred_username username",
+		"ensure_saml_mapper email email",
+		"ensure_saml_mapper given_name firstName",
+		"ensure_saml_mapper family_name lastName",
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("script missing %q\n---script---\n%s", want, script)
+		}
+	}
+}
+
 func TestCertificatesFromPEMSplitsChain(t *testing.T) {
 	raw := `-----BEGIN CERTIFICATE-----
 one

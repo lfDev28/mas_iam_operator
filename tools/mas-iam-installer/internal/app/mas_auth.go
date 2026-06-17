@@ -355,14 +355,19 @@ func (o *masAuthApplyOptions) configureKeycloak(ctx context.Context, runner *exe
 		"OIDC_CLIENT_SECRET": oidcSecret,
 		"OIDC_REDIRECT_URI":  fmt.Sprintf("https://%s/oidcclient/redirect/%s", o.masAuthHost, o.oidcProviderID),
 		"CONFIGURE_SAML":     boolString(o.hasProvider(config.MASAuthProviderSAML)),
-		// Keycloak's SAML client clientId MUST match the SAML AuthnRequest
-		// Issuer that MAS sends. MAS sends the SP entity ID, which is
-		// IDPCfg.spec.saml.sp.serviceProviderName (defaultMASAuthSAMLSPName)
-		// — NOT IDPCfg.spec.saml.sp.issuer / o.samlProviderID. Mismatch
-		// surfaces in Keycloak as `client_not_found, Cannot_match_source_hash`
-		// and the user sees "Invalid Request".
-		"SAML_CLIENT_ID":    defaultMASAuthSAMLSPName,
+		// Keycloak's SAML client clientId MUST match the <saml:Issuer> that
+		// MAS sends on the AuthnRequest. IBM Liberty derives that issuer as
+		// https://<auth-host>/ibm/saml20/<serviceProviderName> — a URL, NOT
+		// the bare SP name. Mismatch surfaces in Keycloak as
+		// `client_not_found, Cannot_match_source_hash` and the user sees
+		// "Invalid Request". See memory: saml-login-invalid-request.
+		"SAML_CLIENT_ID":    samlIssuerURL(o.masAuthHost, defaultMASAuthSAMLSPName),
+		"SAML_SP_NAME":      defaultMASAuthSAMLSPName,
 		"SAML_REDIRECT_URI": fmt.Sprintf("https://%s/*", o.masAuthHost),
+		// MAS Liberty's SP single-logout endpoint mirrors the ACS path. Without
+		// these on the Keycloak client, SP-initiated logout dies with
+		// "Can't finish SAML logout as there is no logout binding set."
+		"SAML_SLO_URL": fmt.Sprintf("https://%s/ibm/saml20/%s/slo", o.masAuthHost, defaultMASAuthSAMLSPName),
 	})
 	if _, err := runner.InputOutput(ctx, executil.Options{
 		Name: "oc",
@@ -386,7 +391,7 @@ func (o *masAuthApplyOptions) configureKeycloak(ctx context.Context, runner *exe
 		BaseURL:          "https://" + routeHost,
 		OIDCClientID:     o.oidcProviderID,
 		OIDCClientSecret: oidcSecret,
-		SAMLClientID:     defaultMASAuthSAMLSPName,
+		SAMLClientID:     samlIssuerURL(o.masAuthHost, defaultMASAuthSAMLSPName),
 		SAMLMetadata:     metadata,
 		RouteCACerts:     certs,
 	}, nil
@@ -456,7 +461,9 @@ func keycloakMASClientScript(values map[string]string) string {
 		"OIDC_REDIRECT_URI",
 		"CONFIGURE_SAML",
 		"SAML_CLIENT_ID",
+		"SAML_SP_NAME",
 		"SAML_REDIRECT_URI",
+		"SAML_SLO_URL",
 	} {
 		fmt.Fprintf(&b, "%s=%s\n", key, shellQuote(values[key]))
 	}
@@ -509,7 +516,9 @@ if [[ "$CONFIGURE_SAML" == "true" ]]; then
     "saml.force.post.binding": "true",
     "saml.server.signature": "true",
     "saml_name_id_format": "email",
-    "saml_force_name_id_format": "true"
+    "saml_force_name_id_format": "true",
+    "saml_single_logout_service_url_post": "${SAML_SLO_URL}",
+    "saml_single_logout_service_url_redirect": "${SAML_SLO_URL}"
   }
 }
 JSON
@@ -524,9 +533,52 @@ while IFS=, read -r client_id client_uuid _; do
 done < <(/opt/keycloak/bin/kcadm.sh get clients -r "$KC_REALM" --fields clientId,id --format csv --noquotes 2>/dev/null)
 if [[ -z "$saml_uuid" ]]; then
   /opt/keycloak/bin/kcadm.sh create clients -r "$KC_REALM" -f /tmp/mas-est-saml-client.json >/dev/null
+  # re-read the uuid we just created
+  while IFS=, read -r client_id client_uuid _; do
+    client_id="${client_id//$'\r'/}"
+    client_uuid="${client_uuid//$'\r'/}"
+    if [[ "$client_id" == "$SAML_CLIENT_ID" ]]; then
+      saml_uuid="$client_uuid"
+      break
+    fi
+  done < <(/opt/keycloak/bin/kcadm.sh get clients -r "$KC_REALM" --fields clientId,id --format csv --noquotes 2>/dev/null)
 else
   /opt/keycloak/bin/kcadm.sh update "clients/${saml_uuid}" -r "$KC_REALM" -f /tmp/mas-est-saml-client.json >/dev/null
 fi
+
+# Keycloak's default SAML assertion ships only the NameID + role_list — no
+# user attributes. The MAS selfreg mappings (id/email/given_name/family_name)
+# look up attributes by name in the assertion, so we add four
+# saml-user-property mappers that emit the OIDC-style names the selfreg
+# configmap expects. See memory: saml-login-invalid-request.
+ensure_saml_mapper() {
+  local name=$1
+  local user_attr=$2
+  local existing
+  existing=$(/opt/keycloak/bin/kcadm.sh get "clients/${saml_uuid}/protocol-mappers/models" -r "$KC_REALM" --fields name --format csv --noquotes 2>/dev/null | tr -d '\r' | grep -Fx "$name" || true)
+  if [[ -n "$existing" ]]; then
+    return 0
+  fi
+  cat >/tmp/mas-est-saml-mapper.json <<JSON
+{
+  "name": "${name}",
+  "protocol": "saml",
+  "protocolMapper": "saml-user-property-mapper",
+  "consentRequired": false,
+  "config": {
+    "attribute.nameformat": "Basic",
+    "user.attribute": "${user_attr}",
+    "attribute.name": "${name}",
+    "friendly.name": "${name}"
+  }
+}
+JSON
+  /opt/keycloak/bin/kcadm.sh create "clients/${saml_uuid}/protocol-mappers/models" -r "$KC_REALM" -f /tmp/mas-est-saml-mapper.json >/dev/null
+}
+ensure_saml_mapper preferred_username username
+ensure_saml_mapper email email
+ensure_saml_mapper given_name firstName
+ensure_saml_mapper family_name lastName
 fi
 `)
 	return b.String()
@@ -534,6 +586,13 @@ fi
 
 func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+}
+
+// samlIssuerURL returns the <saml:Issuer> value MAS Liberty sends on
+// AuthnRequests for the given SP. The Keycloak SAML client's clientId must
+// be set to exactly this value.
+func samlIssuerURL(masAuthHost, spName string) string {
+	return fmt.Sprintf("https://%s/ibm/saml20/%s", masAuthHost, spName)
 }
 
 func (o *masAuthApplyOptions) keycloakRouteHost(ctx context.Context, runner *executil.Runner) (string, error) {
