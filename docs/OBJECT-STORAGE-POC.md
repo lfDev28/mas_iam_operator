@@ -191,15 +191,34 @@ The current POC only creates the MAS object storage configuration. Manage attach
 
 Typical follow-on Manage work includes bucket-specific properties such as endpoint, bucket name, region, access key, secret key, and attachment storage mode.
 
-Recommended Manage test values for MinIO are:
+### Required Manage System Property values (validated 2026-06-18, MAS 9.1.18)
+
+Setting these in Manage's **System Properties** application is what actually wires up doclinks/attachments to MinIO. The `ObjectStorageCfg` CR the installer creates only wires MinIO into the MAS Suite layer (backups etc.), NOT into Manage attachment storage — that's a separate manual step today.
 
 ```text
-Endpoint URL: http://mas-est.svc.cluster.local:9000
-Bucket: mas-s3-demo
-Region: us-east-1
-Access key: value from secret key username
-Secret key: value from secret key password
+mxe.cosaccesskey            value from secret mas-minio-root key MINIO_ROOT_USER (minioadmin)
+mxe.cossecretkey            value from secret mas-minio-root key MINIO_ROOT_PASSWORD
+mxe.cosendpointuri          http://mas-est.svc.cluster.local:9000      ← see CRITICAL note below
+mxe.cosbucketname           mas-s3-demo
+mxe.cosregion               us-east-1                                   ← required to force V4 signing
+mxe.attachmentstorage       com.ibm.tivoli.maximo.oslc.provider.COSAttachmentStorage
+mxe.doclink.doctypes.defpath        cos:doclinks
+mxe.doclink.doctypes.topLevelPaths  cos:doclinks
+mxe.doclink.path01          cos:doclinks=<manage-ui-base-url>
+mxe.doclink.securedAttachment       True
 ```
+
+Then in Manage's **Document Types** application, edit each doctype (e.g. `Attachments`) and change its `DEFAULTPATH` from the legacy filesystem path (e.g. `\DOCLINKS\ATTACHMENTS`) to `cos:doclinks/attachment` (must start with the `cos:doclinks/` prefix to match topLevelPaths). Then restart the Manage `all` deployment so the new config is picked up.
+
+### CRITICAL — use the in-cluster URL, NOT the OpenShift route URL
+
+**Do NOT** follow the IBM Cloud Object Storage examples that tell you to use `https://<public-s3-endpoint>` as `mxe.cosendpointuri`. The MinIO installed by mas-est is only reachable for Manage doclinks via the in-cluster Kubernetes service URL `http://mas-est.svc.cluster.local:9000`. Reasons:
+
+1. **The AWS SDK in Maximo defaults to virtual-hosted-style addressing** (`<bucket>.<endpoint-host>`). For the OpenShift route, this would require a wildcard route admission + a two-level wildcard TLS cert covering `*.mas-minio-api.apps.<cluster-domain>`, neither of which mas-est sets up by default. Result: HTTP 503 from the OpenShift router.
+2. **The installer pre-creates per-bucket Kubernetes Services** (`mas-s3-demo`, `mas-s3-demobackup`, `mas-s3-demorecovery`) in the `mas-est` namespace. Combined with MinIO's `MINIO_DOMAIN=mas-est.svc.cluster.local` setting, this means `<bucket>.mas-est.svc.cluster.local` DNS-resolves to the right MinIO pod via the per-bucket service. That's only true *inside* the cluster.
+3. **MinIO `:latest` requires AWS Signature V4**; setting `mxe.cosregion=us-east-1` nudges the AWS SDK out of legacy V2 mode and avoids the `AmazonS3Exception: The authorization mechanism you have provided is not supported. Please use AWS4-HMAC-SHA256` error.
+
+If you follow the IBM public-cloud docs verbatim against mas-est MinIO, you will see a cascade of misleading errors: `BMXAA4195E - A value is required for the URL/File Name field`, a `NullPointerException` in `psdi.app.doclink.AppDoctype.init` (which resolves itself once COS is actually reachable), and `AmazonS3Exception: 503 Service Unavailable` with `Request ID: null`. The fix for all of them is using the in-cluster URL above.
 
 ## Future Installer Direction
 

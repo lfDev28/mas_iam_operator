@@ -813,9 +813,15 @@ func (o *masAuthApplyOptions) ldapIDPCfgManifest(secretName string, certs []cert
 		spec["certificates"] = certs
 	}
 	spec["ldap"] = map[string]any{
-		"url":       fmt.Sprintf("ldaps://%s-openldap.%s.svc.cluster.local:636", o.release, o.namespace),
-		"baseDN":    defaultLDAPBaseDN,
-		"userIdMap": "*:uid",
+		"url":    fmt.Sprintf("ldaps://%s-openldap.%s.svc.cluster.local:636", o.release, o.namespace),
+		"baseDN": defaultLDAPBaseDN,
+		// Plain attribute name, NOT the Liberty federated-LDAP "*:uid" syntax.
+		// On MAS 9.1.18+ the customUserRegistry passes this value directly into
+		// a JNDI search filter — anything other than a bare LDAP attribute
+		// description throws InvalidSearchFilterException at runtime and the
+		// user sees a misleading "invalid user ID or password" error. The MAS
+		// Admin API docs use the same plain form (example shows "cn").
+		"userIdMap": "uid",
 		"credentials": map[string]string{
 			"secretName": secretName,
 		},
@@ -873,7 +879,7 @@ func (o *masAuthApplyOptions) details(kc keycloakMASClients) map[string]string {
 		details["ldap.baseDN"] = defaultLDAPBaseDN
 		details["ldap.bindDN"] = fmt.Sprintf("cn=admin,%s", defaultLDAPBaseDN)
 		details["ldap.bindSecret"] = fmt.Sprintf("%s/%s-openldap-admin key password", o.namespace, o.release)
-		details["ldap.userIdMap"] = "*:uid"
+		details["ldap.userIdMap"] = "uid"
 	}
 	if o.hasProvider(config.MASAuthProviderOIDC) {
 		details["oidc.displayName"] = defaultMASAuthDisplayOIDC

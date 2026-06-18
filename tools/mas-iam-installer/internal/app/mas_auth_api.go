@@ -116,16 +116,25 @@ func (o *masAuthApplyOptions) applyViaAdminAPI(ctx context.Context, client *oc.C
 //	    id: preferred_username
 //	    ...
 func (o *masAuthApplyOptions) applySelfRegConfigMap(ctx context.Context, client *oc.Client) error {
-	yaml := o.selfRegConfigYAML()
 	data := map[string]string{}
 	if o.hasProvider(config.MASAuthProviderOIDC) {
-		data[o.oidcProviderID] = yaml
+		data[o.oidcProviderID] = o.selfRegConfigYAML(oidcSelfRegMappings)
 	}
 	if o.hasProvider(config.MASAuthProviderSAML) {
-		// SAML uses the same configmap shape; MAS validates and uses it on
-		// SAML JIT login. Same mappings work — preferred_username falls
-		// through to SAML NameID when the assertion uses email format.
-		data[o.samlProviderID] = yaml
+		// SAML uses the same OIDC-style mappings because the Keycloak SAML
+		// client emits saml-user-property mappers with OIDC-style attribute
+		// names (preferred_username, email, given_name, family_name). See
+		// the SAML quirks documented in [[saml-login-invalid-request]].
+		data[o.samlProviderID] = o.selfRegConfigYAML(oidcSelfRegMappings)
+	}
+	if o.hasProvider(config.MASAuthProviderLDAP) {
+		// LDAP login goes through MAS's customUserRegistry Liberty feature
+		// (NOT a JIT IDP flow), but MAS still consults the {instance}-selfreg
+		// ConfigMap when a successfully-bound LDAP user has no MongoDB record
+		// — without an mas-est-ldap entry, login fails with CWIML4537E
+		// "principal not found in the back-end repository". Mappings use
+		// LDAP attribute names (uid/mail/cn/givenName/sn) not OIDC claims.
+		data[o.ldapProviderID] = o.selfRegConfigYAML(ldapSelfRegMappings)
 	}
 	if len(data) == 0 {
 		return nil
@@ -153,9 +162,33 @@ func (o *masAuthApplyOptions) applySelfRegConfigMap(ctx context.Context, client 
 	return nil
 }
 
+// oidcSelfRegMappings — OIDC standard claims. Reused for SAML because the
+// Keycloak SAML client is configured with saml-user-property mappers that
+// emit assertion attributes under these same names.
+const oidcSelfRegMappings = `mappings:
+  id: preferred_username
+  email: email
+  displayName: name
+  givenName: given_name
+  familyName: family_name
+  title: title`
+
+// ldapSelfRegMappings — LDAP attribute names. The customUserRegistry passes
+// these through verbatim, so the selfreg mapping has to use LDAP attribute
+// names (uid/mail/cn/...), NOT the OIDC claim names.
+const ldapSelfRegMappings = `mappings:
+  id: uid
+  email: mail
+  displayName: cn
+  givenName: givenName
+  familyName: sn
+  title: title`
+
 // selfRegConfigYAML renders the per-IDP configmap entry. workspaceID defaults
 // to "workspace" (the {instance}-workspace ManageWorkspace CR's id suffix).
-func (o *masAuthApplyOptions) selfRegConfigYAML() string {
+// The mappings argument is the YAML "mappings:" block (caller chooses OIDC
+// claim names vs LDAP attribute names depending on the provider type).
+func (o *masAuthApplyOptions) selfRegConfigYAML(mappings string) string {
 	workspaceID := o.selfRegWorkspaceID
 	if workspaceID == "" {
 		workspaceID = "workspace"
@@ -167,14 +200,8 @@ workspaces:
   - id: %s
     applications:
       - manage
-mappings:
-  id: preferred_username
-  email: email
-  displayName: name
-  givenName: given_name
-  familyName: family_name
-  title: title
-`, workspaceID)
+%s
+`, workspaceID, mappings)
 }
 
 // linkSCIMUsersToOIDC shells out to scripts/link-scim-users-oidc.sh. We use a

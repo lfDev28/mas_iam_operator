@@ -47,7 +47,9 @@ func TestMASAuthLDAPManifest(t *testing.T) {
 	if ldap["url"] != "ldaps://mas-est-iam-openldap.mas-est.svc.cluster.local:636" {
 		t.Fatalf("ldap url = %q", ldap["url"])
 	}
-	if ldap["userIdMap"] != "*:uid" {
+	// Plain attribute name — Liberty's "*:uid" syntax breaks MAS 9.1.18's
+	// customUserRegistry which passes the value directly into a JNDI filter.
+	if ldap["userIdMap"] != "uid" {
 		t.Fatalf("userIdMap = %q", ldap["userIdMap"])
 	}
 }
@@ -187,6 +189,26 @@ func TestConditionSummaryFormatsConditions(t *testing.T) {
 	got := conditionSummary(resp)
 	if !strings.Contains(got, "Ready=False(Pending)") || !strings.Contains(got, "Healthy=True") {
 		t.Fatalf("summary = %q", got)
+	}
+}
+
+func TestSelfRegConfigYAMLEmitsRequestedMappingsAndWorkspace(t *testing.T) {
+	opts := &masAuthApplyOptions{selfRegWorkspaceID: "demoap"}
+
+	oidc := opts.selfRegConfigYAML(oidcSelfRegMappings)
+	if !strings.Contains(oidc, "id: preferred_username") {
+		t.Fatalf("OIDC mappings missing preferred_username: %q", oidc)
+	}
+	if !strings.Contains(oidc, "id: demoap") {
+		t.Fatalf("workspace id not threaded through: %q", oidc)
+	}
+
+	ldap := opts.selfRegConfigYAML(ldapSelfRegMappings)
+	if !strings.Contains(ldap, "id: uid") || !strings.Contains(ldap, "email: mail") || !strings.Contains(ldap, "displayName: cn") {
+		t.Fatalf("LDAP mappings should use LDAP attribute names, got: %q", ldap)
+	}
+	if strings.Contains(ldap, "preferred_username") {
+		t.Fatalf("LDAP entry should NOT contain OIDC claim names: %q", ldap)
 	}
 }
 
