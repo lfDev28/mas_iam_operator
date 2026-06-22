@@ -594,7 +594,9 @@ func (o *objectStorageInstallOptions) waitForBucketDetails(ctx context.Context, 
 		if time.Now().After(deadline) {
 			return s3BucketDetails{}, fmt.Errorf("wait for ObjectBucketClaim %s/%s credentials: %w", o.masCoreNamespace, o.bucketClaimName, lastErr)
 		}
-		time.Sleep(5 * time.Second)
+		if err := sleepCtx(ctx, 5*time.Second); err != nil {
+			return s3BucketDetails{}, err
+		}
 	}
 }
 
@@ -654,7 +656,9 @@ func (o *objectStorageInstallOptions) waitForCertificateForMAS(ctx context.Conte
 		if time.Now().After(deadline) {
 			return "", fmt.Errorf("wait for RGW certificate secret %s/%s: %w", o.rookNamespace, o.certSecretName, lastErr)
 		}
-		time.Sleep(5 * time.Second)
+		if err := sleepCtx(ctx, 5*time.Second); err != nil {
+			return "", err
+		}
 	}
 }
 
@@ -873,7 +877,9 @@ func waitForDeployment(ctx context.Context, client *oc.Client, namespace, name s
 		if time.Now().After(deadline) {
 			return fmt.Errorf("wait for deployment/%s in namespace %s: %w", name, namespace, lastErr)
 		}
-		time.Sleep(5 * time.Second)
+		if err := sleepCtx(ctx, 5*time.Second); err != nil {
+			return err
+		}
 	}
 }
 
@@ -894,7 +900,9 @@ func waitForObjectStorageCfgReady(ctx context.Context, client *oc.Client, namesp
 		if time.Now().After(deadline) {
 			return fmt.Errorf("wait for objectstoragecfg/%s in namespace %s to become Ready: %s", name, namespace, lastState)
 		}
-		time.Sleep(5 * time.Second)
+		if err := sleepCtx(ctx, 5*time.Second); err != nil {
+			return err
+		}
 	}
 }
 
@@ -1381,6 +1389,20 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// sleepCtx blocks for d while honouring context cancellation. Returns
+// ctx.Err() if the context is cancelled mid-sleep. Use this in every
+// poll-wait loop so Ctrl+C and parent timeouts can interrupt installs.
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func randomSecretString(byteCount int) (string, error) {

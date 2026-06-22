@@ -1,10 +1,10 @@
-# MAS External Services Toolkit Beta Known Limitations
+# MAS External Services Toolkit Known Limitations
 
-This document defines the support boundary for the internal beta.
+This document defines the support boundary for `v0.1.x`.
 
-## Beta Scope
+## Scope
 
-The current beta is designed to support one thing well:
+`v0.1.x` is designed to support one thing well:
 
 - getting a working MAS External Services Toolkit plus SCIM bridge lab up quickly for support and troubleshooting work
 
@@ -68,39 +68,48 @@ Known realities:
 - DNS, route, proxy, and certificate behavior varies by cluster
 - beta testing cannot cover every OpenShift configuration before release
 
-Operationally, failed installs should be treated as beta feedback unless the same failure reproduces on the validated default path. Capture `preflight`, `status`, component logs, PVC state, and events before changing the cluster.
+Operationally, failed installs should be treated as bug reports unless the same failure reproduces on the validated default path. Capture `preflight`, `status`, component logs, PVC state, and events before changing the cluster.
 
-The current CLI includes `mas-est support-bundle --namespace mas-est` to collect the common status, resource, event, log, configmap, and redacted secret evidence into a timestamped local directory.
+The CLI includes `mas-est support-bundle --namespace mas-est` to collect the common status, resource, event, log, configmap, and redacted secret evidence into a timestamped local directory.
 
 ### Product Scope
 
-This beta is not yet positioned as:
+`v0.1.x` is not positioned as:
 
-- a final polished product
+- a finished v1.0 product (breaking changes are still possible between minor versions)
 - a general-purpose identity simulation platform
 - a complete multi-profile isolation solution
 
 ## What Is Supported
 
-Reasonable things to rely on in the beta:
+Reasonable things to rely on in `v0.1.x`:
 
 - local bootstrap of `mas-est` from the published container image
 - `mas-est preflight`
-- `mas-est install`
+- `mas-est install` (with phased progress output and per-provider connection secrets written on completion)
 - `mas-est status`
-- `mas-est support-bundle`
 - `mas-est logs`
+- `mas-est details` — print the aggregated connection details secret in redacted form
+- `mas-est ldap-info` — print bundled OpenLDAP connection values
+- `mas-est support-bundle`
+- `mas-est config view`
+- `mas-est config set mas-api-token` — rotate the MAS API token name/value; restarts `deployment/scim-bridge` automatically
+- `mas-est config set bridge` — toggle bridge log level and payload logging
+- `mas-est restart bridge`
 - `mas-est uninstall`
-- one working default demo flow for SCIM user provisioning
-- manual MAS API key rotation by updating `secret/scim-bridge-secret` and restarting `deployment/scim-bridge`
+
+Experimental surface (post-beta work, supported on a best-effort basis):
+
+- `mas-est mas-auth apply` — create MAS LDAP, OIDC, and SAML IDPCfg resources backed by the installed OpenLDAP and Keycloak services
+- `mas-est object-storage install-minio` and `install-rook-ceph` — stand up S3-compatible object storage
+- `mas-est smtp install-mailpit` — SMTP capture service
 
 ## What Is Planned Later
 
-These are good next-phase enhancements, but they are not part of the current beta promise:
+These are good next-phase enhancements, but they are not part of the `v0.1.x` promise:
 
-- group-based profile routing
+- group-based profile routing (planned for `v0.2.0`)
 - precedence rules between `masProfile` and groups
 - richer remediation for adopted existing users
 - more advanced identity-source emulation
 - broader UX polish and richer install summaries
-- CLI-backed config editing and token rotation

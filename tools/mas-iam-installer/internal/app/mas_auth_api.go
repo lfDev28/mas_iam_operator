@@ -324,11 +324,6 @@ func (o *masAuthApplyOptions) maybeWait(ctx context.Context, mc *masadmin.Client
 	}
 	deadline := time.Now().Add(o.timeout)
 	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
 		var (
 			resp *masadmin.IDPConfigResponse
 			err  error
@@ -353,7 +348,9 @@ func (o *masAuthApplyOptions) maybeWait(ctx context.Context, mc *masadmin.Client
 		if time.Now().After(deadline) {
 			return fmt.Errorf("timed out waiting %s for %s/%s to become Ready: %s", o.timeout, kind, idpId, conditionSummary(resp))
 		}
-		time.Sleep(pollInterval)
+		if err := sleepCtx(ctx, pollInterval); err != nil {
+			return err
+		}
 	}
 }
 

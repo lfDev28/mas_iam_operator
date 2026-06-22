@@ -901,7 +901,7 @@ metadata:
     createdAt: "2026-03-09T02:35:58Z"
     operators.operatorframework.io/builder: operator-sdk-v1.33.0
     operators.operatorframework.io/project_layout: helm.sdk.operatorframework.io/v1
-  name: mas-iam-operator.v0.0.11
+  name: mas-iam-operator.v0.1.0
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -1079,7 +1079,7 @@ spec:
                 - --metrics-bind-address=127.0.0.1:8080
                 - --leader-elect
                 - --leader-election-id=mas-iam-operator
-                image: quay.io/lee_forster/mas-iam-operator:0.0.11
+                image: quay.io/lee_forster/mas-iam-operator:0.1.0
                 imagePullPolicy: Always
                 livenessProbe:
                   httpGet:
@@ -1167,4 +1167,4 @@ spec:
   provider:
     name: Provider Name
     url: https://your.domain
-  version: 0.0.11
+  version: 0.1.0

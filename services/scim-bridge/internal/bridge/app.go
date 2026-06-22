@@ -81,9 +81,6 @@ func (a *App) Run(ctx context.Context) error {
 	switch a.cfg.Bridge.Mode {
 	case "poll", "hybrid":
 		return a.runPollingLoop(ctx, poller, executor)
-	case "event":
-		a.logger.Warn("event mode not yet implemented; exiting")
-		return nil
 	case "run-once":
 		return a.runWithMASRefresh(ctx, executor, func() error { return poller.RunOnce(ctx) })
 	case "backfill":

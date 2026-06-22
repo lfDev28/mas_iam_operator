@@ -22,7 +22,14 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     done
 
 ARG TARGETARCH=amd64
-FROM quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.7-${TARGETARCH}
+# Runtime base is the previous published mas-est image — it carries the OS
+# layer + the `est` binary layout we rely on for bootstrap. Pinned to the
+# most recent stable release (not a floating tag) so rebuilds are
+# reproducible. When cutting a new release, bump this to the prior tag
+# (e.g. v0.1.0 image bases on v0.1.0-beta.11, v0.1.1 bases on v0.1.0).
+# Long-term we should drop the self-reference and base on a small OS image
+# (ubi9-minimal or debian:bookworm-slim) so the chain isn't recursive.
+FROM quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.11-${TARGETARCH}
 
 ARG TARGETARCH=amd64
 

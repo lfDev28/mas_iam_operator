@@ -21,12 +21,13 @@ type Settings struct {
 
 // KeycloakConfig controls how we talk to the source realm.
 type KeycloakConfig struct {
-	BaseURL            string
-	Realm              string
-	ClientID           string
-	ClientSecret       string
-	CAFile             string
-	InsecureSkipVerify bool
+	BaseURL               string
+	Realm                 string
+	ClientID              string
+	ClientSecret          string
+	CAFile                string
+	InsecureSkipVerify    bool
+	IncludeFederatedUsers bool
 }
 
 // MASConfig captures how we address MAS SCIM endpoints.
@@ -99,6 +100,10 @@ func ApplyEnvOverrides(cfg *Settings) error {
 		{envName("KEYCLOAK_CA_FILE"), func(v string) error { cfg.Keycloak.CAFile = v; return nil }},
 		{envName("KEYCLOAK_INSECURE_SKIP_VERIFY"), func(v string) error {
 			cfg.Keycloak.InsecureSkipVerify = v == "1" || strings.EqualFold(v, "true")
+			return nil
+		}},
+		{envName("KEYCLOAK_INCLUDE_FEDERATED_USERS"), func(v string) error {
+			cfg.Keycloak.IncludeFederatedUsers = v == "1" || strings.EqualFold(v, "true")
 			return nil
 		}},
 		{envName("MAS_BASE_URL"), func(v string) error { cfg.MAS.BaseURL = v; return nil }},
@@ -215,9 +220,9 @@ func (s Settings) Validate() error {
 		return fmt.Errorf("mas auth type must be 'api-key' or 'jwt'")
 	}
 	switch s.Bridge.Mode {
-	case "poll", "event", "hybrid", "run-once", "backfill":
+	case "poll", "hybrid", "run-once", "backfill":
 	default:
-		return fmt.Errorf("bridge mode must be poll, event, hybrid, run-once, or backfill")
+		return fmt.Errorf("bridge mode must be poll, hybrid, run-once, or backfill")
 	}
 	switch s.Bridge.StateBackend {
 	case "memory", "filesystem", "postgresql":

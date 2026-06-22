@@ -1,26 +1,27 @@
 # MAS External Services Toolkit
 
-`mas-est` is an internal beta tool for standing up a working MAS External Services Toolkit and SCIM bridge lab on OpenShift.
+`mas-est` is a support and troubleshooting tool for standing up a working MAS External Services Toolkit and SCIM bridge lab on OpenShift.
 
-I built it because IAM support work often starts with the same slow setup: an identity provider, LDAP users and groups, certificate trust, SCIM provisioning into MAS, demo data, and a way to reset the environment when testing needs to start cleanly again. This repo turns that into one repeatable install path.
+It exists because IAM support work often starts with the same slow setup: an identity provider, LDAP users and groups, certificate trust, SCIM provisioning into MAS, demo data, and a way to reset the environment when testing needs to start cleanly again. This repo turns that into one repeatable install path.
 
-The current beta is focused on one thing: making it easy for support engineers and developers to get a usable IAM plus SCIM environment running quickly so they can reproduce issues, validate generic user lifecycle behavior, and separate MAS/IAM behavior from customer-specific identity-provider configuration.
+`mas-est` is aimed at support engineers and developers who need a usable IAM + SCIM environment running quickly so they can reproduce issues, validate generic user lifecycle behavior, and separate MAS/IAM behavior from customer-specific identity-provider configuration.
 
-## Current Beta Status
+## Current Status
 
-The beta install path has now been validated through a clean OpenShift install:
+`v0.1.x` covers the validated install path:
 
 - local `mas-est` bootstrap from the published image
 - `mas-est preflight`
-- interactive `mas-est install`
+- interactive `mas-est install` with phased progress output
 - MAS EST IAM operator install through OLM
 - Keycloak, OpenLDAP, PostgreSQL, and SCIM bridge readiness
-- MAS profile bootstrap
-- SCIM bridge user sync into MAS
-- `mas-est status` and `mas-est logs`
-- explicit PostgreSQL and SCIM bridge storage-class selection
+- optional MinIO S3 object storage + Mailpit SMTP capture
+- optional MAS auth auto-configuration (LDAP / OIDC / SAML IDPCfgs)
+- per-provider connection details Secrets/ConfigMaps for downstream wiring
+- MAS profile bootstrap and SCIM bridge user sync into MAS
+- `mas-est status`, `logs`, `details`, `ldap-info`, `support-bundle`
 
-That is enough to begin an internal beta. It is not a guarantee that every OpenShift cluster configuration will work first time. Cluster storage, registry, DNS, pull policy, route, and certificate differences can still expose issues. The plan for beta is to collect those failures with evidence, fix the install path as they appear, and keep the supported flow tight.
+This is `v0.1.x` rather than `v1.0.x` because we expect minor breaking changes before stabilising — for example, SCIM bridge group-based profile routing and existing-user repair are still on the roadmap. Where the install path itself runs into cluster-specific issues (storage, registry, DNS, route, or certificate differences), capture evidence and treat those as bug reports against the validated default path.
 
 ## What This Project Is For
 
@@ -47,17 +48,17 @@ Experimental post-beta work is exploring whether the project should broaden into
 
 ## What It Is Not
 
-This is not a final product installer yet, and it is not trying to emulate every enterprise identity provider.
+`mas-est` does not try to emulate every enterprise identity provider.
 
-In particular, the beta does not claim:
+In particular, `v0.1.x` does not claim:
 
 - Microsoft Entra feature parity
 - Entra-style expression mapping support
-- group-based SCIM profile routing
+- group-based SCIM profile routing (planned for `v0.2.0`)
 - full coverage for customer-specific tenant policy
 - compatibility with every possible OpenShift storage and registry setup
 
-The point is to give us a fast, open-source-style IAM and SCIM lab that covers the common support workflow. Customer-specific IdP behavior may still need customer-side validation.
+The point is to give us a fast, lab-grade IAM and SCIM environment that covers the common support workflow. Customer-specific IdP behavior may still need customer-side validation.
 
 ## Install
 
@@ -71,7 +72,7 @@ Start here:
 Short version:
 
 ```bash
-export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.12'
+export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.0'
 
 mkdir -p "$HOME/mas-est"
 podman run -ti --rm -v "$HOME/mas-est:/tmp" --pull always "$MAS_EST_IMAGE"
@@ -82,7 +83,7 @@ mas-est install
 mas-est status --namespace mas-est
 ```
 
-The installer is interactive. It now opens with a product catalog so users can choose LDAP only, Keycloak + LDAP, the full SCIM stack, S3 object storage, SMTP capture, or all services together. Users should not need to hand-edit manifests for the normal beta path.
+The installer is interactive. It opens with a product catalog so users can choose LDAP only, Keycloak + LDAP, the full SCIM stack, S3 object storage, SMTP capture, or all services together. Users should not need to hand-edit manifests for the normal install path.
 
 ## Operations
 
@@ -122,15 +123,14 @@ oc rollout restart deployment/scim-bridge -n mas-est
 
 The near-term plan is:
 
-1. release this as an internal beta
-2. keep the supported install surface focused on `mas-est preflight`, `install`, `status`, `logs`, `details`, `ldap-info`, and `uninstall`
-3. collect real cluster failures and fix them as beta bug reports
-4. tighten docs from real user feedback
-5. publish immutable beta/release image tags, starting with `v0.1.0-beta.9`
+1. keep `v0.1.x` focused on the validated install + operate surface (`preflight`, `install`, `status`, `logs`, `details`, `ldap-info`, `uninstall`, plus the experimental `mas-auth apply`, `object-storage install-*`, and `smtp install-mailpit`)
+2. collect real cluster failures and fix them in patch releases
+3. tighten docs from real user feedback
+4. publish immutable release image tags
 
-Post-beta work is tracked in [docs/INITIAL-RELEASE-PLAN.md](docs/INITIAL-RELEASE-PLAN.md) and [specs/post-beta-roadmap.md](specs/post-beta-roadmap.md). The current experimental surface includes MinIO S3, Mailpit SMTP capture, and MAS LDAP/OIDC/SAML auth auto-configuration.
+Post-`v0.1.0` work — SCIM bridge group routing, existing-user repair, and broader product polish — is tracked in [docs/INITIAL-RELEASE-PLAN.md](docs/INITIAL-RELEASE-PLAN.md) and [specs/post-beta-roadmap.md](specs/post-beta-roadmap.md).
 
-## Reporting Beta Issues
+## Reporting Issues
 
 If an install fails, capture evidence rather than only the final error:
 
