@@ -227,6 +227,9 @@ func (o *objectStorageInstallOptions) run(ctx context.Context) error {
 		if err := applyConnectionDetails(ctx, client, o.masCoreNamespace, o.rookDetails(details, endpointURL)); err != nil {
 			return err
 		}
+		if err := applyProviderConnectionSecret(ctx, client, o.masCoreNamespace, s3ConnectionSecretName, "s3", o.s3ConnectionSecretData(details, endpointURL)); err != nil {
+			return err
+		}
 		o.printSummary(details, endpointURL)
 		return nil
 	}
@@ -244,6 +247,9 @@ func (o *objectStorageInstallOptions) run(ctx context.Context) error {
 
 	fmt.Fprintf(os.Stdout, "[object-storage] MAS ObjectStorageCfg ready: %s/%s\n", o.masCoreNamespace, o.objectStorageCfg)
 	if err := applyConnectionDetails(ctx, client, o.masCoreNamespace, o.rookDetails(details, endpointURL)); err != nil {
+		return err
+	}
+	if err := applyProviderConnectionSecret(ctx, client, o.masCoreNamespace, s3ConnectionSecretName, "s3", o.s3ConnectionSecretData(details, endpointURL)); err != nil {
 		return err
 	}
 	o.printSummary(details, endpointURL)
@@ -300,6 +306,9 @@ func (o *minioInstallOptions) run(ctx context.Context) error {
 		if err := applyConnectionDetails(ctx, client, o.namespace, o.minioDetails(details)); err != nil {
 			return err
 		}
+		if err := applyProviderConnectionSecret(ctx, client, o.namespace, s3ConnectionSecretName, "s3", o.s3ConnectionSecretDataMinIO(details)); err != nil {
+			return err
+		}
 		o.printSummary(details)
 		return nil
 	}
@@ -322,6 +331,9 @@ func (o *minioInstallOptions) run(ctx context.Context) error {
 
 	fmt.Fprintf(os.Stdout, "[object-storage] MAS ObjectStorageCfg ready: %s/%s\n", o.masCoreNamespace, o.objectStorageCfg)
 	if err := applyConnectionDetails(ctx, client, o.namespace, o.minioDetails(details)); err != nil {
+		return err
+	}
+	if err := applyProviderConnectionSecret(ctx, client, o.namespace, s3ConnectionSecretName, "s3", o.s3ConnectionSecretDataMinIO(details)); err != nil {
 		return err
 	}
 	o.printSummary(details)
@@ -764,6 +776,20 @@ func (o *minioInstallOptions) printSummary(details s3BucketDetails) {
 	}
 }
 
+// s3ConnectionSecretData builds the payload for mas-est-s3-connection for
+// the Rook Ceph RGW path. Lives in the MAS core namespace alongside the
+// ObjectBucketClaim-managed credential secret.
+func (o *objectStorageInstallOptions) s3ConnectionSecretData(details s3BucketDetails, endpointURL string) map[string]string {
+	return map[string]string{
+		"provider":  "rook-ceph-rgw",
+		"endpoint":  endpointURL,
+		"accessKey": details.AccessKey,
+		"secretKey": details.SecretKey,
+		"region":    details.Region,
+		"bucket":    details.Bucket,
+	}
+}
+
 func (o *objectStorageInstallOptions) rookDetails(details s3BucketDetails, endpointURL string) map[string]string {
 	updates := map[string]string{
 		"s3.provider":        "rook-ceph-rgw",
@@ -780,6 +806,26 @@ func (o *objectStorageInstallOptions) rookDetails(details s3BucketDetails, endpo
 		updates["s3.objectStorageCfg"] = fmt.Sprintf("%s/%s", o.masCoreNamespace, o.objectStorageCfg)
 	}
 	return updates
+}
+
+// s3ConnectionSecretDataMinIO builds the payload for mas-est-s3-connection
+// for the MinIO path. The endpoint is the in-cluster service URL because the
+// AWS SDK in Maximo Manage defaults to virtual-hosted-style addressing and
+// the OpenShift route does not support that without a wildcard cert (see
+// docs/OBJECT-STORAGE-POC.md "CRITICAL — use the in-cluster URL").
+func (o *minioInstallOptions) s3ConnectionSecretDataMinIO(details s3BucketDetails) map[string]string {
+	return map[string]string{
+		"provider":         "minio",
+		"endpoint":         o.internalEndpointURL(),
+		"manageEndpoint":   o.manageEndpointURL(),
+		"externalEndpoint": "https://" + o.apiRouteHost,
+		"consoleUrl":       "https://" + o.consoleRouteHost,
+		"accessKey":        details.AccessKey,
+		"secretKey":        details.SecretKey,
+		"region":           details.Region,
+		"bucket":           details.Bucket,
+		"siblingBuckets":   strings.Join(o.manageBucketNames(), ","),
+	}
 }
 
 func (o *minioInstallOptions) minioDetails(details s3BucketDetails) map[string]string {

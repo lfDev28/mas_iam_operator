@@ -273,6 +273,49 @@ func TestObjectStorageReadyState(t *testing.T) {
 	}
 }
 
+func TestMinIOS3ConnectionSecretDataUsesInternalURL(t *testing.T) {
+	opts := &minioInstallOptions{
+		namespace:        "mas-est",
+		name:             "mas-minio",
+		bucket:           "mas-s3-demo",
+		apiRouteHost:     "mas-minio-api.apps.example.com",
+		consoleRouteHost: "mas-minio-console.apps.example.com",
+	}
+	details := s3BucketDetails{
+		AccessKey: "minioadmin",
+		SecretKey: "supersecret",
+		Bucket:    "mas-s3-demo",
+		Region:    "us-east-1",
+	}
+
+	data := opts.s3ConnectionSecretDataMinIO(details)
+	// in-cluster endpoint, NOT the OpenShift route — see docs/OBJECT-STORAGE-POC.md
+	if data["endpoint"] != "http://mas-minio.mas-est.svc.cluster.local:9000" {
+		t.Fatalf("endpoint = %q", data["endpoint"])
+	}
+	if data["manageEndpoint"] != "http://mas-est.svc.cluster.local:9000" {
+		t.Fatalf("manageEndpoint = %q", data["manageEndpoint"])
+	}
+	if data["externalEndpoint"] != "https://mas-minio-api.apps.example.com" {
+		t.Fatalf("externalEndpoint = %q", data["externalEndpoint"])
+	}
+	if data["consoleUrl"] != "https://mas-minio-console.apps.example.com" {
+		t.Fatalf("consoleUrl = %q", data["consoleUrl"])
+	}
+	for k, want := range map[string]string{
+		"provider":       "minio",
+		"accessKey":      "minioadmin",
+		"secretKey":      "supersecret",
+		"region":         "us-east-1",
+		"bucket":         "mas-s3-demo",
+		"siblingBuckets": "mas-s3-demo,mas-s3-demorecovery,mas-s3-demobackup",
+	} {
+		if data[k] != want {
+			t.Fatalf("data[%q] = %q, want %q", k, data[k], want)
+		}
+	}
+}
+
 func TestObjectStorageReadyStateNotReady(t *testing.T) {
 	ready, state := objectStorageReadyState([]oc.ConditionStatus{
 		{Type: "Ready", Status: "False", Reason: "ValidationFailed", Message: "bad endpoint"},

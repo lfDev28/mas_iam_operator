@@ -65,6 +65,29 @@ func TestMailpitDeploymentManifest(t *testing.T) {
 	}
 }
 
+func TestSMTPConnectionConfigMapData(t *testing.T) {
+	opts := &mailpitInstallOptions{
+		namespace: "mas-est",
+		name:      "mas-mailpit",
+		routeHost: "mas-mailpit.apps.example.com",
+	}
+
+	data := opts.smtpConnectionConfigMapData()
+	wants := map[string]string{
+		"host":           "mas-mailpit.mas-est.svc.cluster.local",
+		"port":           "1025",
+		"from":           "mas-est@example.local",
+		"webUI":          "https://mas-mailpit.apps.example.com",
+		"tls":            "disabled",
+		"authentication": "none",
+	}
+	for k, want := range wants {
+		if data[k] != want {
+			t.Fatalf("data[%q] = %q, want %q", k, data[k], want)
+		}
+	}
+}
+
 func TestMailpitRouteManifestTargetsUI(t *testing.T) {
 	opts := &mailpitInstallOptions{
 		namespace: "mas-est",

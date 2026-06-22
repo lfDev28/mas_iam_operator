@@ -102,13 +102,18 @@ func PromptInstall(cfg config.InstallConfig, hints InstallDiscoveryHints, storag
 		); err != nil {
 			return cfg, err
 		}
+		previousCoreNamespace := cfg.MASCoreNamespace
 		cfg.DefaultMASCoreNamespace()
-		if cfg.MASCoreNamespace, err = askRequiredInput(
-			"MAS core namespace",
-			cfg.MASCoreNamespace,
-			"Namespace containing the MAS core ObjectStorageCfg resources.",
-		); err != nil {
-			return cfg, err
+		if previousCoreNamespace == "" && cfg.MASCoreNamespace != "" {
+			PrintDerived("MAS core namespace", cfg.MASCoreNamespace, "--mas-core-namespace")
+		} else if cfg.MASCoreNamespace == "" {
+			if cfg.MASCoreNamespace, err = askRequiredInput(
+				"MAS core namespace",
+				cfg.MASCoreNamespace,
+				"Namespace containing the MAS core ObjectStorageCfg resources.",
+			); err != nil {
+				return cfg, err
+			}
 		}
 	}
 
@@ -125,6 +130,7 @@ func PromptInstall(cfg config.InstallConfig, hints InstallDiscoveryHints, storag
 		if cfg.MASAuthProviders, err = askMASAuthProviders(cfg.MASAuthProviders, cfg); err != nil {
 			return cfg, err
 		}
+		previousAuthInstanceID := cfg.MASAuthInstanceID
 		if cfg.MASAuthInstanceID == "" {
 			cfg.MASAuthInstanceID = selectedInstanceID
 			if cfg.MASAuthInstanceID == "" && cfg.MASInstanceID != "" {
@@ -134,30 +140,44 @@ func PromptInstall(cfg config.InstallConfig, hints InstallDiscoveryHints, storag
 				cfg.MASAuthInstanceID = hints.MASRoutes[0].InstanceID
 			}
 		}
-		if cfg.MASAuthInstanceID, err = askRequiredInput(
-			"MAS auth instance ID",
-			cfg.MASAuthInstanceID,
-			"MAS instance that should receive LDAP, OIDC, and SAML IDPCfg resources.",
-		); err != nil {
-			return cfg, err
+		if previousAuthInstanceID == "" && cfg.MASAuthInstanceID != "" {
+			PrintDerived("MAS auth instance ID", cfg.MASAuthInstanceID, "--mas-auth-instance-id")
+		} else if cfg.MASAuthInstanceID == "" {
+			if cfg.MASAuthInstanceID, err = askRequiredInput(
+				"MAS auth instance ID",
+				cfg.MASAuthInstanceID,
+				"MAS instance that should receive LDAP, OIDC, and SAML IDPCfg resources.",
+			); err != nil {
+				return cfg, err
+			}
 		}
+		previousAuthCoreNamespace := cfg.MASAuthCoreNamespace
 		cfg.DefaultMASAuthTarget()
-		if cfg.MASAuthCoreNamespace, err = askRequiredInput(
-			"MAS auth core namespace",
-			cfg.MASAuthCoreNamespace,
-			"Namespace containing MAS CoreIDP and IDPCfg resources.",
-		); err != nil {
-			return cfg, err
+		if previousAuthCoreNamespace == "" && cfg.MASAuthCoreNamespace != "" {
+			PrintDerived("MAS auth core namespace", cfg.MASAuthCoreNamespace, "--mas-auth-core-namespace")
+		} else if cfg.MASAuthCoreNamespace == "" {
+			if cfg.MASAuthCoreNamespace, err = askRequiredInput(
+				"MAS auth core namespace",
+				cfg.MASAuthCoreNamespace,
+				"Namespace containing MAS CoreIDP and IDPCfg resources.",
+			); err != nil {
+				return cfg, err
+			}
 		}
+		previousAuthHost := cfg.MASAuthHost
 		if cfg.MASAuthHost == "" {
 			cfg.MASAuthHost = authHostForInstance(cfg.MASAuthInstanceID, hints.MASRoutes)
 		}
-		if cfg.MASAuthHost, err = askRequiredInput(
-			"MAS auth host",
-			cfg.MASAuthHost,
-			"Host part of the MAS auth route, for example auth.<mas-domain>.",
-		); err != nil {
-			return cfg, err
+		if previousAuthHost == "" && cfg.MASAuthHost != "" {
+			PrintDerived("MAS auth host", cfg.MASAuthHost, "--mas-auth-host")
+		} else if cfg.MASAuthHost == "" {
+			if cfg.MASAuthHost, err = askRequiredInput(
+				"MAS auth host",
+				cfg.MASAuthHost,
+				"Host part of the MAS auth route, for example auth.<mas-domain>.",
+			); err != nil {
+				return cfg, err
+			}
 		}
 	}
 
@@ -504,19 +524,20 @@ func askWorkspaceID(current, instanceID string, workspaces []oc.ManageWorkspace)
 		candidates = workspaces
 	}
 
+	if current == "" && len(candidates) == 1 {
+		derived := candidates[0].WorkspaceID
+		PrintDerived("Workspace ID", derived, "--workspace-id")
+		return derived, nil
+	}
+
 	if current == "" && len(candidates) > 1 {
 		if current, err = askWorkspaceSelect(candidates); err != nil {
 			return "", err
 		}
 	}
-	if current == "" && len(candidates) == 1 {
-		current = candidates[0].WorkspaceID
-	}
 
 	help := "Workspace used by the MAS profile bootstrap job."
-	if len(candidates) == 1 {
-		help = fmt.Sprintf("Detected from ManageWorkspace %s. Edit it if you need a different workspace.", candidates[0].Name)
-	} else if len(candidates) > 1 && instanceID != "" {
+	if len(candidates) > 1 && instanceID != "" {
 		help = fmt.Sprintf("Detected multiple workspaces for MAS instance %s. A workspace was suggested above; edit it if needed.", instanceID)
 	} else if len(candidates) > 1 {
 		help = "Detected multiple ManageWorkspace resources. A workspace was suggested above; edit it if needed."
@@ -660,6 +681,14 @@ func authHostForInstance(instanceID string, routes []oc.MASRoute) string {
 		}
 	}
 	return ""
+}
+
+// PrintDerived prints a one-line confirmation that a value was auto-derived
+// from another known value (typically the MAS instance ID or a discovered
+// route) rather than prompted for. The override flag is shown so a user who
+// wants a different value knows how to set it on the next run.
+func PrintDerived(label, value, overrideFlag string) {
+	fmt.Fprintf(os.Stdout, "[derived] %s: %s (override with %s)\n", label, value, overrideFlag)
 }
 
 func PrintBanner(title string, lines ...string) {

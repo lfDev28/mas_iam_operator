@@ -45,7 +45,7 @@ The beta has been tested on a small number of clusters, but it cannot cover ever
 Set the image:
 
 ```bash
-export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.11'
+export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.12'
 ```
 
 Bootstrap the local command:
@@ -88,13 +88,18 @@ mas-est install
 
 The installer prompts for:
 
+- namespace
 - products to install: LDAP, Keycloak, SCIM bridge, S3 object storage, and/or SMTP capture
 - MAS SCIM base URL, API token, workspace ID, and profile ID when SCIM is selected
-- MAS instance/core namespace when S3 object storage is selected
+- MAS instance ID when S3 object storage is selected (the MAS core namespace defaults to `mas-<instance-id>-core`)
+- whether to configure MAS auth providers, and which providers to create: LDAP, OIDC (MAS 9.1+), and/or SAML
 - primary storage class for Keycloak PostgreSQL and/or MinIO
 - SCIM bridge storage class when SCIM is selected
+- uninstall first
 
 Selecting SCIM automatically includes Keycloak and LDAP. Selecting Keycloak automatically includes LDAP. LDAP-only installs are supported through the same operator profile without deploying Keycloak or PostgreSQL.
+
+Values that can be derived from the MAS instance ID (`mas-<id>-core` for the core namespace, `auth.<mas-domain>` for the auth host, the workspace ID when only one matches) are auto-filled and shown as `[derived] …` lines rather than re-prompted. Pass `--mas-core-namespace`, `--mas-auth-instance-id`, `--mas-auth-core-namespace`, `--mas-auth-host`, or `--workspace-id` to override any of them.
 
 The MAS SCIM base URL must include `/scim/v2`:
 
@@ -220,6 +225,18 @@ mas-est details --namespace mas-est --component oidc
 Secret values are redacted by default. Use `--show-secrets` only for local troubleshooting.
 
 The details secret stores references to the real credential secrets rather than duplicating all passwords. For example, S3 points to the MAS credential secret and key names, SMTP lists the internal service host and port, and LDAP points to the OpenLDAP admin password secret.
+
+For raw connection values (mount-as-secret use, scripted retrieval, third-party app wiring), the installer also writes one dedicated Secret (or ConfigMap for SMTP) per provider:
+
+```bash
+oc get secret    mas-est-ldap-connection  -n mas-est -o yaml
+oc get secret    mas-est-oidc-connection  -n mas-est -o yaml
+oc get secret    mas-est-saml-connection  -n mas-est -o yaml
+oc get secret    mas-est-s3-connection    -n mas-est -o yaml
+oc get configmap mas-est-smtp-connection  -n mas-est -o yaml
+```
+
+The full key list for each resource is in [CONNECTION-DETAILS.md](CONNECTION-DETAILS.md).
 
 ## MAS Auth Auto-Configuration
 

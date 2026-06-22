@@ -166,6 +166,9 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 		fmt.Fprintf(os.Stderr, "[warn] unable to create log file: %v\n", err)
 	}
 
+	phases := newPhaseTracker(output)
+	installStart := time.Now()
+
 	if cfg.WipeFirst {
 		wipeConfig := config.WipeConfig{
 			Namespace:        cfg.Namespace,
@@ -174,8 +177,9 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 			MASAPITokenName:  cfg.MASAPITokenName,
 			MASAPITokenValue: cfg.MASAPITokenValue,
 		}
-		fmt.Fprintf(output, "[install] uninstalling namespace %s before install\n", cfg.Namespace)
-		if err := installer.RunWipe(ctx, runner, paths, wipeConfig, output); err != nil {
+		if err := phases.run(fmt.Sprintf("Uninstall namespace %s", cfg.Namespace), func() error {
+			return installer.RunWipe(ctx, runner, paths, wipeConfig, output)
+		}); err != nil {
 			if logPath != "" {
 				fmt.Fprintf(os.Stderr, "[result] uninstall failed; see %s\n", logPath)
 			}
@@ -186,8 +190,9 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 	if cfg.HasComponent(config.InstallComponentLDAP) ||
 		cfg.HasComponent(config.InstallComponentKeycloak) ||
 		cfg.HasComponent(config.InstallComponentSCIM) {
-		fmt.Fprintln(output, "[install] running scripts/install-all-in-one.sh")
-		if err := installer.RunInstall(ctx, runner, paths, cfg, output); err != nil {
+		if err := phases.run("Install LDAP, Keycloak, SCIM bridge", func() error {
+			return installer.RunInstall(ctx, runner, paths, cfg, output)
+		}); err != nil {
 			if logPath != "" {
 				fmt.Fprintf(os.Stderr, "[result] install failed; see %s\n", logPath)
 			}
@@ -196,7 +201,6 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 	}
 
 	if cfg.HasComponent(config.InstallComponentS3) {
-		fmt.Fprintln(output, "[install] installing MinIO S3 service")
 		opts := minioInstallOptions{
 			masInstanceID:    cfg.MASInstanceID,
 			masCoreNamespace: cfg.MASCoreNamespace,
@@ -210,7 +214,7 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 			mcImage:          defaultMinIOMCImage,
 			timeout:          10 * time.Minute,
 		}
-		if err := opts.run(ctx); err != nil {
+		if err := phases.run("Install MinIO S3", func() error { return opts.run(ctx) }); err != nil {
 			if logPath != "" {
 				fmt.Fprintf(os.Stderr, "[result] S3 install failed; see %s\n", logPath)
 			}
@@ -219,14 +223,13 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 	}
 
 	if cfg.HasComponent(config.InstallComponentSMTP) {
-		fmt.Fprintln(output, "[install] installing Mailpit SMTP capture service")
 		opts := mailpitInstallOptions{
 			namespace: cfg.Namespace,
 			name:      defaultMailpitName,
 			image:     defaultMailpitImage,
 			timeout:   5 * time.Minute,
 		}
-		if err := opts.run(ctx); err != nil {
+		if err := phases.run("Install Mailpit SMTP", func() error { return opts.run(ctx) }); err != nil {
 			if logPath != "" {
 				fmt.Fprintf(os.Stderr, "[result] SMTP install failed; see %s\n", logPath)
 			}
@@ -235,7 +238,6 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 	}
 
 	if cfg.ConfigureMASAuth {
-		fmt.Fprintln(output, "[install] configuring MAS LDAP/OIDC/SAML identity providers")
 		opts := masAuthApplyOptions{
 			namespace:        cfg.Namespace,
 			release:          config.DefaultIAMRelease,
@@ -257,7 +259,7 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 			insecureTLS:        true,
 			selfRegWorkspaceID: cfg.WorkspaceID,
 		}
-		if err := opts.run(ctx); err != nil {
+		if err := phases.run("Configure MAS LDAP / OIDC / SAML", func() error { return opts.run(ctx) }); err != nil {
 			if logPath != "" {
 				fmt.Fprintf(os.Stderr, "[result] MAS auth configuration failed; see %s\n", logPath)
 			}
@@ -265,12 +267,83 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 		}
 	}
 
+	totalElapsed := time.Since(installStart)
 	fmt.Fprintln(output, "[result] install completed")
 	fmt.Fprintf(output, "[result] verify with: oc get pods -n %s\n", cfg.Namespace)
 	fmt.Fprintf(output, "[result] logs shortcut: mas-est logs --namespace %s --component %s\n", cfg.Namespace, installLogComponent(cfg))
 	fmt.Fprintf(output, "[result] connection details: mas-est details --namespace %s --component all\n", cfg.Namespace)
+	printInstallSummary(output, phases.entries, totalElapsed, cfg)
 
 	return nil
+}
+
+type phaseEntry struct {
+	label   string
+	elapsed time.Duration
+	success bool
+}
+
+type phaseTracker struct {
+	out     io.Writer
+	entries []phaseEntry
+}
+
+func newPhaseTracker(out io.Writer) *phaseTracker {
+	return &phaseTracker{out: out}
+}
+
+// run executes fn under a phase label, printing a ▶ header before and a ✓/✗
+// footer with the elapsed time after. The step's own stdout output appears
+// between the two markers (indented two spaces) so the user always knows
+// which phase a particular log line belongs to.
+func (p *phaseTracker) run(label string, fn func() error) error {
+	fmt.Fprintf(p.out, "\n▶ %s\n", label)
+	start := time.Now()
+	err := fn()
+	elapsed := time.Since(start)
+	marker := "✓"
+	if err != nil {
+		marker = "✗"
+	}
+	fmt.Fprintf(p.out, "%s %s    (%s)\n", marker, label, ui.FormatElapsed(elapsed))
+	p.entries = append(p.entries, phaseEntry{label: label, elapsed: elapsed, success: err == nil})
+	return err
+}
+
+// printInstallSummary prints the post-install recap: a phase table with
+// timings and a list of per-provider connection secrets the user can pull
+// with a copy-paste oc get command.
+func printInstallSummary(out io.Writer, entries []phaseEntry, total time.Duration, cfg config.InstallConfig) {
+	fmt.Fprintln(out)
+	fmt.Fprintf(out, "Install summary (total %s)\n", ui.FormatElapsed(total))
+	for _, entry := range entries {
+		marker := "✓"
+		if !entry.success {
+			marker = "✗"
+		}
+		fmt.Fprintf(out, "  %s %-40s (%s)\n", marker, entry.label, ui.FormatElapsed(entry.elapsed))
+	}
+
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "Connection details:")
+	fmt.Fprintf(out, "  mas-est details --namespace %s --component all\n", cfg.Namespace)
+	if cfg.ConfigureMASAuth {
+		if cfg.HasMASAuthProvider(config.MASAuthProviderLDAP) {
+			fmt.Fprintf(out, "  oc get secret %s -n %s -o yaml\n", ldapConnectionSecretName, cfg.Namespace)
+		}
+		if cfg.HasMASAuthProvider(config.MASAuthProviderOIDC) {
+			fmt.Fprintf(out, "  oc get secret %s -n %s -o yaml\n", oidcConnectionSecretName, cfg.Namespace)
+		}
+		if cfg.HasMASAuthProvider(config.MASAuthProviderSAML) {
+			fmt.Fprintf(out, "  oc get secret %s -n %s -o yaml\n", samlConnectionSecretName, cfg.Namespace)
+		}
+	}
+	if cfg.HasComponent(config.InstallComponentS3) {
+		fmt.Fprintf(out, "  oc get secret %s -n %s -o yaml\n", s3ConnectionSecretName, cfg.Namespace)
+	}
+	if cfg.HasComponent(config.InstallComponentSMTP) {
+		fmt.Fprintf(out, "  oc get configmap %s -n %s -o yaml\n", smtpConnectionConfigMapName, cfg.Namespace)
+	}
 }
 
 func installLogComponent(cfg config.InstallConfig) string {

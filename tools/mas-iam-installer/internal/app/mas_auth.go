@@ -162,20 +162,117 @@ func (o *masAuthApplyOptions) run(ctx context.Context) error {
 	if err := applyConnectionDetails(ctx, client, o.namespace, o.details(kc)); err != nil {
 		return err
 	}
+	if err := o.applyPerProviderConnectionSecrets(ctx, client, kc); err != nil {
+		return err
+	}
 
 	fmt.Fprintln(os.Stdout)
 	fmt.Fprintln(os.Stdout, "MAS auth provider details")
 	if o.hasProvider(config.MASAuthProviderLDAP) {
 		fmt.Fprintf(os.Stdout, "  LDAP IDPCfg: %s/%s\n", o.masCoreNamespace, o.ldapIDPCfgName())
+		fmt.Fprintf(os.Stdout, "  LDAP connection secret: %s/%s\n", o.namespace, ldapConnectionSecretName)
 	}
 	if o.hasProvider(config.MASAuthProviderOIDC) {
 		fmt.Fprintf(os.Stdout, "  OIDC IDPCfg: %s/%s\n", o.masCoreNamespace, o.oidcIDPCfgName())
+		fmt.Fprintf(os.Stdout, "  OIDC connection secret: %s/%s\n", o.namespace, oidcConnectionSecretName)
 	}
 	if o.hasProvider(config.MASAuthProviderSAML) {
 		fmt.Fprintf(os.Stdout, "  SAML IDPCfg: %s/%s\n", o.masCoreNamespace, o.samlIDPCfgName())
+		fmt.Fprintf(os.Stdout, "  SAML connection secret: %s/%s\n", o.namespace, samlConnectionSecretName)
 	}
 	fmt.Fprintf(os.Stdout, "  Details: mas-est details --namespace %s --component all\n", o.namespace)
 	return nil
+}
+
+// applyPerProviderConnectionSecrets writes one Opaque Secret per configured
+// provider (mas-est-ldap-connection, mas-est-oidc-connection,
+// mas-est-saml-connection) into the MAS-EST namespace. Each one contains
+// every connection value a downstream consumer would want — bind credentials
+// for LDAP, OIDC client id/secret + endpoints, SAML entity id + IdP metadata
+// XML — so a support engineer can mount or `oc get` a single secret per
+// service instead of assembling values from IDPCfg + creds-secret + Keycloak.
+func (o *masAuthApplyOptions) applyPerProviderConnectionSecrets(ctx context.Context, client *oc.Client, kc keycloakMASClients) error {
+	if o.hasProvider(config.MASAuthProviderLDAP) {
+		data, err := o.ldapConnectionSecretData(ctx, client)
+		if err != nil {
+			return fmt.Errorf("build LDAP connection secret payload: %w", err)
+		}
+		if err := applyProviderConnectionSecret(ctx, client, o.namespace, ldapConnectionSecretName, "ldap", data); err != nil {
+			return err
+		}
+	}
+	if o.hasProvider(config.MASAuthProviderOIDC) {
+		if err := applyProviderConnectionSecret(ctx, client, o.namespace, oidcConnectionSecretName, "oidc", o.oidcConnectionSecretData(kc)); err != nil {
+			return err
+		}
+	}
+	if o.hasProvider(config.MASAuthProviderSAML) {
+		if err := applyProviderConnectionSecret(ctx, client, o.namespace, samlConnectionSecretName, "saml", o.samlConnectionSecretData(kc)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (o *masAuthApplyOptions) ldapConnectionSecretData(ctx context.Context, client *oc.Client) (map[string]string, error) {
+	bindPassword, err := ldapBindPassword(ctx, client, o.namespace, o.release)
+	if err != nil {
+		return nil, err
+	}
+	data := map[string]string{
+		"url":          fmt.Sprintf("ldaps://%s-openldap.%s.svc.cluster.local:636", o.release, o.namespace),
+		"baseDN":       defaultLDAPBaseDN,
+		"bindDN":       fmt.Sprintf("cn=admin,%s", defaultLDAPBaseDN),
+		"bindPassword": bindPassword,
+		"userIdMap":    "uid",
+	}
+	if ca := joinCertificatePEM(o.ldapCACerts(ctx, client)); ca != "" {
+		data["ca.crt"] = ca
+	}
+	return data, nil
+}
+
+func (o *masAuthApplyOptions) oidcConnectionSecretData(kc keycloakMASClients) map[string]string {
+	return map[string]string{
+		"issuerUrl":             fmt.Sprintf("%s/realms/%s", kc.BaseURL, o.realm),
+		"discoveryUrl":          fmt.Sprintf("%s/realms/%s/.well-known/openid-configuration", kc.BaseURL, o.realm),
+		"authorizationEndpoint": fmt.Sprintf("%s/realms/%s/protocol/openid-connect/auth", kc.BaseURL, o.realm),
+		"tokenEndpoint":         fmt.Sprintf("%s/realms/%s/protocol/openid-connect/token", kc.BaseURL, o.realm),
+		"jwksEndpoint":          fmt.Sprintf("%s/realms/%s/protocol/openid-connect/certs", kc.BaseURL, o.realm),
+		"clientId":              kc.OIDCClientID,
+		"clientSecret":          kc.OIDCClientSecret,
+		"realm":                 o.realm,
+		"redirectUri":           fmt.Sprintf("https://%s/oidcclient/redirect/%s", o.masAuthHost, o.oidcProviderID),
+	}
+}
+
+func (o *masAuthApplyOptions) samlConnectionSecretData(kc keycloakMASClients) map[string]string {
+	entityID := samlIssuerURL(o.masAuthHost, defaultMASAuthSAMLSPName)
+	data := map[string]string{
+		"entityId":       entityID,
+		"acsUrl":         entityID,
+		"sloUrl":         fmt.Sprintf("https://%s/ibm/saml20/%s/slo", o.masAuthHost, defaultMASAuthSAMLSPName),
+		"idpMetadataUrl": fmt.Sprintf("%s/realms/%s/protocol/saml/descriptor", kc.BaseURL, o.realm),
+		"nameIdFormat":   defaultMASAuthSAMLNameID,
+	}
+	if metadata := strings.TrimSpace(kc.SAMLMetadata); metadata != "" {
+		data["idpMetadata"] = metadata
+	}
+	return data
+}
+
+func joinCertificatePEM(certs []certificateEntry) string {
+	if len(certs) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(certs))
+	for _, cert := range certs {
+		trimmed := strings.TrimSpace(cert.CRT)
+		if trimmed != "" {
+			parts = append(parts, trimmed)
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 // applyViaCR is the legacy path: build IDPCfg CRs and credentials Secrets,

@@ -17,7 +17,14 @@ import (
 	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/ui"
 )
 
-const connectionDetailsSecretName = "mas-est-connection-details"
+const (
+	connectionDetailsSecretName = "mas-est-connection-details"
+	ldapConnectionSecretName    = "mas-est-ldap-connection"
+	oidcConnectionSecretName    = "mas-est-oidc-connection"
+	samlConnectionSecretName    = "mas-est-saml-connection"
+	s3ConnectionSecretName      = "mas-est-s3-connection"
+	smtpConnectionConfigMapName = "mas-est-smtp-connection"
+)
 
 type detailsOptions struct {
 	namespace   string
@@ -110,6 +117,68 @@ func printDetailsComponent(out io.Writer, component string, data map[string]stri
 		fmt.Fprintf(out, "  %s: %s\n", strings.TrimPrefix(key, prefix), value)
 	}
 	fmt.Fprintln(out)
+}
+
+// applyProviderConnectionSecret writes (server-side applies) an Opaque Secret
+// with the given stringData. Used to expose per-provider connection details
+// (LDAP, OIDC, SAML, S3) so support engineers can `oc get secret mas-est-X-connection`
+// without trawling configmaps, IDPCfg CRs, and Keycloak admin in turn.
+func applyProviderConnectionSecret(ctx context.Context, client *oc.Client, namespace, name, provider string, data map[string]string) error {
+	if len(data) == 0 {
+		return nil
+	}
+	manifest := map[string]any{
+		"apiVersion": "v1",
+		"kind":       "Secret",
+		"metadata": map[string]any{
+			"name":      name,
+			"namespace": namespace,
+			"labels": map[string]string{
+				"app.kubernetes.io/managed-by":        "mas-est-installer",
+				"mas-est.ibm.com/connection-provider": provider,
+			},
+		},
+		"type":       "Opaque",
+		"stringData": data,
+	}
+	raw, err := json.Marshal(manifest)
+	if err != nil {
+		return err
+	}
+	if _, err := client.Apply(ctx, raw); err != nil {
+		return fmt.Errorf("apply secret/%s in namespace %s: %w", name, namespace, err)
+	}
+	return nil
+}
+
+// applyProviderConnectionConfigMap mirrors applyProviderConnectionSecret for
+// the SMTP/Mailpit case where there is no authentication and therefore no
+// sensitive data; a ConfigMap is the correct shape.
+func applyProviderConnectionConfigMap(ctx context.Context, client *oc.Client, namespace, name, provider string, data map[string]string) error {
+	if len(data) == 0 {
+		return nil
+	}
+	manifest := map[string]any{
+		"apiVersion": "v1",
+		"kind":       "ConfigMap",
+		"metadata": map[string]any{
+			"name":      name,
+			"namespace": namespace,
+			"labels": map[string]string{
+				"app.kubernetes.io/managed-by":        "mas-est-installer",
+				"mas-est.ibm.com/connection-provider": provider,
+			},
+		},
+		"data": data,
+	}
+	raw, err := json.Marshal(manifest)
+	if err != nil {
+		return err
+	}
+	if _, err := client.Apply(ctx, raw); err != nil {
+		return fmt.Errorf("apply configmap/%s in namespace %s: %w", name, namespace, err)
+	}
+	return nil
 }
 
 func applyConnectionDetails(ctx context.Context, client *oc.Client, namespace string, updates map[string]string) error {

@@ -9,7 +9,7 @@ The supported delivery model is:
 
 Current published image:
 
-- `quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.11`
+- `quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.12`
 
 The CLI wraps the repo's hardened shell install engine. It does not replace it.
 
@@ -39,7 +39,7 @@ The CLI wraps the repo's hardened shell install engine. It does not replace it.
 Set the image once:
 
 ```bash
-export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.11'
+export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.12'
 ```
 
 Bootstrap the host command:
@@ -79,13 +79,15 @@ The `install` command prompts for:
 - namespace
 - products to install: LDAP, Keycloak, SCIM bridge, S3 object storage, and/or SMTP capture
 - MAS base URL, token, workspace ID, and profile ID when SCIM is selected
-- MAS instance/core namespace when S3 is selected and MAS ObjectStorageCfg creation is enabled
+- MAS instance ID when S3 is selected and MAS ObjectStorageCfg creation is enabled (core namespace defaults to `mas-<id>-core`)
 - whether to configure MAS auth providers, and which providers to create: LDAP, OIDC (MAS 9.1+), and/or SAML
 - primary storage class for Keycloak PostgreSQL and/or MinIO
 - SCIM bridge storage class when SCIM is selected
 - uninstall first
 
 Dependency handling is automatic: selecting SCIM also selects Keycloak and LDAP, and selecting Keycloak also selects LDAP.
+
+Values that can be derived from another known value — MAS core namespace from MAS instance ID, MAS auth core namespace from MAS auth instance ID, MAS auth host from the detected MAS API route, workspace ID when only one match is detected — are auto-filled and shown as `[derived] …` lines instead of being prompted for. The matching `--<flag>` overrides those derivations.
 
 The `uninstall` command prompts for:
 

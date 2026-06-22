@@ -65,11 +65,13 @@ Start here:
 
 - [Beta quickstart](docs/BETA-QUICKSTART.md)
 - [Detailed install and operations guide](docs/INSTALL-ALL-IN-ONE.md)
+- [Connection details reference](docs/CONNECTION-DETAILS.md)
+- [Beta install tutorial / capture checklist](docs/BETA-INSTALL-TUTORIAL.md)
 
 Short version:
 
 ```bash
-export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.11'
+export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.12'
 
 mkdir -p "$HOME/mas-est"
 podman run -ti --rm -v "$HOME/mas-est:/tmp" --pull always "$MAS_EST_IMAGE"

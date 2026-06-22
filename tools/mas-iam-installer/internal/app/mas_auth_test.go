@@ -254,6 +254,97 @@ func TestKeycloakMASClientScriptIncludesSAMLQuirks(t *testing.T) {
 	}
 }
 
+func TestOIDCConnectionSecretDataPopulatesAllEndpoints(t *testing.T) {
+	opts := &masAuthApplyOptions{
+		namespace:      "mas-est",
+		realm:          "maximo",
+		masAuthHost:    "auth.mas91.apps.example.com",
+		oidcProviderID: defaultMASAuthOIDCID,
+	}
+	kc := keycloakMASClients{
+		BaseURL:          "https://keycloak.apps.example.com",
+		OIDCClientID:     "mas-est-oidc",
+		OIDCClientSecret: "shhh",
+	}
+
+	data := opts.oidcConnectionSecretData(kc)
+	expected := map[string]string{
+		"issuerUrl":             "https://keycloak.apps.example.com/realms/maximo",
+		"discoveryUrl":          "https://keycloak.apps.example.com/realms/maximo/.well-known/openid-configuration",
+		"authorizationEndpoint": "https://keycloak.apps.example.com/realms/maximo/protocol/openid-connect/auth",
+		"tokenEndpoint":         "https://keycloak.apps.example.com/realms/maximo/protocol/openid-connect/token",
+		"jwksEndpoint":          "https://keycloak.apps.example.com/realms/maximo/protocol/openid-connect/certs",
+		"clientId":              "mas-est-oidc",
+		"clientSecret":          "shhh",
+		"realm":                 "maximo",
+		"redirectUri":           "https://auth.mas91.apps.example.com/oidcclient/redirect/mas-est-oidc",
+	}
+	for k, want := range expected {
+		if data[k] != want {
+			t.Fatalf("oidcConnectionSecretData[%q] = %q, want %q", k, data[k], want)
+		}
+	}
+}
+
+func TestSAMLConnectionSecretDataUsesURLFormEntityID(t *testing.T) {
+	opts := &masAuthApplyOptions{
+		realm:          "maximo",
+		masAuthHost:    "auth.mas91.apps.example.com",
+		samlProviderID: defaultMASAuthSAMLID,
+	}
+	kc := keycloakMASClients{
+		BaseURL:      "https://keycloak.apps.example.com",
+		SAMLMetadata: "<EntityDescriptor />",
+	}
+
+	data := opts.samlConnectionSecretData(kc)
+	// entityId must match Liberty's <saml:Issuer> URL form, NOT the bare SP
+	// name — see memory: saml-login-invalid-request and TestSAMLIssuerURL…
+	wantEntity := "https://auth.mas91.apps.example.com/ibm/saml20/mas-est-saml-sp"
+	if data["entityId"] != wantEntity {
+		t.Fatalf("entityId = %q, want %q", data["entityId"], wantEntity)
+	}
+	if data["acsUrl"] != wantEntity {
+		t.Fatalf("acsUrl = %q, want %q", data["acsUrl"], wantEntity)
+	}
+	if data["sloUrl"] != wantEntity+"/slo" {
+		t.Fatalf("sloUrl = %q", data["sloUrl"])
+	}
+	if data["idpMetadataUrl"] != "https://keycloak.apps.example.com/realms/maximo/protocol/saml/descriptor" {
+		t.Fatalf("idpMetadataUrl = %q", data["idpMetadataUrl"])
+	}
+	if data["idpMetadata"] != "<EntityDescriptor />" {
+		t.Fatalf("idpMetadata = %q", data["idpMetadata"])
+	}
+	if data["nameIdFormat"] != defaultMASAuthSAMLNameID {
+		t.Fatalf("nameIdFormat = %q", data["nameIdFormat"])
+	}
+}
+
+func TestSAMLConnectionSecretDataOmitsEmptyMetadata(t *testing.T) {
+	opts := &masAuthApplyOptions{
+		masAuthHost:    "auth.mas91.apps.example.com",
+		samlProviderID: defaultMASAuthSAMLID,
+	}
+	data := opts.samlConnectionSecretData(keycloakMASClients{SAMLMetadata: "   "})
+	if _, present := data["idpMetadata"]; present {
+		t.Fatalf("idpMetadata should be omitted when blank, got %q", data["idpMetadata"])
+	}
+}
+
+func TestJoinCertificatePEMConcatenates(t *testing.T) {
+	got := joinCertificatePEM([]certificateEntry{
+		{Alias: "a.1", CRT: "-----BEGIN CERTIFICATE-----\nAAA\n-----END CERTIFICATE-----"},
+		{Alias: "a.2", CRT: "\n-----BEGIN CERTIFICATE-----\nBBB\n-----END CERTIFICATE-----\n"},
+	})
+	if !strings.Contains(got, "AAA") || !strings.Contains(got, "BBB") {
+		t.Fatalf("joined = %q", got)
+	}
+	if got := joinCertificatePEM(nil); got != "" {
+		t.Fatalf("nil input must produce empty string, got %q", got)
+	}
+}
+
 func TestCertificatesFromPEMSplitsChain(t *testing.T) {
 	raw := `-----BEGIN CERTIFICATE-----
 one

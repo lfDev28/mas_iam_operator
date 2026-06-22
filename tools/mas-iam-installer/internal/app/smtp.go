@@ -93,6 +93,9 @@ func (o *mailpitInstallOptions) run(ctx context.Context) error {
 	if err := applyConnectionDetails(ctx, client, o.namespace, o.details()); err != nil {
 		return err
 	}
+	if err := applyProviderConnectionConfigMap(ctx, client, o.namespace, smtpConnectionConfigMapName, "smtp", o.smtpConnectionConfigMapData()); err != nil {
+		return err
+	}
 
 	fmt.Fprintf(os.Stdout, "[smtp] Mailpit rollout complete: %s/deployment/%s\n", o.namespace, o.name)
 	o.printSummary()
@@ -146,6 +149,20 @@ func (o *mailpitInstallOptions) details() map[string]string {
 		"smtp.deployment":     o.name,
 		"smtp.namespace":      o.namespace,
 		"smtp.detailsCommand": fmt.Sprintf("mas-est details --namespace %s --component smtp", o.namespace),
+	}
+}
+
+// smtpConnectionConfigMapData builds the payload for mas-est-smtp-connection
+// (a ConfigMap, since Mailpit has no auth). All values are derived from the
+// installer options and constants — there's no sensitive data here.
+func (o *mailpitInstallOptions) smtpConnectionConfigMapData() map[string]string {
+	return map[string]string{
+		"host":           o.serviceHost(),
+		"port":           fmt.Sprintf("%d", defaultMailpitSMTPPort),
+		"from":           "mas-est@example.local",
+		"webUI":          "https://" + o.routeHost,
+		"tls":            "disabled",
+		"authentication": "none",
 	}
 }
 

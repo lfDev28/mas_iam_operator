@@ -116,7 +116,13 @@ mas-s3-demobackup.mas-est.svc.cluster.local
 The external S3 API route is mainly for manual testing from outside the cluster. The Console route is the browser UI for uploading files and managing buckets.
 If Manage is pointed at the external HTTPS route, it may fail with PKIX/certificate trust errors unless that route certificate chain is trusted by Manage. The internal HTTP endpoint avoids that trust issue for lab testing.
 
-Retrieve the MinIO Console credentials from the root secret:
+The fastest way to retrieve every S3 connection value the installer wrote — endpoint URL, access/secret key, region, bucket, external API/console URLs — is the per-provider connection secret:
+
+```bash
+oc get secret mas-est-s3-connection -n mas-est -o yaml
+```
+
+The keys it ships with are documented in [docs/CONNECTION-DETAILS.md](CONNECTION-DETAILS.md). The legacy source-of-truth secrets are still available if you need them directly:
 
 ```bash
 oc get secret mas-minio-root -n mas-est -o jsonpath='{.data.MINIO_ROOT_USER}' | base64 -d
@@ -125,7 +131,7 @@ oc get secret mas-minio-root -n mas-est -o jsonpath='{.data.MINIO_ROOT_PASSWORD}
 echo
 ```
 
-For MAS, the credentials are stored in the MAS core namespace:
+For MAS, the credentials are also stored in the MAS core namespace:
 
 ```bash
 oc get secret mas-minio-objectstorage-credentials -n mas-lfmas-core
