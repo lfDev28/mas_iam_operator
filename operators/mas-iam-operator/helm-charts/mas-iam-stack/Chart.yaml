@@ -7,4 +7,4 @@ dependencies:
   version: 15.x.x
 name: mas-iam-stack
 type: application
-version: 0.1.0
+version: 0.1.6
