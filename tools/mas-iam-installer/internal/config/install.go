@@ -40,6 +40,14 @@ const (
 	EnvMASAuthInstanceID       = "MAS_AUTH_INSTANCE_ID"
 	EnvMASAuthUseCRApply       = "MAS_EST_AUTH_USE_CR_APPLY"
 	EnvSkipS3MASConfig         = "MAS_EST_SKIP_S3_MAS_CONFIG"
+	EnvSMTPRelayHost           = "MAS_EST_SMTP_RELAY_HOST"
+	EnvSMTPRelayPort           = "MAS_EST_SMTP_RELAY_PORT"
+	EnvSMTPRelayUsername       = "MAS_EST_SMTP_RELAY_USERNAME"
+	EnvSMTPRelayPassword       = "MAS_EST_SMTP_RELAY_PASSWORD"
+	EnvSMTPRelayFrom           = "MAS_EST_SMTP_RELAY_FROM"
+	EnvSMTPRelayAuth           = "MAS_EST_SMTP_RELAY_AUTH"
+	EnvSMTPRelayStartTLS       = "MAS_EST_SMTP_RELAY_STARTTLS"
+	EnvSMTPRelayAllowedRcpt    = "MAS_EST_SMTP_RELAY_ALLOWED_RECIPIENTS"
 	EnvUninstallFirst          = "MAS_EST_UNINSTALL_FIRST"
 	EnvWipeFirst               = "MAS_EST_WIPE_FIRST"
 	LegacyEnvWipeFirst         = "MAS_IAM_WIPE_FIRST"
@@ -72,6 +80,19 @@ type InstallConfig struct {
 	ScimBridgeStorageClass  string
 	KeycloakBootstrapMethod string
 	WipeFirst               bool
+
+	// SMTP relay (post-Mailpit-install delivery). When SMTPRelayHost is
+	// non-empty, the Mailpit deployment is configured to forward captured
+	// emails to the named upstream SMTP server. Defaults to capture-only
+	// when SMTPRelayHost is empty.
+	SMTPRelayHost           string
+	SMTPRelayPort           int
+	SMTPRelayUsername       string
+	SMTPRelayPassword       string
+	SMTPRelayFrom           string
+	SMTPRelayAuth           string
+	SMTPRelayStartTLS       bool
+	SMTPRelayAllowedRcpt    string
 }
 
 type WipeConfig struct {
@@ -88,6 +109,9 @@ func DefaultInstallConfig() InstallConfig {
 		Namespace:               DefaultNamespace,
 		ProfileID:               DefaultProfileID,
 		KeycloakBootstrapMethod: DefaultKeycloakBootstrap,
+		SMTPRelayPort:           587,
+		SMTPRelayAuth:           "plain",
+		SMTPRelayStartTLS:       true,
 	}
 }
 
@@ -113,6 +137,18 @@ func LoadInstallConfigFromEnv() InstallConfig {
 	cfg.ScimBridgeStorageClass = envOrDefault(EnvSCIMBridgeStorageClass, cfg.ScimBridgeStorageClass)
 	cfg.KeycloakBootstrapMethod = envOrDefault(EnvKeycloakBootstrapMethod, cfg.KeycloakBootstrapMethod)
 	cfg.WipeFirst = boolEnvOrDefaultWithFallbacks(EnvUninstallFirst, cfg.WipeFirst, EnvWipeFirst, LegacyEnvWipeFirst)
+	cfg.SMTPRelayHost = envOrDefault(EnvSMTPRelayHost, cfg.SMTPRelayHost)
+	if v := envOrDefault(EnvSMTPRelayPort, ""); v != "" {
+		if port, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && port > 0 {
+			cfg.SMTPRelayPort = port
+		}
+	}
+	cfg.SMTPRelayUsername = envOrDefault(EnvSMTPRelayUsername, cfg.SMTPRelayUsername)
+	cfg.SMTPRelayPassword = envOrDefault(EnvSMTPRelayPassword, cfg.SMTPRelayPassword)
+	cfg.SMTPRelayFrom = envOrDefault(EnvSMTPRelayFrom, cfg.SMTPRelayFrom)
+	cfg.SMTPRelayAuth = envOrDefault(EnvSMTPRelayAuth, cfg.SMTPRelayAuth)
+	cfg.SMTPRelayStartTLS = boolEnvOrDefault(EnvSMTPRelayStartTLS, cfg.SMTPRelayStartTLS)
+	cfg.SMTPRelayAllowedRcpt = envOrDefault(EnvSMTPRelayAllowedRcpt, cfg.SMTPRelayAllowedRcpt)
 	return cfg
 }
 

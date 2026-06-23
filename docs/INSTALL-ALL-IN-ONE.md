@@ -45,7 +45,7 @@ The beta has been tested on a small number of clusters, but it cannot cover ever
 Set the image:
 
 ```bash
-export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.13'
+export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.14'
 ```
 
 Bootstrap the local command:
@@ -203,7 +203,22 @@ TLS/security: disabled
 Authentication: none
 ```
 
-Open the Mailpit route printed by the installer to inspect captured messages. Mailpit does not relay messages externally; it stores them in the browser UI for testing MAS notification flows.
+Open the Mailpit route printed by the installer to inspect captured messages. By default Mailpit stores captured messages in the browser UI only and does NOT relay them externally — perfect for "did MAS attempt to send" testing.
+
+To also have Mailpit deliver captured messages to real recipients (Gmail, SendGrid, SES, etc), pass the relay flags at install time:
+
+```bash
+mas-est install \
+  --components ldap,keycloak,scim,smtp \
+  --smtp-relay-host smtp.gmail.com \
+  --smtp-relay-port 587 \
+  --smtp-relay-username 'lab@example.com' \
+  --smtp-relay-password "$GMAIL_APP_PASSWORD" \
+  --smtp-relay-from 'lab@example.com' \
+  --smtp-relay-starttls
+```
+
+MAS's own SMTP config doesn't change — it still talks plain SMTP to `mas-mailpit.mas-est.svc.cluster.local:1025`. Captured messages appear in the Mailpit UI as before AND get forwarded upstream. See [docs/CONNECTION-DETAILS.md](CONNECTION-DETAILS.md#smtp-relay-optional) for the full flag set + provider walkthroughs (Gmail, SendGrid, AWS SES, Outlook/365).
 
 ## Connection Details
 

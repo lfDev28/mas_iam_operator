@@ -13,7 +13,8 @@ The shorter `mas-est details` command prints the aggregated `mas-est-connection-
 | SAML | `secret/mas-est-saml-connection` | `mas-est` | `entityId` (URL form), `acsUrl`, `sloUrl`, `idpMetadataUrl`, `idpMetadata` (XML), `nameIdFormat` |
 | S3 (MinIO) | `secret/mas-est-s3-connection` | `mas-est` | `provider`, `endpoint`, `manageEndpoint`, `externalEndpoint`, `consoleUrl`, `accessKey`, `secretKey`, `region`, `bucket`, `siblingBuckets` |
 | S3 (Rook Ceph RGW) | `secret/mas-est-s3-connection` | `mas-<instance>-core` | `provider`, `endpoint`, `accessKey`, `secretKey`, `region`, `bucket` |
-| SMTP (Mailpit) | `configmap/mas-est-smtp-connection` | `mas-est` | `host`, `port`, `from`, `webUI`, `tls`, `authentication` |
+| SMTP (Mailpit, capture-only) | `configmap/mas-est-smtp-connection` | `mas-est` | `host`, `port`, `from`, `webUI`, `tls`, `authentication`, `relayEnabled` |
+| SMTP (Mailpit, relay enabled) | `configmap/mas-est-smtp-connection` + `secret/mas-est-mailpit-relay` | `mas-est` | ConfigMap adds `relayHost`/`relayPort`/`relayFrom`/`relayStartTLS`/`relayAuth`/`relayCredentialsSecret`; Secret carries the full Mailpit relay YAML (host, port, auth, username, password, return-path) under key `relay.yaml` |
 
 All resources are labelled with `app.kubernetes.io/managed-by=mas-est-installer` and `mas-est.ibm.com/connection-provider=<provider>`.
 
@@ -58,6 +59,44 @@ mas-est details --namespace mas-est --component smtp
 ```
 
 Sensitive values are redacted by default. Add `--show-secrets` only when you really need to see them locally.
+
+## SMTP relay (optional)
+
+By default Mailpit runs in capture-only mode: MAS sends to it on `mas-mailpit.mas-est.svc.cluster.local:1025`, and the messages live in the Mailpit web UI. Outbound delivery to real recipients is disabled.
+
+To turn on real delivery, pass relay flags at install time and Mailpit will both capture **and** forward through an upstream SMTP. Captured copies stay visible in the UI for debugging.
+
+```bash
+mas-est install \
+  --components ldap,keycloak,scim,smtp \
+  --smtp-relay-host smtp.gmail.com \
+  --smtp-relay-port 587 \
+  --smtp-relay-username 'lab@example.com' \
+  --smtp-relay-password "$GMAIL_APP_PASSWORD" \
+  --smtp-relay-from 'lab@example.com' \
+  --smtp-relay-starttls
+```
+
+Or against an already-installed cluster:
+
+```bash
+mas-est smtp install-mailpit \
+  --smtp-relay-host smtp.gmail.com \
+  --smtp-relay-port 587 \
+  --smtp-relay-username 'lab@example.com' \
+  --smtp-relay-password "$GMAIL_APP_PASSWORD" \
+  --smtp-relay-from 'lab@example.com'
+```
+
+Same flags exist as env vars (`MAS_EST_SMTP_RELAY_HOST`, `MAS_EST_SMTP_RELAY_PORT`, etc).
+
+Provider notes:
+- **Gmail / Google Workspace**: needs an App Password (account must have 2FA enabled). Host `smtp.gmail.com`, port `587`, auth `plain`, STARTTLS on.
+- **Outlook / Microsoft 365**: classic basic auth has been deprecated; modern accounts require OAuth which Mailpit doesn't speak natively. Use SendGrid / SES / Postmark instead, or terminate at a local Postfix that does OAuth.
+- **SendGrid**: host `smtp.sendgrid.net`, port `587`, username `apikey` (literal), password = the API key.
+- **AWS SES**: per-region SMTP endpoint, port `587`, IAM-derived SMTP credentials.
+
+When relay is enabled MAS's own SMTP config doesn't change — it still talks plain SMTP to `mas-mailpit.mas-est.svc.cluster.local:1025`. Mailpit handles the upstream hop.
 
 ## Notes
 

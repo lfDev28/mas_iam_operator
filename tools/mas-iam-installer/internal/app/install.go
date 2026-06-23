@@ -62,6 +62,14 @@ func newInstallCommand(root *RootOptions) *cobra.Command {
 	flags.StringVar(&opts.config.ScimBridgeStorageClass, "scim-bridge-storage-class", opts.config.ScimBridgeStorageClass, "SCIM bridge PVC storage class override")
 	flags.StringVar(&opts.config.KeycloakBootstrapMethod, "keycloak-bootstrap", opts.config.KeycloakBootstrapMethod, "Keycloak bootstrap mode passed to install-all-in-one.sh")
 	flags.BoolVar(&opts.config.SkipS3MASConfig, "skip-s3-mas-config", opts.config.SkipS3MASConfig, "Install S3 storage without creating MAS ObjectStorageCfg")
+	flags.StringVar(&opts.config.SMTPRelayHost, "smtp-relay-host", opts.config.SMTPRelayHost, "Mailpit upstream SMTP relay host; leave empty for capture-only")
+	flags.IntVar(&opts.config.SMTPRelayPort, "smtp-relay-port", opts.config.SMTPRelayPort, "Mailpit upstream SMTP relay port (default 587 for STARTTLS)")
+	flags.StringVar(&opts.config.SMTPRelayUsername, "smtp-relay-username", opts.config.SMTPRelayUsername, "Mailpit upstream SMTP relay username")
+	flags.StringVar(&opts.config.SMTPRelayPassword, "smtp-relay-password", opts.config.SMTPRelayPassword, "Mailpit upstream SMTP relay password (or app password)")
+	flags.StringVar(&opts.config.SMTPRelayFrom, "smtp-relay-from", opts.config.SMTPRelayFrom, "Envelope sender (Return-Path) used when Mailpit relays messages")
+	flags.StringVar(&opts.config.SMTPRelayAuth, "smtp-relay-auth", opts.config.SMTPRelayAuth, "Mailpit upstream SMTP relay auth mechanism: plain, login, cram-md5, or none")
+	flags.BoolVar(&opts.config.SMTPRelayStartTLS, "smtp-relay-starttls", opts.config.SMTPRelayStartTLS, "Use STARTTLS when talking to the Mailpit upstream relay (recommended on port 587)")
+	flags.StringVar(&opts.config.SMTPRelayAllowedRcpt, "smtp-relay-allowed-recipients", opts.config.SMTPRelayAllowedRcpt, "Optional regex restricting which recipient addresses Mailpit relays; empty = relay everything captured")
 	flags.BoolVar(&opts.config.WipeFirst, "uninstall-first", opts.config.WipeFirst, "Uninstall the namespace before install")
 	flags.BoolVar(&opts.config.WipeFirst, "wipe-first", opts.config.WipeFirst, "Deprecated alias for --uninstall-first")
 	flags.BoolVar(&opts.nonInteractive, "non-interactive", false, "Disable prompts and require flags/env vars")
@@ -224,10 +232,18 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 
 	if cfg.HasComponent(config.InstallComponentSMTP) {
 		opts := mailpitInstallOptions{
-			namespace: cfg.Namespace,
-			name:      defaultMailpitName,
-			image:     defaultMailpitImage,
-			timeout:   5 * time.Minute,
+			namespace:        cfg.Namespace,
+			name:             defaultMailpitName,
+			image:            defaultMailpitImage,
+			timeout:          5 * time.Minute,
+			relayHost:        cfg.SMTPRelayHost,
+			relayPort:        cfg.SMTPRelayPort,
+			relayUsername:    cfg.SMTPRelayUsername,
+			relayPassword:    cfg.SMTPRelayPassword,
+			relayFrom:        cfg.SMTPRelayFrom,
+			relayAuth:        cfg.SMTPRelayAuth,
+			relayStartTLS:    cfg.SMTPRelayStartTLS,
+			relayAllowedRcpt: cfg.SMTPRelayAllowedRcpt,
 		}
 		if err := phases.run("Install Mailpit SMTP", func() error { return opts.run(ctx) }); err != nil {
 			if logPath != "" {

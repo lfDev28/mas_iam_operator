@@ -9,7 +9,7 @@ The supported delivery model is:
 
 Current published image:
 
-- `quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.13`
+- `quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.14`
 
 The CLI wraps the repo's hardened shell install engine. It does not replace it.
 
@@ -39,7 +39,7 @@ The CLI wraps the repo's hardened shell install engine. It does not replace it.
 Set the image once:
 
 ```bash
-export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.13'
+export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.14'
 ```
 
 Bootstrap the host command:
@@ -106,9 +106,9 @@ For Manage cron or doclinks tests, use the internal endpoint `http://mas-est.svc
 
 The older `object-storage install-rook-ceph` command remains available for Rook Ceph RGW experiments.
 
-The `smtp install-mailpit` command is experimental post-beta work. It creates a Mailpit SMTP capture service, an internal SMTP endpoint for MAS tests, and an OpenShift route for the Mailpit browser UI. It captures messages for inspection and does not relay mail externally.
+The `smtp install-mailpit` command is experimental post-beta work. It creates a Mailpit SMTP capture service, an internal SMTP endpoint for MAS tests, and an OpenShift route for the Mailpit browser UI. By default it captures messages for inspection only; pass `--smtp-relay-host` (and the matching credential flags) to also forward captured messages through an upstream SMTP server (Gmail, SendGrid, SES, etc) for real delivery.
 
-For MAS SMTP tests, use host `mas-mailpit.mas-est.svc.cluster.local`, port `1025`, no TLS, and no authentication.
+For MAS SMTP tests, use host `mas-mailpit.mas-est.svc.cluster.local`, port `1025`, no TLS, and no authentication — MAS-side config is the same whether or not relay is enabled. See [docs/CONNECTION-DETAILS.md](../../docs/CONNECTION-DETAILS.md#smtp-relay-optional) for the full relay flag set and provider walkthroughs.
 
 The `mas-auth apply` command is experimental post-beta work. It configures MAS `IDPCfg` resources for direct LDAP, OIDC, and SAML authentication using the installed OpenLDAP and Keycloak services. Use `--providers ldap,oidc,saml` to choose the providers. OIDC requires MAS 9.1 or later with `spec.oidc` support in the `IDPCfg` CRD. The generated provider IDs are `mas-est-ldap`, `mas-est-oidc`, and `mas-est-saml`.
 
