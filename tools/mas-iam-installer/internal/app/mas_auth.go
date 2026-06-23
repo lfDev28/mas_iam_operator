@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/base64"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"io"
@@ -23,15 +24,27 @@ import (
 )
 
 const (
-	defaultMASAuthLDAPID      = "mas-est-ldap"
-	defaultMASAuthOIDCID      = "mas-est-oidc"
-	defaultMASAuthSAMLID      = "mas-est-saml"
+	// IDPCfg idpId is "default" so the resulting CR is
+	// {instance}-{type}-default-system, which is what the MAS Admin UI's
+	// "Configured?" indicator polls at /config/{type}/default. Using anything
+	// else (e.g. "mas-est-ldap") leaves the UI rows stuck on "Not configured"
+	// even when login works. See memory: mas-default-idpid-reserved-word.
+	defaultMASAuthLDAPID      = "default"
+	defaultMASAuthOIDCID      = "default"
+	defaultMASAuthSAMLID      = "default"
 	defaultKeycloakRealm      = "maximo"
 	defaultMASAuthSAMLNameID  = "email"
 	defaultMASAuthSAMLSPName  = "mas-est-saml-sp"
 	defaultMASAuthDisplayLDAP = "MAS EST LDAP"
 	defaultMASAuthDisplayOIDC = "MAS EST OIDC"
 	defaultMASAuthDisplaySAML = "MAS EST SAML"
+	defaultIDPCfgMemoryLimit  = "2Gi"
+
+	// reservedIDPID is the MAS reserved word that triggers special-case
+	// behaviour: MAS Liberty appends "-{type}" to (a) the OIDC redirect_uri
+	// path and (b) the selfreg ConfigMap lookup key. Use providerKeyWithSuffix
+	// and providerNeedsTypeSuffix to handle both surfaces consistently.
+	reservedIDPID = "default"
 )
 
 type masAuthApplyOptions struct {
@@ -58,6 +71,14 @@ type masAuthApplyOptions struct {
 	apiTokenValue      string
 	insecureTLS        bool
 	selfRegWorkspaceID string
+
+	// idpcfgMemoryLimit is the memory limit applied to the
+	// {instance}-entitymgr-idpcfg deployment's manager container via the
+	// Suite CR's spec.podTemplates. The MAS default (512Mi) OOM-kills the
+	// finalizer playbook routinely. Defaults to "2Gi"; set to "off" or "" to
+	// skip the bump (e.g. customers running their own Suite-level override).
+	// See memory: mas-entitymgr-idpcfg-oom.
+	idpcfgMemoryLimit string
 }
 
 type keycloakMASClients struct {
@@ -77,15 +98,16 @@ type certificateEntry struct {
 func newMASAuthCommand() *cobra.Command {
 	defaults := config.LoadInstallConfigFromEnv()
 	opts := &masAuthApplyOptions{
-		namespace:      defaults.Namespace,
-		release:        config.DefaultIAMRelease,
-		realm:          defaultKeycloakRealm,
-		providers:      defaults.MASAuthProviders,
-		ldapProviderID: defaultMASAuthLDAPID,
-		oidcProviderID: defaultMASAuthOIDCID,
-		samlProviderID: defaultMASAuthSAMLID,
-		wait:           true,
-		timeout:        10 * time.Minute,
+		namespace:         defaults.Namespace,
+		release:           config.DefaultIAMRelease,
+		realm:             defaultKeycloakRealm,
+		providers:         defaults.MASAuthProviders,
+		ldapProviderID:    defaultMASAuthLDAPID,
+		oidcProviderID:    defaultMASAuthOIDCID,
+		samlProviderID:    defaultMASAuthSAMLID,
+		wait:              true,
+		timeout:           10 * time.Minute,
+		idpcfgMemoryLimit: defaultIDPCfgMemoryLimit,
 
 		apiBaseURL:    defaults.MASBaseURL,
 		apiTokenName:  defaults.MASAPITokenName,
@@ -124,6 +146,7 @@ func newMASAuthCommand() *cobra.Command {
 	flags.StringVar(&opts.apiTokenValue, "mas-api-token-value", opts.apiTokenValue, "MAS API key value (basic-auth password for /v1/authenticate); read from scim-bridge-secret when omitted")
 	flags.BoolVar(&opts.insecureTLS, "insecure-tls", opts.insecureTLS, "Skip TLS verification when talking to the MAS API (cluster routes commonly use cluster-local CAs)")
 	flags.StringVar(&opts.selfRegWorkspaceID, "self-reg-workspace", opts.selfRegWorkspaceID, "Workspace id assigned to self-registered users in the {instance}-selfreg ConfigMap (default: workspace)")
+	flags.StringVar(&opts.idpcfgMemoryLimit, "idpcfg-memory-limit", opts.idpcfgMemoryLimit, "Memory limit applied to {instance}-entitymgr-idpcfg via Suite CR podTemplates (default 2Gi). The MAS default 512Mi OOMKills the finalizer playbook; set to 'off' to skip the bump.")
 	command.AddCommand(applyCommand)
 	command.AddCommand(newMASAuthDeleteCommand())
 	return command
@@ -137,6 +160,16 @@ func (o *masAuthApplyOptions) run(ctx context.Context) error {
 	}
 	if err := o.defaultAndValidate(ctx, client); err != nil {
 		return err
+	}
+
+	// Bump the entitymgr-idpcfg memory limit BEFORE creating any IDPCfgs.
+	// The MAS default 512Mi reliably OOMKills the finalizer playbook when
+	// several IDPCfgs are reconciled together; left unbumped, the IDPCfgs
+	// we PUT below would never reach Ready and the MAS Admin UI would hang.
+	// Non-fatal — log and continue so a permission-denied or absent-Suite
+	// cluster doesn't block the rest of the work.
+	if err := ensureIDPCfgMemoryLimit(ctx, runner, o.masCoreNamespace, o.masInstanceID, o.idpcfgMemoryLimit); err != nil {
+		fmt.Fprintf(os.Stderr, "[mas-auth] WARN: could not bump entitymgr-idpcfg memory (non-fatal, see mas-entitymgr-idpcfg-oom): %v\n", err)
 	}
 
 	kc := keycloakMASClients{}
@@ -443,15 +476,15 @@ func (o *masAuthApplyOptions) configureKeycloak(ctx context.Context, runner *exe
 	}
 
 	script := keycloakMASClientScript(map[string]string{
-		"KC_ADMIN_USER":      adminUser,
-		"KC_ADMIN_PASSWORD":  adminPassword,
-		"KC_SERVICE":         fmt.Sprintf("http://%s:%d", service, 8080),
-		"KC_REALM":           o.realm,
-		"CONFIGURE_OIDC":     boolString(o.hasProvider(config.MASAuthProviderOIDC)),
-		"OIDC_CLIENT_ID":     o.oidcProviderID,
-		"OIDC_CLIENT_SECRET": oidcSecret,
-		"OIDC_REDIRECT_URI":  fmt.Sprintf("https://%s/oidcclient/redirect/%s", o.masAuthHost, o.oidcProviderID),
-		"CONFIGURE_SAML":     boolString(o.hasProvider(config.MASAuthProviderSAML)),
+		"KC_ADMIN_USER":           adminUser,
+		"KC_ADMIN_PASSWORD":       adminPassword,
+		"KC_SERVICE":              fmt.Sprintf("http://%s:%d", service, 8080),
+		"KC_REALM":                o.realm,
+		"CONFIGURE_OIDC":          boolString(o.hasProvider(config.MASAuthProviderOIDC)),
+		"OIDC_CLIENT_ID":          o.oidcProviderID,
+		"OIDC_CLIENT_SECRET":      oidcSecret,
+		"OIDC_REDIRECT_URIS_JSON": oidcRedirectURIsJSON(o.masAuthHost, o.oidcProviderID),
+		"CONFIGURE_SAML":          boolString(o.hasProvider(config.MASAuthProviderSAML)),
 		// Keycloak's SAML client clientId MUST match the <saml:Issuer> that
 		// MAS sends on the AuthnRequest. IBM Liberty derives that issuer as
 		// https://<auth-host>/ibm/saml20/<serviceProviderName> — a URL, NOT
@@ -544,6 +577,24 @@ func boolString(value bool) string {
 	return "false"
 }
 
+// oidcRedirectURIsJSON returns a JSON-encoded array of redirect URIs to
+// register on the Keycloak OIDC client. For most idpIds the array has a
+// single entry, /oidcclient/redirect/{idpId}. For the reserved idpId
+// "default", MAS Liberty sends redirect_uri=/oidcclient/redirect/default-oidc
+// instead, so we include BOTH the verbatim path and the -oidc-suffixed path
+// — that way the Keycloak client accepts either, and we don't fight MAS's
+// internal aliasing. See memory: mas-default-idpid-reserved-word.
+func oidcRedirectURIsJSON(masAuthHost, idpId string) string {
+	uris := []string{
+		fmt.Sprintf("https://%s/oidcclient/redirect/%s", masAuthHost, idpId),
+	}
+	if providerNeedsTypeSuffix(idpId) {
+		uris = append(uris, fmt.Sprintf("https://%s/oidcclient/redirect/%s-oidc", masAuthHost, idpId))
+	}
+	raw, _ := json.Marshal(uris)
+	return string(raw)
+}
+
 func keycloakMASClientScript(values map[string]string) string {
 	var b strings.Builder
 	b.WriteString("set -euo pipefail\n")
@@ -555,7 +606,7 @@ func keycloakMASClientScript(values map[string]string) string {
 		"CONFIGURE_OIDC",
 		"OIDC_CLIENT_ID",
 		"OIDC_CLIENT_SECRET",
-		"OIDC_REDIRECT_URI",
+		"OIDC_REDIRECT_URIS_JSON",
 		"CONFIGURE_SAML",
 		"SAML_CLIENT_ID",
 		"SAML_SP_NAME",
@@ -580,7 +631,7 @@ if [[ "$CONFIGURE_OIDC" == "true" ]]; then
   "directAccessGrantsEnabled": true,
   "serviceAccountsEnabled": false,
   "secret": "${OIDC_CLIENT_SECRET}",
-  "redirectUris": ["${OIDC_REDIRECT_URI}"],
+  "redirectUris": ${OIDC_REDIRECT_URIS_JSON},
   "webOrigins": ["+"]
 }
 JSON

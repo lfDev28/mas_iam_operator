@@ -2,9 +2,11 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/config"
@@ -12,6 +14,117 @@ import (
 	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/masadmin"
 	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/oc"
 )
+
+// ensureIDPCfgMemoryLimit patches the Suite CR's spec.podTemplates so the
+// {instance}-entitymgr-idpcfg deployment runs with at least the requested
+// memory limit. The Suite operator reconciles podTemplates into the
+// deployment durably — direct deployment patches get reverted by both the
+// Suite operator AND the ibm-mas-operator within a couple of minutes, so
+// the Suite CR is the only durable knob. Implemented per the MAS docs
+// "Customizing workload scale" → "Supported pods". See memory:
+// mas-entitymgr-idpcfg-oom.
+//
+// Idempotent: if a podTemplate for entitymgr-idpcfg already exists, the
+// resources block is replaced. Other podTemplates in the array are left
+// untouched.
+func ensureIDPCfgMemoryLimit(ctx context.Context, runner *executil.Runner, masCoreNamespace, masInstanceID, memoryLimit string) error {
+	memoryLimit = strings.TrimSpace(memoryLimit)
+	if memoryLimit == "" || strings.EqualFold(memoryLimit, "off") {
+		return nil
+	}
+
+	// Read the existing podTemplates array. jsonpath returns "" for absent,
+	// "[]" for empty, or the JSON array text.
+	current, err := runner.Output(ctx, executil.Options{
+		Name: "oc",
+		Args: []string{"get", "suite", masInstanceID, "-n", masCoreNamespace, "-o", "jsonpath={.spec.podTemplates}"},
+	})
+	if err != nil {
+		return fmt.Errorf("read Suite %s/%s podTemplates: %w", masCoreNamespace, masInstanceID, err)
+	}
+
+	existing := []map[string]any{}
+	if trimmed := strings.TrimSpace(current); trimmed != "" && trimmed != "[]" && trimmed != "null" {
+		if err := json.Unmarshal([]byte(trimmed), &existing); err != nil {
+			return fmt.Errorf("decode Suite podTemplates: %w", err)
+		}
+	}
+
+	desired := idpcfgPodTemplate(memoryLimit)
+	updated := false
+	for i, tmpl := range existing {
+		if name, _ := tmpl["name"].(string); name == "entitymgr-idpcfg" {
+			existing[i] = desired
+			updated = true
+			break
+		}
+	}
+	if !updated {
+		existing = append(existing, desired)
+	}
+
+	raw, err := json.Marshal(existing)
+	if err != nil {
+		return err
+	}
+	patch := fmt.Sprintf(`[{"op":"replace","path":"/spec/podTemplates","value":%s}]`, raw)
+	if _, err := runner.Output(ctx, executil.Options{
+		Name: "oc",
+		Args: []string{"patch", "suite", masInstanceID, "-n", masCoreNamespace, "--type=json", "-p", patch},
+	}); err != nil {
+		return fmt.Errorf("patch Suite podTemplates: %w", err)
+	}
+	fmt.Fprintf(os.Stdout, "[mas-auth] ensured entitymgr-idpcfg memory limit = %s via Suite CR podTemplates\n", memoryLimit)
+	return nil
+}
+
+// idpcfgPodTemplate returns the podTemplates[] entry for entitymgr-idpcfg.
+// Format per MAS docs "Customizing workload scale" → "Supported pods":
+// container name is "manager", default request 64Mi, default limit 512Mi
+// (which is what we're overriding).
+func idpcfgPodTemplate(memoryLimit string) map[string]any {
+	return map[string]any{
+		"name": "entitymgr-idpcfg",
+		"containers": []map[string]any{
+			{
+				"name": "manager",
+				"resources": map[string]any{
+					"requests": map[string]string{
+						"cpu":    "0.01",
+						"memory": "64Mi",
+					},
+					"limits": map[string]string{
+						"cpu":    "0.2",
+						"memory": memoryLimit,
+					},
+				},
+			},
+		},
+	}
+}
+
+// providerNeedsTypeSuffix returns true when the IDPCfg idpId is the MAS
+// reserved word "default". MAS Liberty / coreapi then derive both the OIDC
+// redirect_uri path and the selfreg ConfigMap lookup key with a "-{type}"
+// suffix (e.g. default-oidc), so we need to register matching keys on the
+// Keycloak client and in the selfreg ConfigMap. Custom idpIds don't trigger
+// the suffix — they're used verbatim. See memory: mas-default-idpid-reserved-word.
+func providerNeedsTypeSuffix(idpId string) bool {
+	return strings.TrimSpace(idpId) == reservedIDPID
+}
+
+// providerKeyWithSuffix returns the canonical per-provider key MAS uses for
+// state lookups (selfreg ConfigMap, Liberty client id). For reserved-word
+// idpIds the type suffix is appended; for custom idpIds the idpId is returned
+// verbatim. This MUST match how MAS coreapi keys its own internal lookups —
+// confirmed empirically with AIUOM0013E miss on `default` vs hit on
+// `default-oidc`.
+func providerKeyWithSuffix(idpId, providerType string) string {
+	if providerNeedsTypeSuffix(idpId) {
+		return idpId + "-" + providerType
+	}
+	return idpId
+}
 
 const (
 	pollInterval = 5 * time.Second
@@ -118,14 +231,14 @@ func (o *masAuthApplyOptions) applyViaAdminAPI(ctx context.Context, client *oc.C
 func (o *masAuthApplyOptions) applySelfRegConfigMap(ctx context.Context, client *oc.Client) error {
 	data := map[string]string{}
 	if o.hasProvider(config.MASAuthProviderOIDC) {
-		data[o.oidcProviderID] = o.selfRegConfigYAML(oidcSelfRegMappings)
+		data[providerKeyWithSuffix(o.oidcProviderID, "oidc")] = o.selfRegConfigYAML(oidcSelfRegMappings)
 	}
 	if o.hasProvider(config.MASAuthProviderSAML) {
 		// SAML uses the same OIDC-style mappings because the Keycloak SAML
 		// client emits saml-user-property mappers with OIDC-style attribute
 		// names (preferred_username, email, given_name, family_name). See
 		// the SAML quirks documented in [[saml-login-invalid-request]].
-		data[o.samlProviderID] = o.selfRegConfigYAML(oidcSelfRegMappings)
+		data[providerKeyWithSuffix(o.samlProviderID, "saml")] = o.selfRegConfigYAML(oidcSelfRegMappings)
 	}
 	if o.hasProvider(config.MASAuthProviderLDAP) {
 		// LDAP login goes through MAS's customUserRegistry Liberty feature
@@ -134,7 +247,7 @@ func (o *masAuthApplyOptions) applySelfRegConfigMap(ctx context.Context, client 
 		// — without an mas-est-ldap entry, login fails with CWIML4537E
 		// "principal not found in the back-end repository". Mappings use
 		// LDAP attribute names (uid/mail/cn/givenName/sn) not OIDC claims.
-		data[o.ldapProviderID] = o.selfRegConfigYAML(ldapSelfRegMappings)
+		data[providerKeyWithSuffix(o.ldapProviderID, "ldap")] = o.selfRegConfigYAML(ldapSelfRegMappings)
 	}
 	if len(data) == 0 {
 		return nil

@@ -8,7 +8,10 @@ import (
 	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/masadmin"
 )
 
-func TestMASAuthIDPCfgNamesUseStableProviderIDs(t *testing.T) {
+func TestMASAuthIDPCfgNamesUseDefaultIDForUIVisibility(t *testing.T) {
+	// IDPCfg CR names must end in `-default-system` so the MAS Admin UI's
+	// "Configured?" indicator (which polls /config/{type}/default) finds
+	// them. See memory: mas-default-idpid-reserved-word.
 	opts := &masAuthApplyOptions{
 		masInstanceID:  "lfmas",
 		ldapProviderID: defaultMASAuthLDAPID,
@@ -16,14 +19,75 @@ func TestMASAuthIDPCfgNamesUseStableProviderIDs(t *testing.T) {
 		samlProviderID: defaultMASAuthSAMLID,
 	}
 
-	if got := opts.ldapIDPCfgName(); got != "lfmas-ldap-mas-est-ldap-system" {
+	if got := opts.ldapIDPCfgName(); got != "lfmas-ldap-default-system" {
 		t.Fatalf("ldapIDPCfgName() = %q", got)
 	}
-	if got := opts.oidcIDPCfgName(); got != "lfmas-oidc-mas-est-oidc-system" {
+	if got := opts.oidcIDPCfgName(); got != "lfmas-oidc-default-system" {
 		t.Fatalf("oidcIDPCfgName() = %q", got)
 	}
-	if got := opts.samlIDPCfgName(); got != "lfmas-saml-mas-est-saml-system" {
+	if got := opts.samlIDPCfgName(); got != "lfmas-saml-default-system" {
 		t.Fatalf("samlIDPCfgName() = %q", got)
+	}
+}
+
+func TestProviderKeyWithSuffixAppliesOnlyToDefaultIDpID(t *testing.T) {
+	// MAS appends "-{type}" to selfreg/redirect lookups when idpId is the
+	// reserved word "default". Custom idpIds stay verbatim.
+	cases := []struct {
+		idpId, providerType, want string
+	}{
+		{"default", "oidc", "default-oidc"},
+		{"default", "saml", "default-saml"},
+		{"default", "ldap", "default-ldap"},
+		{"mas-est-oidc", "oidc", "mas-est-oidc"},
+		{"my-corp-saml", "saml", "my-corp-saml"},
+		{"  default  ", "oidc", "  default  -oidc"}, // intentionally exact: callers shouldn't pre-trim, but providerNeedsTypeSuffix does trim for the check
+	}
+	for _, c := range cases {
+		got := providerKeyWithSuffix(c.idpId, c.providerType)
+		if got != c.want {
+			t.Errorf("providerKeyWithSuffix(%q, %q) = %q, want %q", c.idpId, c.providerType, got, c.want)
+		}
+	}
+}
+
+func TestOIDCRedirectURIsJSONIncludesBothPathsForDefaultIDpID(t *testing.T) {
+	// When idpId is "default", Keycloak's redirectUris MUST include both
+	// the verbatim path AND the -oidc-suffixed path, because MAS Liberty
+	// actually sends the -oidc version. See memory: mas-default-idpid-reserved-word.
+	got := oidcRedirectURIsJSON("auth.example.com", "default")
+	want := `["https://auth.example.com/oidcclient/redirect/default","https://auth.example.com/oidcclient/redirect/default-oidc"]`
+	if got != want {
+		t.Fatalf("oidcRedirectURIsJSON(default) = %q, want %q", got, want)
+	}
+
+	// Custom idpId only registers the verbatim path; no -oidc suffix.
+	got = oidcRedirectURIsJSON("auth.example.com", "my-corp-oidc")
+	want = `["https://auth.example.com/oidcclient/redirect/my-corp-oidc"]`
+	if got != want {
+		t.Fatalf("oidcRedirectURIsJSON(my-corp-oidc) = %q, want %q", got, want)
+	}
+}
+
+func TestIDPCfgPodTemplateBuildsExpectedShape(t *testing.T) {
+	tmpl := idpcfgPodTemplate("2Gi")
+	if tmpl["name"] != "entitymgr-idpcfg" {
+		t.Fatalf("name = %q", tmpl["name"])
+	}
+	containers, ok := tmpl["containers"].([]map[string]any)
+	if !ok || len(containers) != 1 {
+		t.Fatalf("containers shape unexpected: %v", tmpl["containers"])
+	}
+	if containers[0]["name"] != "manager" {
+		t.Fatalf("container name = %q (must be 'manager' per MAS Supported Pods doc)", containers[0]["name"])
+	}
+	limits := containers[0]["resources"].(map[string]any)["limits"].(map[string]string)
+	if limits["memory"] != "2Gi" {
+		t.Fatalf("memory limit = %q, want 2Gi", limits["memory"])
+	}
+	requests := containers[0]["resources"].(map[string]any)["requests"].(map[string]string)
+	if requests["memory"] != "64Mi" {
+		t.Fatalf("memory request = %q, want 64Mi (MAS default — don't shrink the request)", requests["memory"])
 	}
 }
 
@@ -226,11 +290,11 @@ func TestKeycloakMASClientScriptIncludesSAMLQuirks(t *testing.T) {
 		"KC_ADMIN_PASSWORD":  "secret",
 		"KC_SERVICE":         "http://kc:8080",
 		"KC_REALM":           "maximo",
-		"CONFIGURE_OIDC":     "false",
-		"OIDC_CLIENT_ID":     "",
-		"OIDC_CLIENT_SECRET": "",
-		"OIDC_REDIRECT_URI":  "",
-		"CONFIGURE_SAML":     "true",
+		"CONFIGURE_OIDC":          "false",
+		"OIDC_CLIENT_ID":          "",
+		"OIDC_CLIENT_SECRET":      "",
+		"OIDC_REDIRECT_URIS_JSON": "[]",
+		"CONFIGURE_SAML":          "true",
 		"SAML_CLIENT_ID":     "https://auth.mas91.apps.example.com/ibm/saml20/mas-est-saml-sp",
 		"SAML_SP_NAME":       "mas-est-saml-sp",
 		"SAML_REDIRECT_URI":  "https://auth.mas91.apps.example.com/*",
@@ -277,7 +341,7 @@ func TestOIDCConnectionSecretDataPopulatesAllEndpoints(t *testing.T) {
 		"clientId":              "mas-est-oidc",
 		"clientSecret":          "shhh",
 		"realm":                 "maximo",
-		"redirectUri":           "https://auth.mas91.apps.example.com/oidcclient/redirect/mas-est-oidc",
+		"redirectUri":           "https://auth.mas91.apps.example.com/oidcclient/redirect/default",
 	}
 	for k, want := range expected {
 		if data[k] != want {

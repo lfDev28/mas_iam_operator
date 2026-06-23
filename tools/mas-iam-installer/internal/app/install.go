@@ -70,6 +70,7 @@ func newInstallCommand(root *RootOptions) *cobra.Command {
 	flags.StringVar(&opts.config.SMTPRelayAuth, "smtp-relay-auth", opts.config.SMTPRelayAuth, "Mailpit upstream SMTP relay auth mechanism: plain, login, cram-md5, or none")
 	flags.BoolVar(&opts.config.SMTPRelayStartTLS, "smtp-relay-starttls", opts.config.SMTPRelayStartTLS, "Use STARTTLS when talking to the Mailpit upstream relay (recommended on port 587)")
 	flags.StringVar(&opts.config.SMTPRelayAllowedRcpt, "smtp-relay-allowed-recipients", opts.config.SMTPRelayAllowedRcpt, "Optional regex restricting which recipient addresses Mailpit relays; empty = relay everything captured")
+	flags.StringVar(&opts.config.IDPCfgMemoryLimit, "idpcfg-memory-limit", opts.config.IDPCfgMemoryLimit, "Memory limit applied to {instance}-entitymgr-idpcfg via Suite CR podTemplates (default 2Gi). The MAS default 512Mi OOMKills the finalizer playbook during MAS auth configuration; set to 'off' to skip the bump.")
 	flags.BoolVar(&opts.config.WipeFirst, "uninstall-first", opts.config.WipeFirst, "Uninstall the namespace before install")
 	flags.BoolVar(&opts.config.WipeFirst, "wipe-first", opts.config.WipeFirst, "Deprecated alias for --uninstall-first")
 	flags.BoolVar(&opts.nonInteractive, "non-interactive", false, "Disable prompts and require flags/env vars")
@@ -274,6 +275,7 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 			apiTokenValue:      cfg.MASAPITokenValue,
 			insecureTLS:        true,
 			selfRegWorkspaceID: cfg.WorkspaceID,
+			idpcfgMemoryLimit:  cfg.IDPCfgMemoryLimit,
 		}
 		if err := phases.run("Configure MAS LDAP / OIDC / SAML", func() error { return opts.run(ctx) }); err != nil {
 			if logPath != "" {

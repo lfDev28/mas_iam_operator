@@ -48,6 +48,7 @@ const (
 	EnvSMTPRelayAuth           = "MAS_EST_SMTP_RELAY_AUTH"
 	EnvSMTPRelayStartTLS       = "MAS_EST_SMTP_RELAY_STARTTLS"
 	EnvSMTPRelayAllowedRcpt    = "MAS_EST_SMTP_RELAY_ALLOWED_RECIPIENTS"
+	EnvIDPCfgMemoryLimit       = "MAS_EST_IDPCFG_MEMORY_LIMIT"
 	EnvUninstallFirst          = "MAS_EST_UNINSTALL_FIRST"
 	EnvWipeFirst               = "MAS_EST_WIPE_FIRST"
 	LegacyEnvWipeFirst         = "MAS_IAM_WIPE_FIRST"
@@ -93,6 +94,13 @@ type InstallConfig struct {
 	SMTPRelayAuth           string
 	SMTPRelayStartTLS       bool
 	SMTPRelayAllowedRcpt    string
+
+	// IDPCfgMemoryLimit is the memory limit the installer sets on the
+	// {instance}-entitymgr-idpcfg deployment's manager container via the
+	// Suite CR's spec.podTemplates. Defaults to "2Gi" because the MAS default
+	// 512Mi OOM-kills the finalizer playbook during MAS auth configuration.
+	// Set to "off" to skip the bump entirely.
+	IDPCfgMemoryLimit string
 }
 
 type WipeConfig struct {
@@ -112,6 +120,7 @@ func DefaultInstallConfig() InstallConfig {
 		SMTPRelayPort:           587,
 		SMTPRelayAuth:           "plain",
 		SMTPRelayStartTLS:       true,
+		IDPCfgMemoryLimit:       "2Gi",
 	}
 }
 
@@ -149,6 +158,7 @@ func LoadInstallConfigFromEnv() InstallConfig {
 	cfg.SMTPRelayAuth = envOrDefault(EnvSMTPRelayAuth, cfg.SMTPRelayAuth)
 	cfg.SMTPRelayStartTLS = boolEnvOrDefault(EnvSMTPRelayStartTLS, cfg.SMTPRelayStartTLS)
 	cfg.SMTPRelayAllowedRcpt = envOrDefault(EnvSMTPRelayAllowedRcpt, cfg.SMTPRelayAllowedRcpt)
+	cfg.IDPCfgMemoryLimit = envOrDefault(EnvIDPCfgMemoryLimit, cfg.IDPCfgMemoryLimit)
 	return cfg
 }
 
