@@ -45,7 +45,7 @@ The beta has been tested on a small number of clusters, but it cannot cover ever
 Set the image:
 
 ```bash
-export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.15'
+export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.16'
 ```
 
 Bootstrap the local command:
@@ -181,15 +181,17 @@ mas-est mas-auth apply \
   --mas-auth-host 'auth.<mas-domain>'
 ```
 
-For S3/MinIO lab testing, use these Manage cron or doclinks values after install:
+For S3/MinIO lab testing, set these as Manage System Properties (System Configuration → Platform Configuration → System Properties) after install:
 
 ```text
-Endpoint URL: http://mas-est.svc.cluster.local:9000
-Bucket: mas-s3-demo
-Region: us-east-1
-Access key: value from MAS credential secret key username
-Secret key: value from MAS credential secret key password
+mxe.cosendpointuri  http://mas-est.svc.cluster.local:9000
+mxe.cosbucketname   mas-s3-demo
+mxe.cosregion       us-east-1                        ← REQUIRED
+mxe.cosaccesskey    minioadmin (mas-minio-root MINIO_ROOT_USER)
+mxe.cossecretkey    <value from mas-minio-root MINIO_ROOT_PASSWORD>
 ```
+
+**`mxe.cosregion` is required, not optional.** Without it doclinks attach fails with `SignatureDoesNotMatch` even though the AWS SDK's internal default is `us-east-1`. On MAS 9.1.4 the property is not a built-in `MAXPROP` entry — add it via the Properties UI ("New Row"), then Live Refresh. See `OBJECT-STORAGE-POC.md` for the full doclinks setup including doctype `DEFAULTPATH` changes.
 
 The installer creates both Manage bucket layouts: sibling buckets (`mas-s3-demo`, `mas-s3-demorecovery`, `mas-s3-demobackup`) and root prefixes (`recovery/`, `backup/`). The external HTTPS MinIO route is mainly for browser/manual testing and may require additional certificate trust before Manage can use it.
 

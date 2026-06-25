@@ -72,6 +72,26 @@ Operationally, failed installs should be treated as bug reports unless the same 
 
 The CLI includes `mas-est support-bundle --namespace mas-est` to collect the common status, resource, event, log, configmap, and redacted secret evidence into a timestamped local directory.
 
+### SMTP / Mailpit
+
+The installer deploys Mailpit as a capture-only SMTP server. Wiring MAS Suite and MAS Manage to send through it works but is **not validated end-to-end in the beta** — neither Suite SMTP user/password flows nor Manage's workflow email outbound were UI-tested before release.
+
+What's known:
+
+- Mailpit pod runs and the web UI route is reachable at `mas-mailpit.apps.<cluster-domain>` (smoke-tested).
+- The connection details (`mas-est-smtp-connection` ConfigMap) are correct and match how Mailpit is configured.
+- MAS Suite SMTP and MAS Manage `mail.smtp.*` properties are NOT auto-wired by the installer; users must set them manually in the respective Admin UIs.
+
+What's not validated:
+
+- That MAS Suite-generated emails (welcome, password reset, self-reg) arrive in Mailpit.
+- That MAS Manage workflow/escalation emails arrive in Mailpit.
+- That `mxe.smtp.user`/`mxe.smtp.password=null` correctly disables auth on the Manage side.
+
+Mailpit is also strictly **capture-only** — it does not deliver to real inboxes (gmail etc.) and does not serve POP/IMAP, so inbound listeners (`LSNRCRON` etc.) won't work. If you need real delivery you must point MAS at a proper SMTP server.
+
+See `OBJECT-STORAGE-POC.md` and `INSTALL-ALL-IN-ONE.md` for the documented Mailpit wire-up steps.
+
 ### Product Scope
 
 `v0.1.x` is not positioned as:
@@ -82,7 +102,7 @@ The CLI includes `mas-est support-bundle --namespace mas-est` to collect the com
 
 ## What Is Supported
 
-**v0.1.0-beta.15 notes:**
+**v0.1.0-beta.16 notes:**
 - IDPCfg `idpId` defaulted to `default` (was `mas-est-{type}`) so the MAS Admin UI's "Configured?" indicator shows green for LDAP / OIDC / SAML. MAS treats `default` as a reserved word and appends `-{type}` for OIDC redirect_uri and selfreg lookups — the installer now handles both sides (Keycloak client gets the extra redirect URI; selfreg ConfigMap keys are written under `default-{type}`).
 - The installer now auto-bumps `{instance}-entitymgr-idpcfg` memory to 2Gi via the Suite CR `podTemplates` (durable; the deployment-level patch gets reverted by the Suite + MAS operators). Default 512Mi reliably OOMKills the finalizer playbook when several IDPCfgs reconcile together. Override via `--idpcfg-memory-limit=<size>` or `MAS_EST_IDPCFG_MEMORY_LIMIT`; pass `off` to skip.
 

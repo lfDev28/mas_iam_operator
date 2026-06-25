@@ -197,7 +197,7 @@ The current POC only creates the MAS object storage configuration. Manage attach
 
 Typical follow-on Manage work includes bucket-specific properties such as endpoint, bucket name, region, access key, secret key, and attachment storage mode.
 
-### Required Manage System Property values (validated 2026-06-18, MAS 9.1.18)
+### Required Manage System Property values (validated 2026-06-18 on MAS 9.1.18, re-validated 2026-06-25 on MAS 9.1.4)
 
 Setting these in Manage's **System Properties** application is what actually wires up doclinks/attachments to MinIO. The `ObjectStorageCfg` CR the installer creates only wires MinIO into the MAS Suite layer (backups etc.), NOT into Manage attachment storage — that's a separate manual step today.
 
@@ -206,13 +206,17 @@ mxe.cosaccesskey            value from secret mas-minio-root key MINIO_ROOT_USER
 mxe.cossecretkey            value from secret mas-minio-root key MINIO_ROOT_PASSWORD
 mxe.cosendpointuri          http://mas-est.svc.cluster.local:9000      ← see CRITICAL note below
 mxe.cosbucketname           mas-s3-demo
-mxe.cosregion               us-east-1                                   ← required to force V4 signing
+mxe.cosregion               us-east-1                                   ← REQUIRED — see note
 mxe.attachmentstorage       com.ibm.tivoli.maximo.oslc.provider.COSAttachmentStorage
 mxe.doclink.doctypes.defpath        cos:doclinks
 mxe.doclink.doctypes.topLevelPaths  cos:doclinks
 mxe.doclink.path01          cos:doclinks=<manage-ui-base-url>
 mxe.doclink.securedAttachment       True
 ```
+
+**`mxe.cosregion` is REQUIRED, not optional.** Without it, every COSApi call (including UI doclinks attach) returns `AmazonS3Exception: SignatureDoesNotMatch` even when credentials, endpoint, and bucket are all correct. On **MAS 9.1.4** this property is NOT a built-in `MAXPROP` entry — you must create it via the Properties UI ("New Row", name `mxe.cosregion`, value `us-east-1`, save, Live Refresh). Direct SQL `INSERT INTO MAXIMO.MAXPROP` is not recommended because the table has multiple `NOT NULL` columns with sequence IDs that the UI handles for you.
+
+After adding it, you may also see continued log noise from the `LOADFLATOBJECT.LOADFLATOBJECT` cron task with the same `SignatureDoesNotMatch` error — that's a separate Maximo flat-file integration code path that doesn't read `mxe.cosregion`. It's safe to ignore for doclinks; if the log noise bothers you, disable that cron task in Manage → Cron Task Setup (set `ACTIVE = 0`).
 
 Then in Manage's **Document Types** application, edit each doctype (e.g. `Attachments`) and change its `DEFAULTPATH` from the legacy filesystem path (e.g. `\DOCLINKS\ATTACHMENTS`) to `cos:doclinks/attachment` (must start with the `cos:doclinks/` prefix to match topLevelPaths). Then restart the Manage `all` deployment so the new config is picked up.
 
