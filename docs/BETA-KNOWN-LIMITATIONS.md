@@ -72,6 +72,19 @@ Operationally, failed installs should be treated as bug reports unless the same 
 
 The CLI includes `mas-est support-bundle --namespace mas-est` to collect the common status, resource, event, log, configmap, and redacted secret evidence into a timestamped local directory.
 
+### Single Logout / Cross-IDP Session Leakage
+
+When you log out of MAS after authenticating via OIDC or SAML through the bundled Keycloak, the MAS-local session is cleared but the **Keycloak SSO session is not**. The visible symptom: if you then try to log in via a different provider (e.g. log in via OIDC, then log out, then try SAML), Keycloak reuses the existing SSO session and the second provider may fail with `AIUOM0100E` or auto-authenticate as the previous user.
+
+The Keycloak-side configuration is correct (the SAML client has `saml_single_logout_service_url_post/redirect` set; the OIDC client has `post.logout.redirect.uris` set; both have `frontchannelLogout: true`), and the MAS SAML IDPCfg has `spInitiatedLogout: true`. The gap is that **MAS's UI logout button doesn't appear to exercise Liberty's IDP-side logout (SAML SLO / OIDC RP-initiated logout)** — it clears MAS-local cookies only. The MAS Admin API does not expose an `endSessionEndpointUrl` field for OIDC IDPCfgs (it expects Liberty to discover and use the value from `.well-known/openid-configuration` automatically), so this can't be patched from the installer.
+
+Workarounds for beta testing:
+
+- Use a private/incognito browser between provider switches.
+- After logging out of MAS, also visit `https://<keycloak-host>/realms/maximo/protocol/openid-connect/logout` (no query parameters) to manually clear the Keycloak SSO session.
+
+We'll revisit this in `v0.1.1+` if it surfaces in real beta usage; in the lab/support context it's a minor inconvenience.
+
 ### SMTP / Mailpit
 
 The installer deploys Mailpit as a capture-only SMTP server. Wiring MAS Suite and MAS Manage to send through it works but is **not validated end-to-end in the beta** — neither Suite SMTP user/password flows nor Manage's workflow email outbound were UI-tested before release.
