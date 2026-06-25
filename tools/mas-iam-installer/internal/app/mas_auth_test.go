@@ -118,6 +118,20 @@ func TestMASAuthLDAPManifest(t *testing.T) {
 	}
 }
 
+// Regression: both LDAP code paths (direct manifest + MAS Admin API request)
+// MUST emit the same bare-attribute userIdMap. Beta.11 fixed the manifest
+// path but left the Admin API path on "*:uid"; the latter is what shipped in
+// beta.12-15 since the Admin API path is the default, breaking LDAP login
+// with a misleading "invalid username/password" error.
+func TestLDAPUserIDMapIsBareAttributeAcrossBothPaths(t *testing.T) {
+	if defaultMASAuthLDAPUserIDMap != "uid" {
+		t.Fatalf("defaultMASAuthLDAPUserIDMap = %q, want %q", defaultMASAuthLDAPUserIDMap, "uid")
+	}
+	if strings.Contains(defaultMASAuthLDAPUserIDMap, ":") {
+		t.Fatalf("defaultMASAuthLDAPUserIDMap = %q, must not contain ':' (Liberty federated-LDAP form throws JNDI InvalidSearchFilterException at login)", defaultMASAuthLDAPUserIDMap)
+	}
+}
+
 func TestMASAuthOIDCManifestUsesWellKnownAndOpenIDConnectHyphens(t *testing.T) {
 	opts := &masAuthApplyOptions{
 		realm:            "maximo",

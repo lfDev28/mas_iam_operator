@@ -40,6 +40,14 @@ const (
 	defaultMASAuthDisplaySAML = "MAS EST SAML"
 	defaultIDPCfgMemoryLimit  = "2Gi"
 
+	// LDAP userIdMap must be a bare LDAP attribute name. MAS customUserRegistry
+	// passes this value straight into a JNDI search filter — the Liberty-style
+	// "<objectClass>:<attribute>" form (e.g. "*:uid") throws
+	// InvalidSearchFilterException at login and the user sees a misleading
+	// "Your username or password is invalid" error. Used by BOTH the Admin API
+	// path (buildLDAPRequest) and the direct manifest path (ldapIDPCfgManifest).
+	defaultMASAuthLDAPUserIDMap = "uid"
+
 	// reservedIDPID is the MAS reserved word that triggers special-case
 	// behaviour: MAS Liberty appends "-{type}" to (a) the OIDC redirect_uri
 	// path and (b) the selfreg ConfigMap lookup key. Use providerKeyWithSuffix
@@ -961,15 +969,9 @@ func (o *masAuthApplyOptions) ldapIDPCfgManifest(secretName string, certs []cert
 		spec["certificates"] = certs
 	}
 	spec["ldap"] = map[string]any{
-		"url":    fmt.Sprintf("ldaps://%s-openldap.%s.svc.cluster.local:636", o.release, o.namespace),
-		"baseDN": defaultLDAPBaseDN,
-		// Plain attribute name, NOT the Liberty federated-LDAP "*:uid" syntax.
-		// On MAS 9.1.18+ the customUserRegistry passes this value directly into
-		// a JNDI search filter — anything other than a bare LDAP attribute
-		// description throws InvalidSearchFilterException at runtime and the
-		// user sees a misleading "invalid user ID or password" error. The MAS
-		// Admin API docs use the same plain form (example shows "cn").
-		"userIdMap": "uid",
+		"url":       fmt.Sprintf("ldaps://%s-openldap.%s.svc.cluster.local:636", o.release, o.namespace),
+		"baseDN":    defaultLDAPBaseDN,
+		"userIdMap": defaultMASAuthLDAPUserIDMap,
 		"credentials": map[string]string{
 			"secretName": secretName,
 		},

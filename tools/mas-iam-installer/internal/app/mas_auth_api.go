@@ -390,7 +390,7 @@ func (o *masAuthApplyOptions) buildLDAPRequest(ctx context.Context, client *oc.C
 		BaseDN:       defaultLDAPBaseDN,
 		BindDN:       fmt.Sprintf("cn=admin,%s", defaultLDAPBaseDN),
 		BindPassword: bindPassword,
-		UserIDMap:    "*:uid",
+		UserIDMap:    defaultMASAuthLDAPUserIDMap,
 		Certificates: toMASAdminCerts(o.ldapCACerts(ctx, client)),
 	}, nil
 }
