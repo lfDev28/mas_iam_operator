@@ -115,7 +115,9 @@ See `OBJECT-STORAGE-POC.md` and `INSTALL-ALL-IN-ONE.md` for the documented Mailp
 
 ## What Is Supported
 
-**v0.1.0-beta.16 notes:**
+**v0.1.0-beta.17 notes:**
+- Bundled operator image rebuilt as `quay.io/lee_forster/mas-iam-operator:0.0.12` with the updated `helm-charts/mas-iam-stack/ldap-seed/dev-base.ldif` from commit `cf89d5d`. OpenLDAP now seeds `ldap.user1` / `ldap.user2` directly instead of the legacy `sysadmin/jane.doe/joe.bloggs/alex.manager` set. Catalog image bumped to `:catalog-0.0.12`. Older installs (using `catalog-0.0.11` and seeding the legacy users) still work with the `jane.doe / maxadmin` documented test path.
+- LDAP `userIdMap` regression fix in the MAS Admin API path (was `*:uid`, now bare `uid` via the shared `defaultMASAuthLDAPUserIDMap` constant). Without this every LDAP login surfaced as `CWIML4537E` / "invalid username/password" because MAS Liberty's `customUserRegistry` threw a JNDI `InvalidSearchFilterException` at filter-build time.
 - IDPCfg `idpId` defaulted to `default` (was `mas-est-{type}`) so the MAS Admin UI's "Configured?" indicator shows green for LDAP / OIDC / SAML. MAS treats `default` as a reserved word and appends `-{type}` for OIDC redirect_uri and selfreg lookups — the installer now handles both sides (Keycloak client gets the extra redirect URI; selfreg ConfigMap keys are written under `default-{type}`).
 - The installer now auto-bumps `{instance}-entitymgr-idpcfg` memory to 2Gi via the Suite CR `podTemplates` (durable; the deployment-level patch gets reverted by the Suite + MAS operators). Default 512Mi reliably OOMKills the finalizer playbook when several IDPCfgs reconcile together. Override via `--idpcfg-memory-limit=<size>` or `MAS_EST_IDPCFG_MEMORY_LIMIT`; pass `off` to skip.
 
