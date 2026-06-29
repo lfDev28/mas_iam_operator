@@ -132,13 +132,28 @@ ensure_namespace_exists "${NAMESPACE}"
 log_install "applying operator resources"
 render_namespace_manifest "${ROOT_DIR}/manifests/install-olm.yaml" "${operator_manifest}" "${NAMESPACE}"
 prime_last_applied_annotations "${operator_manifest}"
-oc apply -f "${operator_manifest}"
 
-# OLM resolver race guard: when the CatalogSource image tag changes on an
-# existing cluster (or is first applied on a fresh one), OLM may create an
-# InstallPlan against a partially-loaded catalog and pick the wrong CSV
-# version. Wait for the catalog pod to report READY before letting the
-# Subscription progress to InstallPlan resolution.
+# OLM resolver race guard. The CatalogSource and Subscription must NOT be
+# applied in the same kubectl call, because OLM creates an InstallPlan from
+# the cluster's packageserver cache, which may be stale until ~30-60s after
+# a new CatalogSource image is pulled. If we apply both together the
+# Subscription can resolve to a prior CSV version that's still in the cache.
+# We saw this on the mas91 cluster: catalog-0.0.14 (containing only v0.0.14)
+# was pushed, applied, and OLM still installed v0.0.13.
+#
+# Workflow: apply EVERYTHING EXCEPT the Subscription first, then wait for
+# (a) CatalogSource.status.connectionState.lastObservedState=READY,
+# (b) packagemanifests/mas-iam-operator to exist and report a currentCSV
+#     (proves packageserver has actually queried the new catalog), then
+# finally apply the Subscription as a separate step.
+log_install "applying operator CRDs, RBAC, CatalogSource (deferring Subscription)"
+pre_sub_manifest="${TMPDIR:-/tmp}/mas-est-pre-sub.yaml"
+sub_manifest="${TMPDIR:-/tmp}/mas-est-sub.yaml"
+# awk filter: keep all yaml docs whose `kind:` is NOT Subscription.
+awk 'BEGIN{RS="\n---\n"; ORS="\n---\n"} !/^kind: Subscription/ {print}' "${operator_manifest}" > "${pre_sub_manifest}"
+awk 'BEGIN{RS="\n---\n"; ORS="\n---\n"}  /^kind: Subscription/ {print}' "${operator_manifest}" > "${sub_manifest}"
+oc apply -f "${pre_sub_manifest}"
+
 log_wait "waiting for CatalogSource mas-iam-operator to report READY"
 for i in $(seq 1 60); do
   state="$(oc -n openshift-marketplace get catalogsource mas-iam-operator -o jsonpath='{.status.connectionState.lastObservedState}' 2>/dev/null || true)"
@@ -151,6 +166,33 @@ done
 if [[ "${state}" != "READY" ]]; then
   log_warn "CatalogSource mas-iam-operator did not report READY within 5m; proceeding anyway"
 fi
+
+# Now poll packagemanifests until packageserver has indexed the new catalog.
+# packagemanifests/mas-iam-operator is the cluster-wide view of what
+# packageserver knows about the package — it's what OLM's resolver actually
+# reads when creating an InstallPlan. Once .status.channels[].currentCSV is
+# populated, packageserver has talked to the new catalog pod and is ready
+# to give a correct resolution.
+log_wait "waiting for packageserver to index mas-iam-operator package"
+for i in $(seq 1 60); do
+  current_csv="$(oc get packagemanifests mas-iam-operator -n openshift-marketplace -o jsonpath='{.status.channels[?(@.name=="alpha")].currentCSV}' 2>/dev/null || true)"
+  if [[ -n "${current_csv}" ]]; then
+    log_wait "packagemanifests/mas-iam-operator currentCSV=${current_csv}"
+    break
+  fi
+  sleep 5
+done
+if [[ -z "${current_csv}" ]]; then
+  log_warn "packagemanifests/mas-iam-operator did not populate currentCSV within 5m; Subscription may resolve to a stale version"
+fi
+
+# Extra settle time after currentCSV first appears — packageserver's cache
+# can briefly show OLDER catalog content while it transitions. 30s is
+# usually enough for the cache to converge.
+sleep 30
+
+log_install "applying operator Subscription"
+oc apply -f "${sub_manifest}"
 
 log_wait "waiting for the MAS EST IAM operator CSV to reach Succeeded"
 wait_for_operator_csv_succeeded "${NAMESPACE}" 900

@@ -106,7 +106,12 @@ func newObjectStorageInstallRookCephCommand() *cobra.Command {
 		bucketGenerateName:  defaultObjectBucketClaim,
 		certIssuerKind:      "ClusterIssuer",
 		replicationSize:     3,
-		timeout:             10 * time.Minute,
+		// MAS Suite operator reconciles ObjectStorageCfg on a busy queue.
+		// Even when the credentials secret + cfg are both applied correctly,
+		// a Ready transition can take >10m on heavily-loaded clusters
+		// (saw 12m on Lee's mas91 cluster 2026-06-29). 20m covers that
+		// without being silly.
+		timeout:             20 * time.Minute,
 		preservePoolsOnDrop: true,
 	}
 
@@ -153,7 +158,8 @@ func newObjectStorageInstallMinIOCommand() *cobra.Command {
 		pvcSize:          defaultMinIOPVCSize,
 		image:            defaultMinIOImage,
 		mcImage:          defaultMinIOMCImage,
-		timeout:          10 * time.Minute,
+		// See comment in newObjectStorageInstallRookCephCommand on why 20m.
+		timeout:          20 * time.Minute,
 	}
 
 	command := &cobra.Command{

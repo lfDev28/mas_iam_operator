@@ -1,6 +1,6 @@
 ---
 title: "MAS External Services Toolkit"
-subtitle: "User Guide — `mas-est` v0.1.0-beta.19"
+subtitle: "User Guide — `mas-est` v0.1.0-beta.20"
 author: "MAS Support Engineering"
 date: "\\today"
 titlepage: true
@@ -42,10 +42,10 @@ Everything runs inside the `mas-est` namespace on the same OpenShift cluster as 
 | **Keycloak**         | bitnami chart, realm `maximo`                                                | OIDC + SAML IdP for MAS, with federation to OpenLDAP and demo user seeding                      | Yes                               |
 | **OpenLDAP**         | bitnami chart, base DN `dc=demo,dc=local`                                    | LDAP IdP for MAS, seeded with `ldap.user1` and `ldap.user2`                                     | Yes                               |
 | **PostgreSQL**       | bitnami chart                                                                | Keycloak persistence                                                                            | Yes                               |
-| **SCIM bridge**      | `quay.io/lee_forster/mas-scim-bridge:v0.1.0-beta.19`                         | Polls Keycloak every 5 min, provisions users with prefix `scim.` into MAS                       | Yes                               |
+| **SCIM bridge**      | `quay.io/lee_forster/mas-scim-bridge:v0.1.0-beta.20`                         | Polls Keycloak every 5 min, provisions users with prefix `scim.` into MAS                       | Yes                               |
 | **MinIO**            | `quay.io/minio/minio:latest`                                                 | S3-compatible object storage; pre-creates `mas-s3-demo` + `*backup`/`*recovery` siblings        | Yes                               |
 | **Mailpit**          | `ghcr.io/axllent/mailpit:v1.30.1`                                            | Capture-only SMTP server with web UI                                                            | **Capture-only**, see Limitations |
-| **mas-est CLI**      | `quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.19`              | Local installer, preflight, status, support-bundle, uninstall                                   | Yes                               |
+| **mas-est CLI**      | `quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.20`              | Local installer, preflight, status, support-bundle, uninstall                                   | Yes                               |
 
 # Install
 
@@ -60,11 +60,11 @@ MAS inputs: SCIM base URL (`https://api.<mas-host>/scim/v2`), an API token name 
 ## Bootstrap the local command
 
 ```bash
-export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.19'
+export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.20'
 mkdir -p "$HOME/mas-est"
 podman run -ti --rm -v "$HOME/mas-est:/tmp" --pull always "$MAS_EST_IMAGE"
 export PATH="$HOME/mas-est:$PATH"
-mas-est version    # should report 0.1.0-beta.19
+mas-est version    # should report 0.1.0-beta.20
 ```
 
 If you've used an earlier beta, run with `bootstrap --force` to overwrite the local runtime.
@@ -140,7 +140,7 @@ oc -n mas-<instance>-core rollout restart deploy/mas<instance>-coreidp deploy/ma
 
 **Cause:** the selfreg ConfigMap doesn't have a `default-oidc` key. MAS treats the idpId `default` as a reserved word and appends `-{type}` when looking up the selfreg config — and the Keycloak OIDC client must accept both the verbatim and the `-oidc`-suffixed redirect URIs.
 
-**Fix:** both behaviors are handled automatically from beta.15 onwards. If you see this on a fresh beta.19 install, verify the selfreg ConfigMap has all three keys (`default-ldap`, `default-oidc`, `default-saml`) and the Keycloak `default` OIDC client has both `/oidcclient/redirect/default` and `/oidcclient/redirect/default-oidc` registered.
+**Fix:** both behaviors are handled automatically from beta.15 onwards. If you see this on a fresh beta.20 install, verify the selfreg ConfigMap has all three keys (`default-ldap`, `default-oidc`, `default-saml`) and the Keycloak `default` OIDC client has both `/oidcclient/redirect/default` and `/oidcclient/redirect/default-oidc` registered.
 
 ## `entitymgr-idpcfg` OOMKills during IDPCfg apply or uninstall
 
