@@ -115,7 +115,7 @@ See `OBJECT-STORAGE-POC.md` and `INSTALL-ALL-IN-ONE.md` for the documented Mailp
 
 ## What Is Supported
 
-**v0.1.0-beta.20 notes:**
+**v0.1.0-beta.21 notes:**
 - Stronger OLM resolver race guard. The install script now applies the CatalogSource (and other operator resources) WITHOUT the Subscription first, then waits for both `CatalogSource.status.connectionState.lastObservedState == READY` AND `packagemanifests/mas-iam-operator.status.channels[*].currentCSV` to be populated, with a 30s settle window after the package first appears. Only then is the Subscription applied. Beta.19's `lastObservedState=READY` guard was insufficient: READY indicates the catalog's gRPC port is open, but OLM's packageserver cache (which is what the Subscription's resolver actually reads) can lag by 30-60s — we saw this when catalog-0.0.14 was pushed but OLM still installed v0.0.13 from cached resolver state.
 - ObjectStorageCfg wait bumped from 10m → 20m. The MAS Suite operator can take >10m to reconcile ObjectStorageCfg on heavily-loaded clusters even when the credentials secret + cfg are applied correctly — we saw 12m on the mas91 cluster. 10m was producing false failures.
 - Hardening for fresh-cluster installs: the install script now waits for `CatalogSource.status.connectionState.lastObservedState == READY` before allowing the Subscription to resolve. Prevents the OLM resolver race where a Subscription applied seconds after a fresh CatalogSource could create an InstallPlan against partially-loaded catalog state and install the wrong CSV version.

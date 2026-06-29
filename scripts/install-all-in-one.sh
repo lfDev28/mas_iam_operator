@@ -149,10 +149,43 @@ prime_last_applied_annotations "${operator_manifest}"
 log_install "applying operator CRDs, RBAC, CatalogSource (deferring Subscription)"
 pre_sub_manifest="${TMPDIR:-/tmp}/mas-est-pre-sub.yaml"
 sub_manifest="${TMPDIR:-/tmp}/mas-est-sub.yaml"
-# awk filter: keep all yaml docs whose `kind:` is NOT Subscription.
-awk 'BEGIN{RS="\n---\n"; ORS="\n---\n"} !/^kind: Subscription/ {print}' "${operator_manifest}" > "${pre_sub_manifest}"
-awk 'BEGIN{RS="\n---\n"; ORS="\n---\n"}  /^kind: Subscription/ {print}' "${operator_manifest}" > "${sub_manifest}"
-oc apply -f "${pre_sub_manifest}"
+# Split the multi-doc yaml into "everything except Subscription" + "only the
+# Subscription" so we can apply them separately. python3 is available on
+# both macOS (system default) and Linux installer images; awk's print-redirect
+# syntax is fragile across BSD/GNU implementations.
+python3 - "${operator_manifest}" "${pre_sub_manifest}" "${sub_manifest}" <<'PY'
+import sys
+src, pre_path, sub_path = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(src) as f:
+    text = f.read()
+# Split on `---` on its own line; first chunk may be empty if file starts with ---.
+docs = []
+buf = []
+for line in text.splitlines():
+    if line.strip() == '---':
+        docs.append('\n'.join(buf))
+        buf = []
+    else:
+        buf.append(line)
+if buf:
+    docs.append('\n'.join(buf))
+pre_docs = [d for d in docs if d.strip() and 'kind: Subscription' not in d]
+sub_docs = [d for d in docs if d.strip() and 'kind: Subscription' in d]
+with open(pre_path, 'w') as f:
+    f.write('\n---\n'.join(pre_docs) + '\n')
+with open(sub_path, 'w') as f:
+    if sub_docs:
+        f.write('\n---\n'.join(sub_docs) + '\n')
+PY
+# Sanity check: if the split produced an empty Subscription file, the source
+# yaml has no Subscription block and the apply will fail. Fall back to a
+# single apply with a loud warning.
+if [[ ! -s "${sub_manifest}" ]]; then
+  log_warn "Subscription block not found in ${operator_manifest}; applying merged manifest (OLM race guard disabled)"
+  oc apply -f "${operator_manifest}"
+else
+  oc apply -f "${pre_sub_manifest}"
+fi
 
 log_wait "waiting for CatalogSource mas-iam-operator to report READY"
 for i in $(seq 1 60); do
@@ -191,8 +224,10 @@ fi
 # usually enough for the cache to converge.
 sleep 30
 
-log_install "applying operator Subscription"
-oc apply -f "${sub_manifest}"
+if [[ -s "${sub_manifest}" ]]; then
+  log_install "applying operator Subscription"
+  oc apply -f "${sub_manifest}"
+fi
 
 log_wait "waiting for the MAS EST IAM operator CSV to reach Succeeded"
 wait_for_operator_csv_succeeded "${NAMESPACE}" 900
