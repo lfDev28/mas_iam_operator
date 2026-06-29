@@ -85,7 +85,7 @@ metadata:
   namespace: openshift-marketplace
 spec:
   displayName: MAS EST IAM Operator
-  image: quay.io/lee_forster/mas-iam-operator:catalog-0.0.12
+  image: quay.io/lee_forster/mas-iam-operator:catalog-0.0.13
   sourceType: grpc
 ---
 apiVersion: operators.coreos.com/v1
