@@ -1,0 +1,33 @@
+{{- /*
+  Grant the anyuid SCC to the PostgreSQL subchart's ServiceAccount on OCP.
+
+  The bitnami PostgreSQL subchart sets containerSecurityContext.runAsUser=1001
+  and runAsNonRoot=true. OpenShift's restricted-v2 SCC enforces UIDs in the
+  project's allocated range (typically 1000850000-1000859999), so uid 1001 is
+  REJECTED. In practice the StatefulSet has been scheduling successfully on
+  most clusters because OCP rewrites the uid to a project-range one and the
+  bitnami image tolerates it — but on clusters with tighter SCC policy this
+  fails as `ReplicaFailure: FailedCreate`. Matches the same defensive pattern
+  used by keycloak-anyuid-rolebinding.yaml and openldap-anyuid-rolebinding.yaml.
+*/ -}}
+{{- if and (has "security.openshift.io/v1/SecurityContextConstraints" .Capabilities.APIVersions) (ne (toString (default true .Values.postgresql.enabled)) "false") -}}
+{{- /* Bitnami's chart names the SA `{release-name}-postgresql` by default. */ -}}
+{{- $saName := printf "%s-postgresql" .Release.Name -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "mas-iam-stack.fullname" . }}-postgresql-anyuid
+  labels:
+    {{- include "mas-iam-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+  annotations:
+    security.openshift.io/scc: anyuid
+subjects:
+  - kind: ServiceAccount
+    name: {{ $saName }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:openshift:scc:anyuid
+{{- end }}

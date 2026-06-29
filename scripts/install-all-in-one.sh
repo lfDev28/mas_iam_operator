@@ -134,6 +134,24 @@ render_namespace_manifest "${ROOT_DIR}/manifests/install-olm.yaml" "${operator_m
 prime_last_applied_annotations "${operator_manifest}"
 oc apply -f "${operator_manifest}"
 
+# OLM resolver race guard: when the CatalogSource image tag changes on an
+# existing cluster (or is first applied on a fresh one), OLM may create an
+# InstallPlan against a partially-loaded catalog and pick the wrong CSV
+# version. Wait for the catalog pod to report READY before letting the
+# Subscription progress to InstallPlan resolution.
+log_wait "waiting for CatalogSource mas-iam-operator to report READY"
+for i in $(seq 1 60); do
+  state="$(oc -n openshift-marketplace get catalogsource mas-iam-operator -o jsonpath='{.status.connectionState.lastObservedState}' 2>/dev/null || true)"
+  if [[ "${state}" == "READY" ]]; then
+    log_wait "catalog_source=mas-iam-operator state=READY"
+    break
+  fi
+  sleep 5
+done
+if [[ "${state}" != "READY" ]]; then
+  log_warn "CatalogSource mas-iam-operator did not report READY within 5m; proceeding anyway"
+fi
+
 log_wait "waiting for the MAS EST IAM operator CSV to reach Succeeded"
 wait_for_operator_csv_succeeded "${NAMESPACE}" 900
 
