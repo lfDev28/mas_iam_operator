@@ -150,6 +150,7 @@ cat > /tmp/wipe.sh <<'SH'
 #!/bin/bash
 db2 connect to BLUDB > /dev/null
 db2 "delete from MAXIMO.MAXUSER where USERID in ('SYSADMIN','JANE.DOE','JOE.BLOGGS','ALEX.MANAGER','LDAP.USER1','LDAP.USER2','OIDC.USER1','OIDC.USER2','SAML.USER1','SAML.USER2','SCIM.USER1','SCIM.USER2')"
+db2 "delete from MAXIMO.GROUPUSER where USERID in ('SYSADMIN','JANE.DOE','JOE.BLOGGS','ALEX.MANAGER','LDAP.USER1','LDAP.USER2','OIDC.USER1','OIDC.USER2','SAML.USER1','SAML.USER2','SCIM.USER1','SCIM.USER2')"
 db2 "delete from MAXIMO.PERSONANCESTOR where PERSONID in ('SYSADMIN','JANE.DOE','JOE.BLOGGS','ALEX.MANAGER','LDAP.USER1','LDAP.USER2','OIDC.USER1','OIDC.USER2','SAML.USER1','SAML.USER2','SCIM.USER1','SCIM.USER2')"
 db2 "delete from MAXIMO.PERSON where PERSONID in ('SYSADMIN','JANE.DOE','JOE.BLOGGS','ALEX.MANAGER','LDAP.USER1','LDAP.USER2','OIDC.USER1','OIDC.USER2','SAML.USER1','SAML.USER2','SCIM.USER1','SCIM.USER2')"
 db2 commit
@@ -158,7 +159,9 @@ oc -n db2u cp /tmp/wipe.sh c-mas-{instance}-workspace-manage-db2u-0:/tmp/wipe.sh
 oc -n db2u exec c-mas-{instance}-workspace-manage-db2u-0 -- bash -lc 'su - db2inst1 -c "bash /tmp/wipe.sh"'
 ```
 
-Delete in order MAXUSER → PERSONANCESTOR → PERSON. The reverse order works too because each table is independent for our test-user IDs, but if you ever extend this to real customer users you may hit FK ordering.
+Tables to clean: `MAXUSER`, `GROUPUSER`, `PERSONANCESTOR`, `PERSON`. `GROUPUSER` is the one that bit Lee on 2026-06-30 — leaving stale `GROUPUSER` rows from a prior install causes the next user-sync to surface as `BMXAA10249E - Your security privileges do not allow access to add new users to DEFLTREG security group`. The error message is misleading: the *symptom* is a privilege error, but the *cause* is the GROUPUSER unique-key conflict on (USERID, GROUPNAME). The first user to sync through happens to win the race; everyone else fails.
+
+Delete in order MAXUSER → GROUPUSER → PERSONANCESTOR → PERSON. The reverse order works too because each table is independent for our test-user IDs, but if you ever extend this to real customer users you may hit FK ordering.
 
 ### 9. Restart MAS core auth deployments
 
@@ -200,6 +203,7 @@ oc -n openshift-marketplace get catalogsource mas-iam-operator 2>&1 | head -1   
 | `not primary` error from mongosh | Connected to a secondary that can't write | Connection string with `replicaSet=mas-mongo-ce` routes writes to primary automatically — verify the URI |
 | `MasIamStack finalizer hangs namespace deletion` | The operator inside the namespace being deleted gets killed before its finalizer completes | `oc patch masiamstack mas-est-iam -n mas-est --type=merge -p '{"metadata":{"finalizers":[]}}'` |
 | Login UI still shows OIDC/SAML/LDAP after wipe | `coreidp`/`coreapi` haven't been restarted | Run step 9 |
+| Post-install user-sync fails with `BMXAA10249E - Your security privileges do not allow access to add new users to DEFLTREG security group` | Stale `MAXIMO.GROUPUSER` rows from a previous install — Maximo's MEA hits a unique-key conflict on (USERID, GROUPNAME) and surfaces it as a privilege error. Misleading message. | Run step 8 (it now deletes from GROUPUSER too). If you've already installed and see this on individual users, delete just their orphan rows: `delete from MAXIMO.GROUPUSER where USERID in ('OIDC.USER1','SAML.USER1') and USERID not in (select USERID from MAXIMO.MAXUSER)` then flip those users' Mongo `sync.status` back to `PENDING`. |
 
 ## What this skill does NOT do
 
