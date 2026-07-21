@@ -169,6 +169,32 @@ func TestMinIODeploymentCanEnableVirtualHostDomain(t *testing.T) {
 	}
 }
 
+func TestMinIODeploymentUsesRecreateStrategy(t *testing.T) {
+	// Regression: the data PVC is RWO, and enableVirtualHostStyle re-applies
+	// the deployment with MINIO_DOMAIN added mid-install. With the default
+	// RollingUpdate strategy the replacement pod deadlocks on a Multi-Attach
+	// error whenever it schedules onto a different node than the old pod —
+	// a scheduling lottery that hung the install on the itz-4mwtok cluster.
+	opts := &minioInstallOptions{
+		namespace:      "mas-est",
+		name:           "mas-minio",
+		image:          "quay.io/minio/minio:latest",
+		rootSecretName: "mas-minio-root",
+	}
+
+	for _, virtualHost := range []bool{false, true} {
+		manifest := minioDeploymentManifest(opts, virtualHost)
+		spec := manifest["spec"].(map[string]any)
+		strategy, ok := spec["strategy"].(map[string]any)
+		if !ok {
+			t.Fatalf("virtualHost=%v: deployment has no strategy (defaults to RollingUpdate, which deadlocks on the RWO data PVC)", virtualHost)
+		}
+		if strategy["type"] != "Recreate" {
+			t.Fatalf("virtualHost=%v: strategy = %v, want Recreate", virtualHost, strategy["type"])
+		}
+	}
+}
+
 func TestMinIOBucketInitJobCreatesManageLayout(t *testing.T) {
 	opts := &minioInstallOptions{
 		namespace:      "mas-est",

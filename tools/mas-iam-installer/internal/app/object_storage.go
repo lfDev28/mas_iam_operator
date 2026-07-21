@@ -280,6 +280,9 @@ func (o *minioInstallOptions) run(ctx context.Context) error {
 	if err := o.ensureRootSecret(ctx, client); err != nil {
 		return err
 	}
+	if err := o.migrateDeploymentStrategy(ctx, client); err != nil {
+		return err
+	}
 	for _, manifest := range o.installManifests() {
 		if err := applyObjectStorageManifest(ctx, client, manifest); err != nil {
 			return err
@@ -484,6 +487,25 @@ func (o *minioInstallOptions) installManifests() []map[string]any {
 		minioRouteManifest(o, o.name+"-api", o.apiRouteHost, "api"),
 		minioRouteManifest(o, o.name+"-console", o.consoleRouteHost, "console"),
 	}
+}
+
+// migrateDeploymentStrategy moves a pre-existing MinIO deployment from the
+// (implicit) RollingUpdate strategy to Recreate before the server-side apply.
+// SSA can't clear the server-defaulted spec.strategy.rollingUpdate block that
+// installs prior to the Recreate change left behind, and the API server
+// rejects `type: Recreate` while rollingUpdate is present ("Forbidden: may
+// not be specified when strategy `type` is 'Recreate'"). A merge patch honors
+// explicit nulls, so it can remove the block. No-op when the deployment
+// doesn't exist yet (fresh install) or already uses Recreate.
+func (o *minioInstallOptions) migrateDeploymentStrategy(ctx context.Context, client *oc.Client) error {
+	if _, err := client.Deployment(ctx, o.namespace, o.name); err != nil {
+		return nil // fresh install: nothing to migrate
+	}
+	patch := []byte(`{"spec":{"strategy":{"type":"Recreate","rollingUpdate":null}}}`)
+	if _, err := client.Patch(ctx, o.namespace, "deployment/"+o.name, patch); err != nil {
+		return fmt.Errorf("migrate deployment/%s strategy to Recreate: %w", o.name, err)
+	}
+	return nil
 }
 
 func (o *minioInstallOptions) ensureRootSecret(ctx context.Context, client *oc.Client) error {
@@ -1064,6 +1086,16 @@ func minioDeploymentManifest(o *minioInstallOptions, enableVirtualHostStyle bool
 		},
 		"spec": map[string]any{
 			"replicas": 1,
+			// Recreate, not RollingUpdate: the data PVC is RWO, so a rolling
+			// update deadlocks with a Multi-Attach error whenever the
+			// replacement pod schedules onto a different node than the old
+			// one (RWO = single node). This bites in practice because
+			// enableVirtualHostStyle re-applies this deployment with
+			// MINIO_DOMAIN added, triggering a rollout mid-install. Same
+			// pattern as the scim-bridge deployment manifests.
+			"strategy": map[string]any{
+				"type": "Recreate",
+			},
 			"selector": map[string]any{
 				"matchLabels": map[string]string{
 					"app.kubernetes.io/instance": o.name,
