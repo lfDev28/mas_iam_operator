@@ -115,6 +115,9 @@ See `OBJECT-STORAGE-POC.md` and `INSTALL-ALL-IN-ONE.md` for the documented Mailp
 
 ## What Is Supported
 
+**v0.1.0-beta.24 notes:**
+- The SCIM-user OIDC linker now flips `applications.manage.sync.state` (and `sync.status`) to `PENDING` when it rewrites a user's identities map. The SCIM bridge provisions users minutes before `mas-auth apply` runs the linker, so the user-sync agent's first Manage pass always lands with the pre-link identities and records a stale `local` MASUSERIDP row; the PENDING flip forces a re-sync with the corrected `default-oidc` identity on the agent's next poll. Without it, OIDC login into Manage cannot map SCIM-provisioned users. Verified end-to-end on a fresh itz-4mwtok install.
+
 **v0.1.0-beta.23 notes:**
 - MinIO deployment now uses `strategy: Recreate` instead of the default RollingUpdate. The data PVC is RWO (single-node attach), and the install flow re-applies the deployment with `MINIO_DOMAIN` added after bucket-init — under RollingUpdate the replacement pod deadlocks on a `Multi-Attach error` whenever the scheduler places it on a different node than the old pod. This was a scheduling lottery present since beta.9: installs where both pods landed on the same node worked; multi-worker clusters could hang the install at the MinIO wait. First observed on the itz-4mwtok TechZone cluster.
 - The installer migrates pre-existing MinIO deployments to Recreate via a merge patch before the server-side apply (SSA alone cannot clear the server-defaulted `rollingUpdate` block, and the API server rejects `type: Recreate` while it is present).

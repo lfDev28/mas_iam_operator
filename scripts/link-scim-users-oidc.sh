@@ -22,6 +22,14 @@ serves two purposes simultaneously:
      We replace the map rather than add alongside so the final state matches
      what a direct-OIDC-login user receives.
 
+The update also flips applications.manage.sync.state (and sync.status) to
+PENDING. The SCIM bridge creates users minutes before mas-auth apply runs
+this linker, so the user-sync agent's first Manage pass always happens with
+the pre-link identities and records a stale "local" MASUSERIDP row. The
+PENDING flip forces the agent to re-sync with the corrected identity map on
+its next poll — without it, Manage keeps the stale row and OIDC login into
+Manage cannot map the user.
+
 Flags:
   --instance         MAS instance id (e.g. mas91)
   --oidc-idp         OIDC IDP id MAS uses for identity-key lookups.
@@ -99,7 +107,11 @@ users.forEach(u => {
   };
   db.User.updateOne(
     { _id: u._id },
-    { \$set: { identities: { [idp]: identity } } }
+    { \$set: {
+        identities: { [idp]: identity },
+        'applications.manage.sync.state': 'PENDING',
+        'sync.status': 'PENDING'
+    } }
   );
   print('[link-users]   linked: ' + u._id);
 });
