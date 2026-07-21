@@ -7,19 +7,26 @@ usage() {
 Usage: link-scim-users-oidc.sh --instance <id> --oidc-idp <id> [--mongo-namespace <ns>] [--mongo-instance <name>]
 
 For each user in mas_{instance}_core.User that has a scimLinkConfig but no
-identities.{oidc-idp}, inject a minimal OIDC identity record so the user can
-log in via the configured OIDC provider without needing self-registration
-(which would 409-conflict with the existing SCIM-created user record).
+identities.{oidc-idp}, replace the auto-generated identities map with a single
+IDP-shaped entry: { {oidc-idp}: { type: oidc, id: <userId>, ... } }. This
+serves two purposes simultaneously:
 
-This is the post-step counterpart to the {instance}-selfreg ConfigMap: that
-configmap enables MAS self-registration for users who do NOT yet exist in MAS
-(self-reg creates them on first OIDC login). This script handles the other
-case: users the SCIM bridge has already created, who otherwise would have only
-a "_local" identity and no OIDC linkage.
+  1) OIDC login linkage: the user can log in via the configured OIDC provider
+     without needing self-registration (which would 409-conflict with the
+     existing SCIM-created user record).
+  2) Manage workspace sync: MAS Manage's MEA validates each identity-key
+     against a registered IDPCfg in MASUSERIDP. The MAS SCIM endpoint
+     auto-populates "_local" and "default" keys, which fail validation
+     (system#idpnotfound) on MAS instances where the OIDC IDPCfg is
+     registered under "default-oidc" (the post-beta.15 reserved-word shape).
+     We replace the map rather than add alongside so the final state matches
+     what a direct-OIDC-login user receives.
 
 Flags:
   --instance         MAS instance id (e.g. mas91)
-  --oidc-idp         OIDC IDP id used in mas-auth apply (e.g. mas-est-oidc)
+  --oidc-idp         OIDC IDP id MAS uses for identity-key lookups.
+                     For idpId="default", MAS internally registers as
+                     "default-oidc" — pass "default-oidc" here.
   --mongo-namespace  Namespace running the MAS Mongo replica set (default: mongoce)
   --mongo-instance   Mongo CR instance name (default: mas-mongo-ce)
 EOF
@@ -83,14 +90,16 @@ const users = db.User.find({
 print('[link-users] scim users needing oidc link: ' + users.length);
 const ts = new Date().toISOString();
 users.forEach(u => {
+  const identity = {
+    type: 'oidc',
+    id: u._id,
+    uniqueId: 'OIDCRESOVER_' + idp + '_realm/' + u._id,
+    subject: u._id,
+    lastLogin: ts
+  };
   db.User.updateOne(
     { _id: u._id },
-    { \$set: { ['identities.' + idp]: {
-        type: 'oidc',
-        uniqueId: 'OIDCRESOVER_' + idp + '_realm/' + u._id,
-        subject: u._id,
-        lastLogin: ts
-    } } }
+    { \$set: { identities: { [idp]: identity } } }
   );
   print('[link-users]   linked: ' + u._id);
 });

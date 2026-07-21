@@ -51,6 +51,36 @@ func TestProviderKeyWithSuffixAppliesOnlyToDefaultIDpID(t *testing.T) {
 	}
 }
 
+func TestLinkSCIMUsersArgsTranslatesDefaultIDpIDToSuffixedKey(t *testing.T) {
+	// Regression: beta.15 renamed defaultMASAuthOIDCID from "mas-est-oidc" to
+	// "default" for UI visibility, but the SCIM-user identity linker was still
+	// receiving the raw "default" idpId. MAS Manage's MEA expects
+	// "default-oidc" (the post-reserved-word shape), so SCIM users got
+	// system#idpnotfound on workspace sync. The args MUST carry the suffixed
+	// key to match how the rest of MAS keys per-provider state.
+	// See memory: scim-bridge-manage-sync-idpnotfound.
+	opts := &masAuthApplyOptions{
+		masInstanceID:  "lfmas",
+		oidcProviderID: defaultMASAuthOIDCID, // "default"
+	}
+	args := opts.linkSCIMUsersArgs()
+	want := []string{"--instance", "lfmas", "--oidc-idp", "default-oidc"}
+	if strings.Join(args, " ") != strings.Join(want, " ") {
+		t.Fatalf("linkSCIMUsersArgs() = %v, want %v", args, want)
+	}
+
+	// Custom idpIds are still passed verbatim.
+	opts = &masAuthApplyOptions{
+		masInstanceID:  "lfmas",
+		oidcProviderID: "my-corp-oidc",
+	}
+	args = opts.linkSCIMUsersArgs()
+	want = []string{"--instance", "lfmas", "--oidc-idp", "my-corp-oidc"}
+	if strings.Join(args, " ") != strings.Join(want, " ") {
+		t.Fatalf("linkSCIMUsersArgs(my-corp-oidc) = %v, want %v", args, want)
+	}
+}
+
 func TestOIDCRedirectURIsJSONIncludesBothPathsForDefaultIDpID(t *testing.T) {
 	// When idpId is "default", Keycloak's redirectUris MUST include both
 	// the verbatim path AND the -oidc-suffixed path, because MAS Liberty

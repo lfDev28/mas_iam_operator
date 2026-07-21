@@ -322,6 +322,13 @@ workspaces:
 // MAS Mongo replica set — there is no SCIM/Admin API that exposes the
 // identities field. The script is idempotent (only touches users missing the
 // configured identity).
+//
+// The --oidc-idp arg must match the identity-key MAS Manage's MEA expects.
+// For the reserved-word "default" idpId, MAS internally registers the OIDC
+// IDP as "default-oidc" (same suffix applied to selfreg and redirect_uri),
+// so the SCIM-user identities map must key off "default-oidc" too — otherwise
+// Manage workspace sync fails with system#idpnotfound at MASUserIDP.appValidate.
+// See memory: scim-bridge-manage-sync-idpnotfound.
 func (o *masAuthApplyOptions) linkSCIMUsersToOIDC(ctx context.Context) error {
 	scriptPath, err := repoScriptPath("link-scim-users-oidc.sh")
 	if err != nil {
@@ -330,15 +337,22 @@ func (o *masAuthApplyOptions) linkSCIMUsersToOIDC(ctx context.Context) error {
 	runner := executil.NewRunner()
 	out, err := runner.Output(ctx, executil.Options{
 		Name: scriptPath,
-		Args: []string{
-			"--instance", o.masInstanceID,
-			"--oidc-idp", o.oidcProviderID,
-		},
+		Args: o.linkSCIMUsersArgs(),
 	})
 	if out != "" {
 		fmt.Fprint(os.Stdout, out)
 	}
 	return err
+}
+
+// linkSCIMUsersArgs builds the argv for link-scim-users-oidc.sh. Extracted
+// so the IDPCfg-rename / reserved-word translation can be unit-tested without
+// shelling out.
+func (o *masAuthApplyOptions) linkSCIMUsersArgs() []string {
+	return []string{
+		"--instance", o.masInstanceID,
+		"--oidc-idp", providerKeyWithSuffix(o.oidcProviderID, "oidc"),
+	}
 }
 
 // repoScriptPath locates a script under <repo>/scripts. Order of resolution
