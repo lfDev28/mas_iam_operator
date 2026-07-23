@@ -10,15 +10,15 @@ and (re)creates the <release>-keycloak-openldap-tls secret in the target
 namespace. Intended for local/dev clusters only.
 
 Options:
-  -n namespace            Kubernetes namespace (default: iam)
-  -r release              Helm release name (default: mas-iam)
+  -n namespace            Kubernetes namespace (default: mas-est)
+  -r release              Helm release name (default: mas-est-iam)
   -p truststore-password  Password for the PKCS#12 truststore (default: changeit; pass "random" for a generated value)
   -h                      Show this help
 EOF
 }
 
-namespace="iam"
-release="mas-iam"
+namespace="mas-est"
+release="mas-est-iam"
 truststore_password="changeit"
 
 while getopts ":n:r:p:h" opt; do

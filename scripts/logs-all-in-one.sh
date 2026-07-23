@@ -22,7 +22,7 @@ Components:
 EOF
 }
 
-NAMESPACE="${TARGET_NAMESPACE:-iam}"
+NAMESPACE="${TARGET_NAMESPACE:-mas-est}"
 LINES="${LINES:-200}"
 COMPONENT="all"
 
@@ -110,7 +110,7 @@ if [[ "${COMPONENT}" == "all" || "${COMPONENT}" == "operator" ]]; then
   stream_logs "operator" deployment "mas-iam-operator-controller-manager" "manager"
 fi
 if [[ "${COMPONENT}" == "all" || "${COMPONENT}" == "keycloak" ]]; then
-  stream_logs "keycloak" deployment "mas-iam-sample"
+  stream_logs "keycloak" deployment "mas-est-iam"
 fi
 if [[ "${COMPONENT}" == "all" || "${COMPONENT}" == "scim-bridge" ]]; then
   stream_logs "scim-bridge" deployment "scim-bridge"
@@ -125,5 +125,5 @@ if [[ "${COMPONENT}" == "all" || "${COMPONENT}" == "route-cert" ]]; then
   stream_logs "route-cert" job "scim-bridge-keycloak-route-cert" "" "not created when route cert automation is disabled"
 fi
 if [[ "${COMPONENT}" == "all" || "${COMPONENT}" == "ldap-config" ]]; then
-  stream_logs "ldap-config" job "mas-iam-sample-ldap-config"
+  stream_logs "ldap-config" job "mas-est-iam-ldap-config"
 fi

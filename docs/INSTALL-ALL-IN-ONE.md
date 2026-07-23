@@ -1,4 +1,4 @@
-# MAS IAM Install And Operations Guide
+# MAS External Services Toolkit Install And Operations Guide
 
 This is the detailed guide for the internal beta install path.
 
@@ -6,11 +6,11 @@ For the short path, use [BETA-QUICKSTART.md](BETA-QUICKSTART.md).
 
 ## What The Installer Does
 
-`mas-iam` installs a working MAS IAM plus SCIM bridge lab on OpenShift. The beta path bootstraps a local command from a published container image, then runs the install locally against your current kubeconfig.
+`mas-est` installs a working MAS External Services Toolkit plus SCIM bridge lab on OpenShift. The beta path bootstraps a local command from a published container image, then runs the install locally against your current kubeconfig.
 
 The install creates:
 
-- MAS IAM operator through OLM
+- MAS EST IAM operator through OLM
 - Keycloak
 - OpenLDAP
 - PostgreSQL
@@ -18,7 +18,7 @@ The install creates:
 - demo LDAP users and groups
 - one MAS SCIM profile, usually `demo`
 
-The supported user entry point is the local `mas-iam` command. The shell scripts in this repo remain the backend implementation and maintainer/debug path.
+The supported user entry point is the local `mas-est` command. The shell scripts in this repo remain the backend implementation and maintainer/debug path.
 
 ## Prerequisites
 
@@ -45,29 +45,29 @@ The beta has been tested on a small number of clusters, but it cannot cover ever
 Set the image:
 
 ```bash
-export MAS_IAM_IMAGE='quay.io/lee_forster/mas-iam-tool:v0.1.0-beta.5'
+export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.0'
 ```
 
 Bootstrap the local command:
 
 ```bash
-mkdir -p "$HOME/mas-iam"
-podman run -ti --rm -v "$HOME/mas-iam:/tmp" --pull always "$MAS_IAM_IMAGE"
-export PATH="$HOME/mas-iam:$PATH"
+mkdir -p "$HOME/mas-est"
+podman run -ti --rm -v "$HOME/mas-est:/tmp" --pull always "$MAS_EST_IMAGE"
+export PATH="$HOME/mas-est:$PATH"
 ```
 
 Confirm it works:
 
 ```bash
-mas-iam version
-mas-iam --help
+mas-est version
+mas-est --help
 ```
 
 If the runtime already exists and you want to refresh it:
 
 ```bash
-podman run -ti --rm -v "$HOME/mas-iam:/tmp" --pull always "$MAS_IAM_IMAGE" bootstrap --force
-export PATH="$HOME/mas-iam:$PATH"
+podman run -ti --rm -v "$HOME/mas-est:/tmp" --pull always "$MAS_EST_IMAGE" bootstrap --force
+export PATH="$HOME/mas-est:$PATH"
 ```
 
 The `bootstrap --force` part must come after the image name.
@@ -77,24 +77,29 @@ The `bootstrap --force` part must come after the image name.
 Run preflight:
 
 ```bash
-mas-iam preflight
+mas-est preflight
 ```
 
 Run the interactive install:
 
 ```bash
-mas-iam install
+mas-est install
 ```
 
 The installer prompts for:
 
-- MAS SCIM base URL
-- MAS API token name
-- MAS API token value
-- MAS workspace ID
-- MAS profile ID
-- PostgreSQL storage class
-- SCIM bridge storage class
+- namespace
+- products to install: LDAP, Keycloak, SCIM bridge, S3 object storage, and/or SMTP capture
+- MAS SCIM base URL, API token, workspace ID, and profile ID when SCIM is selected
+- MAS instance ID when S3 object storage is selected (the MAS core namespace defaults to `mas-<instance-id>-core`)
+- whether to configure MAS auth providers, and which providers to create: LDAP, OIDC (MAS 9.1+), and/or SAML
+- primary storage class for Keycloak PostgreSQL and/or MinIO
+- SCIM bridge storage class when SCIM is selected
+- uninstall first
+
+Selecting SCIM automatically includes Keycloak and LDAP. Selecting Keycloak automatically includes LDAP. LDAP-only installs are supported through the same operator profile without deploying Keycloak or PostgreSQL.
+
+Values that can be derived from the MAS instance ID (`mas-<id>-core` for the core namespace, `auth.<mas-domain>` for the auth host, the workspace ID when only one matches) are auto-filled and shown as `[derived] …` lines rather than re-prompted. Pass `--mas-core-namespace`, `--mas-auth-instance-id`, `--mas-auth-core-namespace`, `--mas-auth-host`, or `--workspace-id` to override any of them.
 
 The MAS SCIM base URL must include `/scim/v2`:
 
@@ -114,17 +119,19 @@ export SCIM_BRIDGE_MAS_API_TOKEN_NAME='<mas-api-token-name>'
 export SCIM_BRIDGE_MAS_API_TOKEN_VALUE='<mas-api-token-value>'
 export SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_WORKSPACE_ID='<workspace-id>'
 export SCIM_BRIDGE_MAS_PROFILE_ID='demo'
+export MAS_EST_COMPONENTS='ldap,keycloak,scim'
 export POSTGRES_STORAGE_CLASS='<rbd-storage-class>'
 export SCIM_BRIDGE_STORAGE_CLASS='<rbd-storage-class>'
 
-mas-iam install --non-interactive
+mas-est install --non-interactive
 ```
 
 Equivalent install flags:
 
 ```bash
-mas-iam install \
+mas-est install \
   --non-interactive \
+  --components ldap,keycloak,scim \
   --mas-base-url 'https://api.<mas-host>/scim/v2' \
   --mas-api-token-name '<mas-api-token-name>' \
   --mas-api-token-value '<mas-api-token-value>' \
@@ -134,42 +141,187 @@ mas-iam install \
   --scim-bridge-storage-class '<rbd-storage-class>'
 ```
 
+Other component examples:
+
+```bash
+mas-est install --components ldap --non-interactive
+mas-est install --components ldap,keycloak --non-interactive
+mas-est install --components s3 --mas-instance-id '<instance-id>' --non-interactive
+mas-est install --components smtp --non-interactive
+mas-est install --components ldap,keycloak,scim,s3,smtp --mas-instance-id '<instance-id>' --non-interactive
+```
+
+To also create MAS-side LDAP, OIDC, and SAML authentication providers backed by the installed OpenLDAP and Keycloak services:
+
+```bash
+mas-est install \
+  --components ldap,keycloak,scim \
+  --configure-mas-auth \
+  --mas-auth-providers ldap,oidc,saml \
+  --mas-auth-instance-id '<instance-id>' \
+  --mas-auth-host 'auth.<mas-domain>' \
+  --non-interactive
+```
+
+The generated MAS provider IDs are:
+
+```text
+mas-est-ldap
+mas-est-oidc
+mas-est-saml
+```
+
+You can also run the MAS auth configuration after the services are installed:
+
+```bash
+mas-est mas-auth apply \
+  --namespace mas-est \
+  --providers ldap,oidc,saml \
+  --mas-instance-id '<instance-id>' \
+  --mas-auth-host 'auth.<mas-domain>'
+```
+
+For S3/MinIO lab testing, set these as Manage System Properties (System Configuration → Platform Configuration → System Properties) after install:
+
+```text
+mxe.cosendpointuri  http://mas-est.svc.cluster.local:9000
+mxe.cosbucketname   mas-s3-demo
+mxe.cosregion       us-east-1                        ← REQUIRED
+mxe.cosaccesskey    minioadmin (mas-minio-root MINIO_ROOT_USER)
+mxe.cossecretkey    <value from mas-minio-root MINIO_ROOT_PASSWORD>
+```
+
+**`mxe.cosregion` is required, not optional.** Without it doclinks attach fails with `SignatureDoesNotMatch` even though the AWS SDK's internal default is `us-east-1`. On MAS 9.1.4 the property is not a built-in `MAXPROP` entry — add it via the Properties UI ("New Row"), then Live Refresh. See `OBJECT-STORAGE-POC.md` for the full doclinks setup including doctype `DEFAULTPATH` changes.
+
+The installer creates both Manage bucket layouts: sibling buckets (`mas-s3-demo`, `mas-s3-demorecovery`, `mas-s3-demobackup`) and root prefixes (`recovery/`, `backup/`). The external HTTPS MinIO route is mainly for browser/manual testing and may require additional certificate trust before Manage can use it.
+
+For SMTP lab testing, the installer deploys Mailpit as a capture-only SMTP server. Use these MAS SMTP values after install:
+
+```text
+Display name: MAS EST SMTP Capture
+SMTP host: mas-mailpit.mas-est.svc.cluster.local
+SMTP port: 1025
+TLS/security: disabled
+Authentication: none
+```
+
+Open the Mailpit route printed by the installer to inspect captured messages. By default Mailpit stores captured messages in the browser UI only and does NOT relay them externally — perfect for "did MAS attempt to send" testing.
+
+To also have Mailpit deliver captured messages to real recipients (Gmail, SendGrid, SES, etc), pass the relay flags at install time:
+
+```bash
+mas-est install \
+  --components ldap,keycloak,scim,smtp \
+  --smtp-relay-host smtp.gmail.com \
+  --smtp-relay-port 587 \
+  --smtp-relay-username 'lab@example.com' \
+  --smtp-relay-password "$GMAIL_APP_PASSWORD" \
+  --smtp-relay-from 'lab@example.com' \
+  --smtp-relay-starttls
+```
+
+MAS's own SMTP config doesn't change — it still talks plain SMTP to `mas-mailpit.mas-est.svc.cluster.local:1025`. Captured messages appear in the Mailpit UI as before AND get forwarded upstream. See [docs/CONNECTION-DETAILS.md](CONNECTION-DETAILS.md#smtp-relay-optional) for the full flag set + provider walkthroughs (Gmail, SendGrid, AWS SES, Outlook/365).
+
+## Connection Details
+
+The installer writes common connection values to:
+
+```text
+secret/mas-est-connection-details
+```
+
+Use the CLI to print those values without exposing secret material:
+
+```bash
+mas-est details --namespace mas-est --component all
+mas-est details --namespace mas-est --component s3
+mas-est details --namespace mas-est --component smtp
+mas-est details --namespace mas-est --component oidc
+```
+
+Secret values are redacted by default. Use `--show-secrets` only for local troubleshooting.
+
+The details secret stores references to the real credential secrets rather than duplicating all passwords. For example, S3 points to the MAS credential secret and key names, SMTP lists the internal service host and port, and LDAP points to the OpenLDAP admin password secret.
+
+For raw connection values (mount-as-secret use, scripted retrieval, third-party app wiring), the installer also writes one dedicated Secret (or ConfigMap for SMTP) per provider:
+
+```bash
+oc get secret    mas-est-ldap-connection  -n mas-est -o yaml
+oc get secret    mas-est-oidc-connection  -n mas-est -o yaml
+oc get secret    mas-est-saml-connection  -n mas-est -o yaml
+oc get secret    mas-est-s3-connection    -n mas-est -o yaml
+oc get configmap mas-est-smtp-connection  -n mas-est -o yaml
+```
+
+The full key list for each resource is in [CONNECTION-DETAILS.md](CONNECTION-DETAILS.md).
+
+## MAS Auth Auto-Configuration
+
+When `--configure-mas-auth` is selected, MAS-EST can configure:
+
+- one MAS LDAP `IDPCfg` pointing to `ldaps://mas-est-iam-openldap.mas-est.svc.cluster.local:636`
+- one MAS OIDC `IDPCfg` pointing to the Keycloak `maximo` realm
+- one MAS SAML `IDPCfg` using Keycloak SAML IdP metadata
+
+Use `--mas-auth-providers ldap,oidc,saml` on `install`, or `--providers ldap,oidc,saml` on `mas-auth apply`, to choose which providers to create. In the interactive installer this is shown as a checklist after you opt into MAS auth provisioning. OIDC requires MAS 9.1 or later with `spec.oidc` support in the `IDPCfg` CRD.
+
+The command also creates or updates the required Keycloak OIDC and SAML clients when those providers are selected. The OIDC redirect URI uses:
+
+```text
+https://<mas-auth-host>/oidcclient/redirect/mas-est-oidc
+```
+
+The MAS resources are created in the MAS core namespace, usually:
+
+```text
+mas-<instance-id>-core
+```
+
+This path uses the same `IDPCfg` resources created by the MAS Admin API underneath. If a cluster's MAS version rejects one provider shape, rerun with `mas-est support-bundle --namespace mas-est` and collect the MAS core `IDPCfg` status/events for review.
+
+OIDC auto-configuration requires a MAS version whose `idpcfgs.config.mas.ibm.com` CRD exposes `spec.oidc`. Older MAS versions may support LDAP and SAML only; in that case `mas-est mas-auth apply` stops before changing Keycloak or MAS auth resources.
+
 ## Check Health
 
 Use the CLI first:
 
 ```bash
-mas-iam status --namespace iam
-mas-iam logs --namespace iam --component bridge
+mas-est status --namespace mas-est
+mas-est logs --namespace mas-est --component bridge
 ```
 
 Useful log shortcuts:
 
 ```bash
-mas-iam logs --namespace iam --component operator
-mas-iam logs --namespace iam --component keycloak
-mas-iam logs --namespace iam --component bridge
-mas-iam logs --namespace iam --component profile-bootstrap
+mas-est logs --namespace mas-est --component operator
+mas-est logs --namespace mas-est --component keycloak
+mas-est logs --namespace mas-est --component bridge
+mas-est logs --namespace mas-est --component profile-bootstrap
+mas-est logs --namespace mas-est --component minio
+mas-est logs --namespace mas-est --component minio-init
+mas-est logs --namespace mas-est --component smtp
 ```
 
 A healthy install should show:
 
 - operator CSV `Succeeded`
 - `deployment/mas-iam-operator-controller-manager` ready
-- `deployment/mas-iam-sample` ready
-- `deployment/mas-iam-sample-openldap` ready
-- `statefulset/mas-iam-sample-postgresql` ready
+- `deployment/mas-est-iam` ready
+- `deployment/mas-est-iam-openldap` ready
+- `statefulset/mas-est-iam-postgresql` ready
 - `deployment/scim-bridge` ready
 - `job/scim-bridge-mas-profile-bootstrap` complete
+- optional `deployment/mas-minio` ready when S3 is selected
+- optional `deployment/mas-mailpit` ready when SMTP is selected
 - PostgreSQL PVC bound
 - `pvc/scim-bridge-state` bound
 
 Raw checks:
 
 ```bash
-oc get pods -n iam -o wide
-oc get deploy,statefulset,job,pvc,route -n iam
-oc get csv -n iam
+oc get pods -n mas-est -o wide
+oc get deploy,statefulset,job,pvc,route -n mas-est
+oc get csv -n mas-est
 ```
 
 ## Support Bundle
@@ -177,16 +329,16 @@ oc get csv -n iam
 For beta bug reports or install/runtime triage, collect a local support bundle:
 
 ```bash
-mas-iam support-bundle --namespace iam
+mas-est support-bundle --namespace mas-est
 ```
 
 The command verifies `oc` access, offers the same interactive `oc login` handoff as the other CLI commands, then writes a timestamped directory such as:
 
 ```text
-mas-iam-support-iam-20260507-153000
+mas-est-support-mas-est-20260507-153000
 ```
 
-The bundle includes the installed `mas-iam` version, current OpenShift user/server, `mas-iam status` output, namespace resource summaries, recent events, selected component logs, configmaps, storage classes, and redacted secret summaries.
+The bundle includes the installed `mas-est` version, current OpenShift user/server, `mas-est status` output, namespace resource summaries, recent events, selected component logs, configmaps, storage classes, and redacted secret summaries.
 
 Secret values are not written to the bundle. Secret summaries include names, types, and key names only, and collected text is scrubbed for known secret-derived token, password, and client secret values. Review hostnames, customer identifiers, and environment-specific resource names before sharing outside the team.
 
@@ -195,26 +347,26 @@ Secret values are not written to the bundle. Secret summaries include names, typ
 The beta install includes a bundled OpenLDAP server. If you want to connect a MAS instance directly to that LDAP server, use:
 
 ```bash
-mas-iam ldap-info --namespace iam
+mas-est ldap-info --namespace mas-est
 ```
 
 By default the command hides passwords. To print the admin bind password:
 
 ```bash
-mas-iam ldap-info --namespace iam --show-password
+mas-est ldap-info --namespace mas-est --show-password
 ```
 
 To print the seeded demo user passwords:
 
 ```bash
-mas-iam ldap-info --namespace iam --show-user-passwords
+mas-est ldap-info --namespace mas-est --show-user-passwords
 ```
 
 The default cluster-internal values are:
 
 | Setting | Value |
 |---|---|
-| URL | `ldaps://mas-iam-sample-openldap.iam.svc.cluster.local:636` |
+| URL | `ldaps://mas-est-iam-openldap.mas-est.svc.cluster.local:636` |
 | Bind DN | `cn=admin,dc=demo,dc=local` |
 | Base DN | `dc=demo,dc=local` |
 | Users DN | `ou=users,dc=demo,dc=local` |
@@ -222,36 +374,36 @@ The default cluster-internal values are:
 | User attribute | `uid` |
 | Group object class | `groupOfUniqueNames` |
 | Group member attribute | `uniqueMember` |
-| Admin password secret | `secret/mas-iam-sample-openldap-admin`, key `password` |
-| Demo user password secret | `secret/mas-iam-sample-openldap-user-passwords` |
-| TLS secret | `secret/mas-iam-sample-keycloak-openldap-tls` |
+| Admin password secret | `secret/mas-est-iam-openldap-admin`, key `password` |
+| Demo user password secret | `secret/mas-est-iam-openldap-user-passwords` |
+| TLS secret | `secret/mas-est-iam-keycloak-openldap-tls` |
 
-The required MAS LDAP connection values are therefore available either from `mas-iam ldap-info` or directly from the OpenShift secrets above. The admin bind credential is in `secret/mas-iam-sample-openldap-admin`, key `password`.
+The required MAS LDAP connection values are therefore available either from `mas-est ldap-info` or directly from the OpenShift secrets above. The admin bind credential is in `secret/mas-est-iam-openldap-admin`, key `password`.
 
 This URL is meant for workloads inside the same OpenShift cluster. For a local command-line test, you can temporarily port-forward the service:
 
 ```bash
-oc -n iam port-forward svc/mas-iam-sample-openldap 1636:636
+oc -n mas-est port-forward svc/mas-est-iam-openldap 1636:636
 ```
 
-## Wipe And Reinstall
+## Uninstall And Reinstall
 
-To wipe the OpenShift namespace and delete the MAS profile:
+To uninstall the OpenShift namespace and delete the MAS profile:
 
 ```bash
-mas-iam wipe --namespace iam --profile-id demo
+mas-est uninstall --namespace mas-est --profile-id demo
 ```
 
 To keep the MAS profile and only remove the cluster-side lab resources:
 
 ```bash
-mas-iam wipe --namespace iam --profile-id demo --skip-profile-delete
+mas-est uninstall --namespace mas-est --profile-id demo --skip-profile-delete
 ```
 
-For non-interactive wipe:
+For non-interactive uninstall:
 
 ```bash
-mas-iam wipe --namespace iam --profile-id demo --yes
+mas-est uninstall --namespace mas-est --profile-id demo --yes
 ```
 
 If profile deletion needs MAS credentials, provide the MAS URL and token values with flags or environment variables.
@@ -273,7 +425,7 @@ The relevant keys are:
 To view the current bridge runtime configuration without exposing secret values:
 
 ```bash
-mas-iam config view --namespace iam
+mas-est config view --namespace mas-est
 ```
 
 The command prints values from `configmap/scim-bridge-config` and prints only key names for `secret/scim-bridge-secret`.
@@ -281,8 +433,8 @@ The command prints values from `configmap/scim-bridge-config` and prints only ke
 To rotate the MAS API key:
 
 ```bash
-mas-iam config set mas-api-token \
-  --namespace iam \
+mas-est config set mas-api-token \
+  --namespace mas-est \
   --token-name '<new-mas-api-token-name>' \
   --token-value '<new-mas-api-token-value>'
 ```
@@ -298,10 +450,10 @@ Why the restart is required:
 If you also need to rerun the MAS profile bootstrap job with the new key:
 
 ```bash
-oc delete job scim-bridge-mas-profile-bootstrap -n iam --ignore-not-found
+oc delete job scim-bridge-mas-profile-bootstrap -n mas-est --ignore-not-found
 
 # rerun the install path, or reapply the rendered bootstrap manifest from the same runtime/config
-mas-iam install
+mas-est install
 ```
 
 For most token rotations, restarting `deployment/scim-bridge` is enough. Keycloak, OpenLDAP, and PostgreSQL do not need to restart for MAS API token changes.
@@ -318,7 +470,25 @@ secret/scim-bridge-secret
 After editing either object, restart the bridge:
 
 ```bash
-oc rollout restart deployment/scim-bridge -n iam
+mas-est restart bridge --namespace mas-est
+```
+
+To enable bridge debug logging without reinstalling:
+
+```bash
+mas-est config set bridge --namespace mas-est --log-level debug
+```
+
+Payload logging is disabled by default. Only enable it for support debugging:
+
+```bash
+mas-est config set bridge --namespace mas-est --payload-logging true
+```
+
+Payload logs are redacted on a best-effort basis, but they can still contain customer-sensitive identity data such as usernames, names, and email addresses. Disable it after collecting evidence:
+
+```bash
+mas-est config set bridge --namespace mas-est --log-level info --payload-logging false
 ```
 
 Common editable values in `scim-bridge-config`:
@@ -332,6 +502,8 @@ Common editable values in `scim-bridge-config`:
 | `SCIM_BRIDGE_BRIDGE_POLL_INTERVAL` | bridge poll interval, for example `5m` | yes |
 | `SCIM_BRIDGE_BRIDGE_ALLOW_UPDATES` | allow updates to existing users | yes |
 | `SCIM_BRIDGE_BRIDGE_DRY_RUN` | plan without writing changes | yes |
+| `SCIM_BRIDGE_BRIDGE_LOG_LEVEL` | bridge logging level: `debug`, `info`, `warn`, or `error` | yes |
+| `SCIM_BRIDGE_BRIDGE_PAYLOAD_LOGGING` | redacted outbound MAS SCIM payload logging for support debugging | yes |
 | `SCIM_BRIDGE_INCLUDE_USERNAMES` | optional comma-separated allow list | yes |
 | `SCIM_BRIDGE_INCLUDE_USERNAME_PREFIX` | optional username prefix filter | yes |
 
@@ -350,17 +522,17 @@ Edit with care. Some values are generated by install and may be overwritten if y
 To patch a non-secret value:
 
 ```bash
-oc patch configmap scim-bridge-config -n iam \
+oc patch configmap scim-bridge-config -n mas-est \
   --type merge \
   -p '{"data":{"SCIM_BRIDGE_BRIDGE_POLL_INTERVAL":"2m"}}'
 
-oc rollout restart deployment/scim-bridge -n iam
+oc rollout restart deployment/scim-bridge -n mas-est
 ```
 
 To inspect non-secret values:
 
 ```bash
-oc get configmap scim-bridge-config -n iam -o yaml
+oc get configmap scim-bridge-config -n mas-est -o yaml
 ```
 
 ## Storage Values
@@ -372,18 +544,18 @@ The install prompts separately for:
 
 They control different PVCs:
 
-- `POSTGRES_STORAGE_CLASS` controls `data-mas-iam-sample-postgresql-0`
+- `POSTGRES_STORAGE_CLASS` controls `data-mas-est-iam-postgresql-0`
 - `SCIM_BRIDGE_STORAGE_CLASS` controls `scim-bridge-state`
 
 If either PVC is `Pending`, check:
 
 ```bash
 oc get sc
-oc get pvc -n iam
-oc describe pvc -n iam <pvc-name>
+oc get pvc -n mas-est
+oc describe pvc -n mas-est <pvc-name>
 ```
 
-Then wipe and reinstall with explicit storage-class choices if needed.
+Then uninstall and reinstall with explicit storage-class choices if needed.
 
 ## Published Artifact Dependencies
 
@@ -398,21 +570,21 @@ If repo code changes but the corresponding images were not rebuilt and pushed, t
 
 ## Troubleshooting
 
-### Bootstrap Says `/tmp/mas-iam` Already Exists
+### Bootstrap Says `/tmp/mas-est` Already Exists
 
 Refresh the runtime with:
 
 ```bash
-podman run -ti --rm -v "$HOME/mas-iam:/tmp" --pull always "$MAS_IAM_IMAGE" bootstrap --force
+podman run -ti --rm -v "$HOME/mas-est:/tmp" --pull always "$MAS_EST_IMAGE" bootstrap --force
 ```
 
 The command is `bootstrap --force` after the image name.
 
-### `mas-iam` Is Not Found
+### `mas-est` Is Not Found
 
 ```bash
-export PATH="$HOME/mas-iam:$PATH"
-which mas-iam
+export PATH="$HOME/mas-est:$PATH"
+which mas-est
 ```
 
 ### Cluster API DNS Fails
@@ -428,9 +600,9 @@ Fix cluster DNS/VPN/network access first. The installer cannot proceed until `oc
 ### Operator CSV Stuck
 
 ```bash
-mas-iam status --namespace iam
-oc get csv -n iam
-oc describe csv -n iam <csv-name>
+mas-est status --namespace mas-est
+oc get csv -n mas-est
+oc describe csv -n mas-est <csv-name>
 oc get catalogsource mas-iam-operator -n openshift-marketplace -o yaml
 ```
 
@@ -439,8 +611,8 @@ Look for catalog image pull failures, bundle errors, or an unhealthy operator de
 ### PVCs Stay Pending
 
 ```bash
-oc get pvc -n iam
-oc describe pvc -n iam <pvc-name>
+oc get pvc -n mas-est
+oc describe pvc -n mas-est <pvc-name>
 oc get sc
 ```
 
@@ -461,14 +633,14 @@ Do not use only the MAS API root. Do not duplicate the scheme, such as `https://
 Check bridge logs:
 
 ```bash
-mas-iam logs --namespace iam --component bridge --tail 300
+mas-est logs --namespace mas-est --component bridge --tail 300
 ```
 
 Also check:
 
 ```bash
-oc get configmap scim-bridge-config -n iam -o yaml
-oc get secret scim-bridge-secret -n iam -o yaml
+oc get configmap scim-bridge-config -n mas-est -o yaml
+oc get secret scim-bridge-secret -n mas-est -o yaml
 ```
 
 Do not paste unredacted secret output into bug reports.
@@ -486,20 +658,18 @@ Common causes:
 Capture:
 
 ```bash
-mas-iam support-bundle --namespace iam
+mas-est support-bundle --namespace mas-est
 ```
 
 Review customer-sensitive hostnames and identifiers before sharing outside the team. The support bundle avoids raw secret values by default.
 
 ## Future Plans
 
-Likely post-beta work:
+Likely post-`v0.1.0` work:
 
-- continued tagged beta/release images after `v0.1.0-beta.5`
-- CLI-backed config editing and token rotation
+- group-based profile routing (planned for `v0.2.0`)
 - better bridge sync summaries and diagnostics
 - safer reconciliation for existing MAS users
-- group-based profile routing
 - clearer upgrade and self-update paths
 
 The beta should stay focused on proving the default install and SCIM demo flow before expanding scope.

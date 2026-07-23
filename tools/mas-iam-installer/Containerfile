@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM golang:1.25-bookworm AS builder
+FROM --platform=$BUILDPLATFORM golang:1.25-bookworm AS builder
 
 WORKDIR /src
 COPY tools/mas-iam-installer/go.mod tools/mas-iam-installer/go.sum /src/tools/mas-iam-installer/
@@ -18,46 +18,33 @@ RUN --mount=type=cache,target=/go/pkg/mod \
       set -- ${target}; \
       mkdir -p "/out/bin/$1-$2"; \
       CGO_ENABLED=0 GOOS="$1" GOARCH="$2" \
-        go build -trimpath -ldflags="-s -w" -o "/out/bin/$1-$2/iam" ./cmd/mas-iam-installer; \
+        go build -trimpath -ldflags="-s -w" -o "/out/bin/$1-$2/est" ./cmd/mas-iam-installer; \
     done
 
-FROM debian:bookworm-slim
+ARG TARGETARCH=amd64
+# Runtime base is the previous published mas-est image (multi-arch manifest,
+# so podman picks the right per-arch variant automatically — no -${TARGETARCH}
+# suffix needed). Pinned to v0.1.0-beta.9 because beta.10/11/12 were committed
+# but never pushed to quay. The base only provides OS layers + the bootstrap
+# layout; the est binary, scripts, manifests, and env directories are all
+# rebuilt and re-copied below.
+# Long-term we should drop the self-reference and base on a small OS image
+# (ubi9-minimal or debian:bookworm-slim) so the chain isn't recursive.
+FROM quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.9
 
 ARG TARGETARCH=amd64
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-      bash \
-      ca-certificates \
-      coreutils \
-      curl \
-      gettext-base \
-      grep \
-      openssl \
-      ripgrep \
-      sed \
-      tar \
-    && rm -rf /var/lib/apt/lists/* \
-    && case "${TARGETARCH}" in \
-      amd64) OCP_ARCH="x86_64" ;; \
-      arm64) OCP_ARCH="aarch64" ;; \
-      *) echo "unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
-    esac \
-    && curl -fsSL "https://mirror.openshift.com/pub/openshift-v4/${OCP_ARCH}/clients/ocp/stable/openshift-client-linux.tar.gz" -o /tmp/openshift-client-linux.tar.gz \
-    && tar -xzf /tmp/openshift-client-linux.tar.gz -C /usr/local/bin oc kubectl \
-    && chmod +x /usr/local/bin/oc /usr/local/bin/kubectl \
-    && rm -f /tmp/openshift-client-linux.tar.gz
 
-ENV MAS_IAM_REPO_ROOT=/opt/mas-iam
-WORKDIR /opt/mas-iam
+ENV MAS_EST_REPO_ROOT=/opt/mas-est
+WORKDIR /opt/mas-est
 
-COPY scripts /opt/mas-iam/scripts
-COPY manifests /opt/mas-iam/manifests
-COPY env /opt/mas-iam/env
-COPY --from=builder /out/bin /opt/mas-iam/runtime/bin
-COPY --from=builder /out/bin/linux-${TARGETARCH}/iam /usr/local/bin/iam
+COPY scripts /opt/mas-est/scripts
+COPY manifests /opt/mas-est/manifests
+COPY env /opt/mas-est/env
+COPY --from=builder /out/bin /opt/mas-est/runtime/bin
+COPY --from=builder /out/bin/linux-${TARGETARCH}/est /usr/local/bin/est
 
-RUN ln -sf /usr/local/bin/iam /usr/local/bin/mas-iam-installer \
-    && chmod +x /usr/local/bin/iam /opt/mas-iam/scripts/*.sh
+RUN ln -sf /usr/local/bin/est /usr/local/bin/mas-est \
+    && chmod +x /usr/local/bin/est /opt/mas-est/scripts/*.sh
 
-ENTRYPOINT ["iam"]
+ENTRYPOINT ["est"]
 CMD ["bootstrap"]

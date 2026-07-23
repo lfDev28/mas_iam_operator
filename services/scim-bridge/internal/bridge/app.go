@@ -23,7 +23,18 @@ type App struct {
 
 // NewApp constructs the runtime application container.
 func NewApp(cfg config.Settings) *App {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{}))
+	var level slog.Level
+	switch strings.ToLower(cfg.Bridge.LogLevel) {
+	case "debug":
+		level = slog.LevelDebug
+	case "warn":
+		level = slog.LevelWarn
+	case "error":
+		level = slog.LevelError
+	default:
+		level = slog.LevelInfo
+	}
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
 	return &App{cfg: cfg, logger: logger}
 }
 
@@ -58,6 +69,8 @@ func (a *App) Run(ctx context.Context) error {
 		"poll_interval", a.cfg.Bridge.PollInterval.String(),
 		"state_backend", a.cfg.Bridge.StateBackend,
 		"allow_updates", a.cfg.Bridge.AllowUpdates,
+		"log_level", a.cfg.Bridge.LogLevel,
+		"payload_logging", a.cfg.Bridge.PayloadLogging,
 		"keycloak_realm", kc.Realm(),
 		"mas_profile_default", resolver.DefaultProfileID(),
 	)
@@ -68,9 +81,6 @@ func (a *App) Run(ctx context.Context) error {
 	switch a.cfg.Bridge.Mode {
 	case "poll", "hybrid":
 		return a.runPollingLoop(ctx, poller, executor)
-	case "event":
-		a.logger.Warn("event mode not yet implemented; exiting")
-		return nil
 	case "run-once":
 		return a.runWithMASRefresh(ctx, executor, func() error { return poller.RunOnce(ctx) })
 	case "backfill":
@@ -161,5 +171,7 @@ func (a *App) ensureMASToken(force bool) error {
 }
 
 func (a *App) newMASClient() (*mas.Client, error) {
-	return mas.NewClient(a.cfg.MAS)
+	cfg := a.cfg.MAS
+	cfg.PayloadLogging = a.cfg.Bridge.PayloadLogging
+	return mas.NewClient(cfg)
 }

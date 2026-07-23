@@ -6,13 +6,13 @@ metadata:
     description: "Install the SCIM bridge with a demo MAS profile bootstrap."
 parameters:
   - name: SCIM_BRIDGE_NAMESPACE
-    value: iam
+    value: mas-est
   - name: SCIM_BRIDGE_IMAGE
-    value: quay.io/lee_forster/mas-iam-scim-bridge:scim-bridge-v0.1.0
+    value: quay.io/lee_forster/mas-iam-scim-bridge:scim-bridge-v0.1.1
   - name: SCIM_BRIDGE_KEYCLOAK_IMAGE
-    value: quay.io/lee_forster/mas-iam-keycloak:scim-bridge-v0.1.0
+    value: quay.io/lee_forster/mas-iam-keycloak:scim-bridge-v0.1.1
   - name: SCIM_BRIDGE_KEYCLOAK_BASE_URL
-    value: http://mas-iam-sample:8080
+    value: http://mas-est-iam:8080
   - name: SCIM_BRIDGE_KEYCLOAK_REALM
     value: maximo
   - name: SCIM_BRIDGE_KEYCLOAK_CLIENT_ID
@@ -20,11 +20,11 @@ parameters:
   - name: SCIM_BRIDGE_KEYCLOAK_CLIENT_SECRET
     value: maxadmin
   - name: SCIM_BRIDGE_KEYCLOAK_RELEASE
-    value: mas-iam-sample
+    value: mas-est-iam
   - name: SCIM_BRIDGE_KEYCLOAK_NAMESPACE
-    value: iam
+    value: mas-est
   - name: SCIM_BRIDGE_KEYCLOAK_SERVICE
-    value: mas-iam-sample
+    value: mas-est-iam
   - name: SCIM_BRIDGE_KEYCLOAK_ASSIGN_MANAGED_ROLE
     value: "false"
   - name: SCIM_BRIDGE_MAS_BASE_URL
@@ -69,6 +69,10 @@ parameters:
     value: "true"
   - name: SCIM_BRIDGE_BRIDGE_DRY_RUN
     value: "false"
+  - name: SCIM_BRIDGE_BRIDGE_LOG_LEVEL
+    value: info
+  - name: SCIM_BRIDGE_BRIDGE_PAYLOAD_LOGGING
+    value: "false"
   - name: SCIM_BRIDGE_INCLUDE_USERNAMES
     value: ""
   - name: SCIM_BRIDGE_INCLUDE_USERNAME_PREFIX
@@ -110,6 +114,8 @@ objects:
       SCIM_BRIDGE_BRIDGE_STATE_PATH: "${SCIM_BRIDGE_BRIDGE_STATE_PATH}"
       SCIM_BRIDGE_BRIDGE_ALLOW_UPDATES: "${SCIM_BRIDGE_BRIDGE_ALLOW_UPDATES}"
       SCIM_BRIDGE_BRIDGE_DRY_RUN: "${SCIM_BRIDGE_BRIDGE_DRY_RUN}"
+      SCIM_BRIDGE_BRIDGE_LOG_LEVEL: "${SCIM_BRIDGE_BRIDGE_LOG_LEVEL}"
+      SCIM_BRIDGE_BRIDGE_PAYLOAD_LOGGING: "${SCIM_BRIDGE_BRIDGE_PAYLOAD_LOGGING}"
       SCIM_BRIDGE_INCLUDE_USERNAMES: "${SCIM_BRIDGE_INCLUDE_USERNAMES}"
       SCIM_BRIDGE_INCLUDE_USERNAME_PREFIX: "${SCIM_BRIDGE_INCLUDE_USERNAME_PREFIX}"
   - apiVersion: v1
@@ -173,6 +179,8 @@ ${SCIM_BRIDGE_POD_SECURITY_CONTEXT_EXTRA}
                 - "--bridge-poll-interval=${SCIM_BRIDGE_BRIDGE_POLL_INTERVAL}"
                 - "--bridge-allow-updates=${SCIM_BRIDGE_BRIDGE_ALLOW_UPDATES}"
                 - "--bridge-dry-run=${SCIM_BRIDGE_BRIDGE_DRY_RUN}"
+                - "--bridge-log-level=${SCIM_BRIDGE_BRIDGE_LOG_LEVEL}"
+                - "--bridge-payload-logging=${SCIM_BRIDGE_BRIDGE_PAYLOAD_LOGGING}"
               env:
                 - name: SSL_CERT_FILE
                   value: /etc/scim-bridge/certs/ca-bundle.crt

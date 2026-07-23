@@ -1,5 +1,5 @@
 {{- define "mas-iam-stack.name" -}}
-mas-iam
+mas-est-iam
 {{- end }}
 
 {{- define "mas-iam-stack.fullname" -}}

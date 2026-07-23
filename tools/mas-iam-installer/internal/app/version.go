@@ -11,7 +11,7 @@ import (
 func newVersionCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
-		Short: "Show the installed mas-iam version",
+		Short: "Show the installed mas-est version",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Fprintln(cmd.OutOrStdout(), version.String())
 			return nil

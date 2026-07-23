@@ -1,0 +1,1034 @@
+openapi: 3.0.3
+info:
+  x-id: idp
+  version: 9.9.17
+  title: External IDP Integration
+  description: |
+    These APIs support configuration of the integration with external IDPs
+
+    All of these APIs are **only** available to MAS System Administrators.
+security:
+  - JWT_Token: []
+tags:
+  - name: LDAP Integration
+  - name: Test Configuration
+  - name: SAML Integration
+  - name: OIDC Integration
+paths:
+  /config/ldap/{idpId}:
+    x-show-config: true
+    x-use-test: true
+    x-config-section: usersAndIdentity
+    get:
+      tags:
+        - LDAP Integration
+      summary: Get details about LDAP configuration
+      description: >-
+        Available to all authenticated users as long as userDataPrivacyAccess is
+        set to ALL. Non user admins will only receive non sensitive user data
+        (id and username) when userDataPrivacyAccess is set to
+        NON_SENSITIVE_DATA. Non user admins will not have access to this api
+        when userDataPrivacyAccess is set to NO_ACCESS.
+      operationId: getLDAPConfig
+      parameters:
+        - $ref: '#/components/parameters/ipdIdPathParam'
+      responses:
+        '200':
+          $ref: '#/components/responses/LDAPConfigResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/ResourceNotFoundError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    put:
+      tags:
+        - LDAP Integration
+      summary: Set the LDAP configuration
+      description: Requires **System Administration** permission.
+      operationId: setLDAPConfig
+      parameters:
+        - $refd: '#/components/parameters/ipdIdPathParam'
+      requestBody:
+        description: The configuration to be set.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LDAPConfigRequestSchema'
+      responses:
+        '200':
+          $ref: '#/components/responses/LDAPConfigResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    delete:
+      tags:
+        - LDAP Integration
+      summary: Delete the LDAP configuration
+      description: Requires **System Administration** permission.
+      operationId: deleteLDAPConfig
+      parameters:
+        - $ref: '#/components/parameters/ipdIdPathParam'
+      responses:
+        '204':
+          description: The configuration was successfully deleted
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /config/ldap-test:
+    post:
+      tags:
+        - Test Configuration
+      summary: Test the provided LDAP configuration
+      description: Requires **System Administration** permission.
+      operationId: testLdapConfig
+      requestBody:
+        description: The configuration to be tested
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LDAPConfigRequestSchema'
+      responses:
+        '200':
+          $ref: '#/components/responses/LDAPTestResult'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /config/saml/{idpId}:
+    x-show-config: true
+    x-config-section: usersAndIdentity
+    get:
+      tags:
+        - SAML Integration
+      summary: Get details about SAML configuration
+      description: >-
+        Available to all authenticated users as long as userDataPrivacyAccess is
+        set to ALL. Non user admins will only receive non sensitive user data
+        (id and username) when userDataPrivacyAccess is set to
+        NON_SENSITIVE_DATA. Non user admins will not have access to this api
+        when userDataPrivacyAccess is set to NO_ACCESS.
+      operationId: getSAMLConfig
+      parameters:
+        - $ref: '#/components/parameters/ipdIdPathParam'
+      responses:
+        '200':
+          $ref: '#/components/responses/SAMLConfigResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/ResourceNotFoundError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    put:
+      tags:
+        - SAML Integration
+      summary: Set the SAML configuration
+      description: Requires **System Administration** permission.
+      operationId: setSAMLConfig
+      parameters:
+        - $ref: '#/components/parameters/ipdIdPathParam'
+      requestBody:
+        description: The configuration to be set.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SamlSPConfigSchema'
+      responses:
+        '200':
+          $ref: '#/components/responses/SAMLConfigResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    delete:
+      tags:
+        - SAML Integration
+      summary: Delete the entire SAML configuration.
+      description: >-
+        Requires **System Administration** permission. If an IDP configuration
+        has been uploaded it will also be deleted.
+      operationId: deleteSAMLConfig
+      parameters:
+        - $ref: '#/components/parameters/ipdIdPathParam'
+      responses:
+        '204':
+          description: The configuration was successfully deleted
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /config/saml/{idpId}/metadata:
+    get:
+      tags:
+        - SAML Integration
+      summary: Get the configuration xml file for external IDP
+      description: >-
+        Available to all authenticated users as long as userDataPrivacyAccess is
+        set to ALL. Non user admins will only receive non sensitive user data
+        (id and username) when userDataPrivacyAccess is set to
+        NON_SENSITIVE_DATA. Non user admins will not have access to this api
+        when userDataPrivacyAccess is set to NO_ACCESS.
+      operationId: getSAMLIDPConfig
+      parameters:
+        - $ref: '#/components/parameters/ipdIdPathParam'
+      responses:
+        '200':
+          $ref: '#/components/responses/SamlIDPConfigResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/ResourceNotFoundError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    put:
+      tags:
+        - SAML Integration
+      summary: Upload the SAML configuration xml file for external IDP
+      description: Requires **System Administration** permission.
+      operationId: setSAMLIDPConfig
+      parameters:
+        - $ref: '#/components/parameters/ipdIdPathParam'
+      requestBody:
+        description: Upload the configuration xml file for external IDP
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SamlIDPConfigSchema'
+      responses:
+        '200':
+          $ref: '#/components/responses/SamlIDPConfigResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    delete:
+      tags:
+        - SAML Integration
+      summary: Delete the SAML IDP configuration only.
+      description: >-
+        Requires **System Administration** permission. The SP config is not
+        deleted.
+      operationId: deleteSAMLIDPConfig
+      parameters:
+        - $ref: '#/components/parameters/ipdIdPathParam'
+      responses:
+        '204':
+          description: The configuration was successfully deleted
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /config/oidc/{idpId}:
+    x-show-config: true
+    x-config-section: usersAndIdentity
+    get:
+      tags:
+        - OIDC Integration
+      summary: Get details about OIDC configuration
+      description: >-
+        Available to all authenticated users as long as userDataPrivacyAccess is
+        set to ALL. Non user admins will only receive non sensitive user data
+        (id and username) when userDataPrivacyAccess is set to
+        NON_SENSITIVE_DATA. Non user admins will not have access to this api
+        when userDataPrivacyAccess is set to NO_ACCESS.
+      operationId: getOIDCConfig
+      parameters:
+        - $ref: '#/components/parameters/ipdIdPathParam'
+      responses:
+        '200':
+          $ref: '#/components/responses/OIDCConfigResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/ResourceNotFoundError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    put:
+      tags:
+        - OIDC Integration
+      summary: Set the OIDC configuration
+      description: Requires **System Administration** permission.
+      operationId: setOIDCConfig
+      parameters:
+        - $ref: '#/components/parameters/ipdIdPathParam'
+      requestBody:
+        description: The configuration to be set.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OIDCConfigRequestSchema'
+      responses:
+        '200':
+          $ref: '#/components/responses/OIDCConfigResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    delete:
+      tags:
+        - OIDC Integration
+      summary: Delete the OIDC configuration
+      description: Requires **System Administration** permission.
+      operationId: deleteOIDCConfig
+      parameters:
+        - $ref: '#/components/parameters/ipdIdPathParam'
+      responses:
+        '204':
+          description: The configuration was successfully deleted
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+servers:
+  - url: https://api.{mas-instance-id}.{mas-domain}
+    variables:
+      mas-instance-id:
+        default: masdev
+        description: The id of the Maximo Application Suite Instance
+      mas-domain:
+        default: your.masdomain.com
+        description: Domain of the Maximo Application Suite Instance
+components:
+  securitySchemes:
+    JWT_Token:
+      description: ''
+      type: apiKey
+      name: x-access-token
+      in: header
+  parameters:
+    ipdIdPathParam:
+      name: idpId
+      in: path
+      description: IDP Id
+      required: true
+      schema:
+        type: string
+        minLength: 3
+        maxLength: 24
+  schemas:
+    LDAPTestResult:
+      type: object
+      required:
+        - success
+      properties:
+        success:
+          type: boolean
+          example: true
+    LDAPConfigRequestSchema:
+      type: object
+      required:
+        - url
+        - baseDN
+        - bindDN
+        - bindPassword
+        - userIdMap
+        - certificates
+      x-input-order:
+        - displayName
+        - url
+        - bindDN
+        - bindPassword
+        - baseDN
+        - userIdMap
+        - certificates
+      x-secret-input:
+        bindDN: ldap.credentials.secretName
+        bindPassword: ldap.credentials.secretName
+      x-cert-retrieval:
+        certProperty: certificates
+        certInputs:
+          - url
+      properties:
+        displayName:
+          type: string
+          pattern: '^(?=.{3,300}$)\w+(?: \w+)*$|^$'
+          example: LDAP
+        url:
+          type: string
+          minLength: 3
+          maxLength: 500
+          pattern: ^ldaps://
+          example: ldaps://ldap.ibm.com:636
+          x-input-weight: 1
+        baseDN:
+          type: string
+          example: dc=example,dc=com
+        bindDN:
+          type: string
+          example: uid=gauss,dc=example,dc=com
+        bindPassword:
+          type: string
+          format: password
+          example: p@ssw0rd
+          x-hide-confirm-password: true
+        userIdMap:
+          type: string
+          example: cn
+        certificates:
+          description: >-
+            A list of aliases and PEM-formatted certificates representing a
+            complete chain of trust for the host. Only necessary if the host
+            presents a certificate signed by a CA that is not already trusted by
+            MAS.
+          type: array
+          x-input-type: certificateList
+          items:
+            type: object
+            required:
+              - alias
+              - crt
+            properties:
+              alias:
+                type: string
+                pattern: ^[.&a-zA-Z0-9]{3,50}$
+                description: >-
+                  A human-readable alias for the certificate. Must be unique wrt
+                  the other aliases in this request.
+                example: intermediate
+              crt:
+                type: string
+                description: A SINGLE PEM-formatted certificate.
+                example: >-
+                  -----BEGIN CERTIFICATE-----MIIGxTCCBa2g...<snip>-----END
+                  CERTIFICATE-----
+    SamlSPConfigSchema:
+      type: object
+      required:
+        - issuer
+        - serviceProviderName
+        - nameIDFormat
+      properties:
+        spInitiatedLogout:
+          type: boolean
+          example: true
+        displayName:
+          type: string
+          pattern: '^(?=.{3,300}$)\w+(?: \w+)*$|^$'
+          example: SAML
+        issuer:
+          type: string
+          minLength: 3
+          maxLength: 500
+          pattern: ^(\d|[\w\-\@\.])+$
+          example: saml
+        serviceProviderName:
+          type: string
+          minLength: 3
+          maxLength: 500
+          pattern: ^(\d|[\w\-\@\.])+$
+          example: mas-instance-sp
+        nameIDFormat:
+          type: string
+          enum:
+            - customize
+            - email
+            - encrypted
+            - entity
+            - kerberos
+            - persistent
+            - transient
+            - unspecified
+            - windowsDomainQualifiedName
+            - x509SubjectName
+          example: email
+    SamlIDPConfigSchema:
+      type: string
+      format: binary
+      example: <EntityDescriptor>...</EntityDescriptor>
+    OIDCConfigRequestSchema:
+      type: object
+      required:
+        - clientId
+        - clientSecret
+        - certificates
+      x-input-order:
+        - displayName
+        - userIdentifier
+        - clientId
+        - clientSecret
+        - signatureAlgorithm
+        - discoveryEndpointUrl
+        - tokenEndpointAuthMethod
+        - tokenEndpointAuthSigningAlgorithm
+        - certificates
+        - issuerIdentifier
+        - authorizationEndpointUrl
+        - tokenEndpointUrl
+        - jwkEndpointUrl
+      x-secret-input:
+        clientSecret: oidc.credentials.secretName
+      x-cert-retrieval:
+        certProperty: certificates
+        certInputs:
+          - discoveryEndpointUrl
+      properties:
+        displayName:
+          type: string
+          pattern: '^(?=.{3,300}$)\w+(?: \w+)*$|^$'
+          example: OIDC
+        clientId:
+          type: string
+          example: my-client-id
+          minLength: 3
+          maxLength: 500
+          pattern: ^(\d|[\w\-\@\.])+$
+        clientSecret:
+          type: string
+          format: password
+          example: s3cr3t!
+          x-hide-confirm-password: true
+        discoveryEndpointUrl:
+          type: string
+          minLength: 3
+          maxLength: 1000
+          pattern: ^https://
+          example: https://issuer/.well-known/openid-configuration
+        issuerIdentifier:
+          type: string
+          minLength: 3
+          maxLength: 1000
+          pattern: ^https://
+          example: https://auth.mycompany.com
+        authorizationEndpointUrl:
+          type: string
+          example: https://auth.mycompany.com/oauth2/authorize
+        tokenEndpointUrl:
+          type: string
+          example: https://auth.mycompany.com/oauth2/token
+        jwkEndpointUrl:
+          type: string
+          minLength: 3
+          maxLength: 1000
+          pattern: ^https://
+          example: https://auth.mycompany.com/oauth2/keys
+        tokenEndpointAuthMethod:
+          x-input-type: dropdown
+          type: string
+          enum:
+            - post
+            - basic
+            - private_key_jwt
+          example: post
+          default: post
+        tokenEndpointAuthSigningAlgorithm:
+          type: string
+          enum:
+            - RS256
+            - RS384
+            - RS512
+            - ES256
+            - ES384
+            - ES512
+            - PS256
+            - PS384
+            - PS512
+          example: RS256
+          default: RS256
+        userIdentifier:
+          type: string
+          enum:
+            - sub
+            - preferred_username
+            - email
+            - name
+          example: sub
+          default: sub
+        signatureAlgorithm:
+          type: string
+          enum:
+            - RS256
+            - RS384
+            - RS512
+            - ES256
+            - ES384
+            - ES512
+            - PS256
+            - PS384
+            - PS512
+          example: RS256
+          default: RS256
+        certificates:
+          description: >-
+            A list of aliases and PEM-formatted certificates representing a
+            complete chain of trust for the host. Only necessary if the host
+            presents a certificate signed by a CA that is not already trusted by
+            MAS.
+          type: array
+          x-input-type: certificateList
+          items:
+            type: object
+            required:
+              - alias
+              - crt
+            properties:
+              alias:
+                type: string
+                pattern: ^[.&a-zA-Z0-9]{3,50}$
+                description: >-
+                  A human-readable alias for the certificate. Must be unique wrt
+                  the other aliases in this request.
+                example: intermediate
+              crt:
+                type: string
+                description: A SINGLE PEM-formatted certificate.
+                example: >-
+                  -----BEGIN CERTIFICATE-----MIIGxTCCBa2g...<snip>-----END
+                  CERTIFICATE-----
+    LDAPConfigResponseSchema:
+      type: object
+      required:
+        - metadata
+        - spec
+        - status
+      properties:
+        metadata:
+          $ref: '#/components/schemas/IDPConfigMetadataSchema'
+        spec:
+          $ref: '#/components/schemas/LDAPConfigSpecSchema'
+        status:
+          $ref: '#/components/schemas/IDPConfigStatusSchema'
+    SAMLConfigResponseSchema:
+      type: object
+      required:
+        - metadata
+        - spec
+        - status
+      properties:
+        metadata:
+          $ref: '#/components/schemas/IDPConfigMetadataSchema'
+        spec:
+          $ref: '#/components/schemas/SAMLConfigSpecSchema'
+        status:
+          $ref: '#/components/schemas/IDPConfigStatusSchema'
+    OIDCConfigResponseSchema:
+      type: object
+      required:
+        - metadata
+        - spec
+        - status
+      properties:
+        metadata:
+          $ref: '#/components/schemas/IDPConfigMetadataSchema'
+        spec:
+          $ref: '#/components/schemas/OIDCConfigSpecSchema'
+        status:
+          $ref: '#/components/schemas/IDPConfigStatusSchema'
+    IDPConfigMetadataSchema:
+      type: object
+      required:
+        - creationTimestamp
+      properties:
+        creationTimestamp:
+          type: string
+          example: '2020-02-20T13:54:00'
+        deletionTimestamp:
+          type: string
+          example: '2020-02-20T13:58:00'
+    LDAPConfigSpecSchema:
+      type: object
+      required:
+        - displayName
+        - ldap
+      properties:
+        displayName:
+          type: string
+          example: ldap
+        enabled:
+          type: boolean
+          description: Enable status for the specific OIDC IDP
+          example: true
+        visible:
+          type: boolean
+          description: Visible status for the specific OIDC IDP
+          example: true
+        ldap:
+          type: object
+          required:
+            - url
+            - baseDN
+            - userIdMap
+            - credentials
+          properties:
+            url:
+              type: string
+              minLength: 3
+              maxLength: 500
+              pattern: ^ldaps://
+              example: ldaps://ldap.ibm.com:636
+              description: URL of the LDAP server, including protocol and port
+            baseDN:
+              type: string
+              description: Base domain name
+              example: dc=example,dc=org
+            userIdMap:
+              type: string
+              description: Mapping rule for MAS username to a property in the LDAP registry
+              example: cn
+            credentials:
+              type: object
+              required:
+                - secretName
+              properties:
+                secretName:
+                  type: string
+                  description: >-
+                    Name of the secret containing the keys bindDN and
+                    bindPassword
+                  minLength: 1
+                  example: ldap-credentials
+        certificates:
+          $ref: '#/components/schemas/CertificatesSchema'
+    OIDCConfigSpecSchema:
+      type: object
+      required:
+        - displayName
+        - oidc
+      properties:
+        displayName:
+          type: string
+          example: oidc
+        enabled:
+          type: boolean
+          description: Enable status for the specific OIDC IDP
+          example: true
+        visible:
+          type: boolean
+          description: Visible status for the specific OIDC IDP
+          example: true
+        oidc:
+          type: object
+          required:
+            - clientId
+            - clientSecret
+          properties:
+            clientId:
+              type: string
+              example: my-client-id
+              minLength: 3
+              maxLength: 500
+              pattern: ^(\d|[\w\-\@\.])+$
+            clientSecret:
+              type: string
+              format: password
+              example: s3cr3t!
+              x-hide-confirm-password: true
+            discoveryEndpointUrl:
+              type: string
+              minLength: 3
+              maxLength: 1000
+              pattern: ^https://
+              example: https://issuer/.well-known/openid-configuration
+            issuerIdentifier:
+              type: string
+              minLength: 3
+              maxLength: 1000
+              pattern: ^https://
+              example: https://auth.mycompany.com
+            authorizationEndpointUrl:
+              type: string
+              example: https://auth.mycompany.com/oauth2/authorize
+            tokenEndpointUrl:
+              type: string
+              example: https://auth.mycompany.com/oauth2/token
+            jwkEndpointUrl:
+              type: string
+              minLength: 3
+              maxLength: 1000
+              pattern: ^https://
+              example: https://auth.mycompany.com/oauth2/keys
+            userIdentifier:
+              type: string
+              enum:
+                - sub
+                - preferred_username
+                - email
+                - name
+              example: sub
+            signatureAlgorithm:
+              type: string
+              enum:
+                - RS256
+                - RS384
+                - RS512
+                - ES256
+                - ES384
+                - ES512
+                - PS256
+                - PS384
+                - PS512
+              example: RS256
+            tokenEndpointAuthMethod:
+              type: string
+              enum:
+                - post
+                - basic
+                - private_key_jwt
+              example: post
+              default: post
+            tokenEndpointAuthSigningAlgorithm:
+              type: string
+              enum:
+                - RS256
+                - RS384
+                - RS512
+                - ES256
+                - ES384
+                - ES512
+                - PS256
+                - PS384
+                - PS512
+              example: RS256
+              default: RS256
+        certificates:
+          $ref: '#/components/schemas/CertificatesSchema'
+    SAMLConfigSpecSchema:
+      type: object
+      required:
+        - displayName
+        - saml
+      properties:
+        displayName:
+          type: string
+        enabled:
+          type: boolean
+          description: Enable status for the specific SAML IDP
+          example: true
+        visible:
+          type: boolean
+          description: Visible status for the specific SAML IDP
+          example: true
+        saml:
+          type: object
+          required:
+            - sp
+          properties:
+            sp:
+              type: object
+              required:
+                - issuer
+                - serviceProviderName
+                - nameIDFormat
+              properties:
+                spInitiatedLogout:
+                  type: boolean
+                  example: true
+                issuer:
+                  type: string
+                serviceProviderName:
+                  type: string
+                nameIDFormat:
+                  type: string
+            idp:
+              type: object
+              required:
+                - metadata
+              properties:
+                metadata:
+                  type: string
+                  format: byte
+                  description: IDP metadata file content (XML) base64 encoded
+        certificates:
+          $ref: '#/components/schemas/CertificatesSchema'
+    IDPConfigStatusSchema:
+      type: object
+      properties:
+        conditions:
+          type: array
+          items:
+            type: object
+            properties:
+              lastTransitionTime:
+                type: string
+                example: '2020-08-10T16:45:47Z'
+              reason:
+                type: string
+                example: Ready
+              message:
+                type: string
+                example: Configuration was updated successfully
+              status:
+                type: string
+                example: 'True'
+              type:
+                type: string
+                example: Ready
+        certificates:
+          $ref: '#/components/schemas/CertificatesSchema'
+        version:
+          type: object
+          required:
+            - reconciled
+          properties:
+            reconciled:
+              type: string
+              example: 8.4.0
+    CertificatesSchema:
+      type: array
+      description: >-
+        A list of aliases and PEM-formatted certificates representing a complete
+        chain of trust for the host. Only necessary if the host presents a
+        certificate signed by a CA that is not already trusted by MAS.
+      items:
+        type: object
+        required:
+          - alias
+          - crt
+        properties:
+          alias:
+            type: string
+            pattern: ^[-.&a-zA-Z0-9]{2,32}$
+            description: >-
+              A human-readable alias for the certificate. Must be unique wrt the
+              other aliases in this request.
+            example: intermediate
+          crt:
+            type: string
+            description: A SINGLE PEM-formatted certificate.
+            example: >-
+              -----BEGIN CERTIFICATE-----MIIGxTCCBa2g...<snip>-----END
+              CERTIFICATE-----
+  responses:
+    LDAPTestResult:
+      description: LDAP test result
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/LDAPTestResult'
+    LDAPConfigResponse:
+      description: External LDAP IDP configuration
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/LDAPConfigResponseSchema'
+    OIDCConfigResponse:
+      description: External OIDC IDP configuration
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/OIDCConfigResponseSchema'
+    SAMLConfigResponse:
+      description: External SAML IDP configuration
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SAMLConfigResponseSchema'
+    SamlIDPConfigResponse:
+      description: Saml Configuration for external IDP
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - creationTimestamp
+              - idpMetadata.xml
+            properties:
+              creationTimestamp:
+                type: string
+                example: '2020-02-20T13:54:00'
+              deletionTimestamp:
+                type: string
+                example: '2020-02-20T13:58:00'
+              idpMetadata.xml:
+                type: string
+                example: <EntityDescriptor>...</EntityDescriptor>
+    BadRequestError:
+      description: Bad Request
+      content:
+        application/json:
+          examples:
+            response:
+              value:
+                error: 400
+                message: 'CUDRS0001E: Invalid request'
+                exception:
+                  id: CUDRS0001E
+                  properties: []
+    UnauthorizedError:
+      description: Authentication token is empty or invalid
+      content:
+        application/json:
+          examples:
+            response:
+              value:
+                error: 401
+                message: 'CUDRS0001E: The authentication token is empty or invalid.'
+                exception:
+                  id: CUDRS0001E
+                  properties: []
+    ForbiddenError:
+      description: Authenticated user is not permitted to make the request
+      content:
+        application/json:
+          examples:
+            response:
+              value:
+                error: 403
+                message: >-
+                  CUDRS0001E: You are not permitted to perform the requested
+                  action.
+                exception:
+                  id: CUDRS0001E
+                  properties: []
+    ResourceNotFoundError:
+      description: The requested resource could not be found
+      content:
+        application/json:
+          examples:
+            response:
+              value:
+                error: 404
+                message: 'CUDRS0001E: The requested resource could not be found'
+                exception:
+                  id: CUDRS0001E
+                  properties: []
+    InternalServerError:
+      description: An internal server error occured
+      content:
+        application/json:
+          examples:
+            response:
+              value:
+                error: 500
+                message: >-
+                  CUDRS0001E: An internal server error occurred while processing
+                  your request
+                exception:
+                  id: CUDRS0001E
+                  properties: []

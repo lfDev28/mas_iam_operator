@@ -8,7 +8,7 @@ metadata:
           "apiVersion": "iam.mas.ibm.com/v1alpha1",
           "kind": "MasIamStack",
           "metadata": {
-            "name": "mas-iam-sample"
+            "name": "mas-est-iam"
           },
           "spec": {
             "keycloak": {
@@ -18,7 +18,7 @@ metadata:
               "bootstrapAdmin": {
                 "createSecret": false,
                 "passwordKey": "password",
-                "secretName": "mas-iam-sample-bootstrap-admin",
+                "secretName": "mas-est-iam-bootstrap-admin",
                 "username": "admin",
                 "usernameKey": "username"
               },
@@ -54,7 +54,7 @@ metadata:
                 "autoConfigureOnUpgrade": false,
                 "baseDn": "dc=demo,dc=local",
                 "bindCredentialKey": "password",
-                "bindCredentialSecret": "mas-iam-sample-openldap-admin",
+                "bindCredentialSecret": "mas-est-iam-openldap-admin",
                 "bindDn": "cn=admin,dc=demo,dc=local",
                 "cachePolicy": "DEFAULT",
                 "changedSyncPeriod": 600,
@@ -70,7 +70,7 @@ metadata:
                 "syncPeriod": 3600,
                 "tls": {
                   "caBundleKey": "ca.crt",
-                  "caSecret": "mas-iam-sample-keycloak-openldap-tls",
+                  "caSecret": "mas-est-iam-keycloak-openldap-tls",
                   "enabled": true,
                   "hostnameVerificationPolicy": "ANY",
                   "truststoreFile": "ldap-truststore.p12",
@@ -121,7 +121,7 @@ metadata:
                 "configPasswordKey": "configPassword",
                 "createSecret": false,
                 "passwordKey": "password",
-                "secretName": "mas-iam-sample-openldap-admin"
+                "secretName": "mas-est-iam-openldap-admin"
               },
               "affinity": {},
               "config": {
@@ -199,14 +199,14 @@ metadata:
                 "enabled": true,
                 "enforce": false,
                 "privateKeyKey": "tls.key",
-                "secretName": "mas-iam-sample-keycloak-openldap-tls",
+                "secretName": "mas-est-iam-keycloak-openldap-tls",
                 "truststoreKey": "ldap-truststore.p12",
                 "truststorePasswordKey": "truststorePassword"
               },
               "tolerations": [],
               "userPasswords": {
                 "createSecret": false,
-                "secretName": "mas-iam-sample-openldap-user-passwords"
+                "secretName": "mas-est-iam-openldap-user-passwords"
               }
             },
             "postgresql": {
@@ -224,7 +224,7 @@ metadata:
               "auth": {
                 "database": "keycloak",
                 "enablePostgresUser": true,
-                "existingSecret": "mas-iam-sample-postgresql",
+                "existingSecret": "mas-est-iam-postgresql",
                 "replicationUsername": "",
                 "secretKeys": {
                   "adminPasswordKey": "postgres-password",
@@ -898,10 +898,10 @@ metadata:
         }
       ]
     capabilities: Basic Install
-    createdAt: "2026-03-09T02:35:58Z"
+    createdAt: "2026-06-29T06:18:39Z"
     operators.operatorframework.io/builder: operator-sdk-v1.33.0
     operators.operatorframework.io/project_layout: helm.sdk.operatorframework.io/v1
-  name: mas-iam-operator.v0.0.11
+  name: mas-iam-operator.v0.0.14
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -1079,7 +1079,7 @@ spec:
                 - --metrics-bind-address=127.0.0.1:8080
                 - --leader-elect
                 - --leader-election-id=mas-iam-operator
-                image: quay.io/lee_forster/mas-iam-operator:0.0.11
+                image: quay.io/lee_forster/mas-iam-operator:0.0.14
                 imagePullPolicy: Always
                 livenessProbe:
                   httpGet:
@@ -1167,4 +1167,4 @@ spec:
   provider:
     name: Provider Name
     url: https://your.domain
-  version: 0.0.11
+  version: 0.0.14

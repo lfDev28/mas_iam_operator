@@ -2,6 +2,7 @@ package app
 
 import (
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -14,12 +15,12 @@ type RootOptions struct {
 
 func NewRootCommand() *cobra.Command {
 	rootOptions := &RootOptions{
-		RepoRoot: os.Getenv(config.EnvRepoRoot),
+		RepoRoot: firstEnv(config.EnvRepoRoot, config.LegacyEnvRepoRoot),
 	}
 
 	command := &cobra.Command{
-		Use:           "mas-iam",
-		Short:         "Install and manage MAS IAM on OpenShift",
+		Use:           "mas-est",
+		Short:         "Install and manage MAS external services on OpenShift",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
@@ -34,11 +35,16 @@ func NewRootCommand() *cobra.Command {
 	command.AddCommand(
 		bootstrapCommand,
 		newInstallCommand(rootOptions),
-		newWipeCommand(rootOptions),
+		newUninstallCommand(rootOptions),
 		newPreflightCommand(),
 		newStatusCommand(),
 		newSupportBundleCommand(),
 		newConfigCommand(),
+		newRestartCommand(),
+		newMASAuthCommand(),
+		newObjectStorageCommand(),
+		newSMTPCommand(),
+		newDetailsCommand(),
 		newLogsCommand(),
 		newLDAPInfoCommand(),
 		newVersionCommand(),
@@ -46,4 +52,13 @@ func NewRootCommand() *cobra.Command {
 	)
 
 	return command
+}
+
+func firstEnv(names ...string) string {
+	for _, name := range names {
+		if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+			return value
+		}
+	}
+	return ""
 }

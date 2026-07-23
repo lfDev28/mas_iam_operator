@@ -22,14 +22,15 @@ type wipeOptions struct {
 	yes            bool
 }
 
-func newWipeCommand(root *RootOptions) *cobra.Command {
+func newUninstallCommand(root *RootOptions) *cobra.Command {
 	opts := &wipeOptions{
 		config: config.LoadWipeConfigFromEnv(),
 	}
 
 	command := &cobra.Command{
-		Use:   "wipe",
-		Short: "Remove the MAS IAM namespace and optional MAS profile data",
+		Use:     "uninstall",
+		Aliases: []string{"wipe"},
+		Short:   "Remove the MAS EST namespace and optional MAS profile data",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return opts.run(cmd.Context(), root)
 		},
@@ -43,7 +44,7 @@ func newWipeCommand(root *RootOptions) *cobra.Command {
 	flags.StringVar(&opts.config.MASAPITokenName, "mas-api-token-name", opts.config.MASAPITokenName, "MAS API token name for profile deletion")
 	flags.StringVar(&opts.config.MASAPITokenValue, "mas-api-token-value", opts.config.MASAPITokenValue, "MAS API token value for profile deletion")
 	flags.BoolVar(&opts.nonInteractive, "non-interactive", false, "Disable prompts and require flags/env vars")
-	flags.BoolVarP(&opts.yes, "yes", "y", false, "Confirm destructive wipe without prompting")
+	flags.BoolVarP(&opts.yes, "yes", "y", false, "Confirm destructive uninstall without prompting")
 
 	return command
 }
@@ -59,7 +60,7 @@ func (o *wipeOptions) run(ctx context.Context, root *RootOptions) error {
 		if err != nil {
 			return err
 		}
-		ui.PrintClusterContext("Wipe", cluster.User, cluster.Server, cfg.Namespace, "")
+		ui.PrintClusterContext("Uninstall", cluster.User, cluster.Server, cfg.Namespace, "")
 
 		updated, err := ui.PromptWipe(cfg)
 		if err != nil {
@@ -71,7 +72,7 @@ func (o *wipeOptions) run(ctx context.Context, root *RootOptions) error {
 			return err
 		}
 		if !confirmed {
-			fmt.Fprintln(os.Stdout, "[result] wipe cancelled")
+			fmt.Fprintln(os.Stdout, "[result] uninstall cancelled")
 			return nil
 		}
 	} else {
@@ -79,7 +80,7 @@ func (o *wipeOptions) run(ctx context.Context, root *RootOptions) error {
 			return err
 		}
 		if !o.yes {
-			return fmt.Errorf("--yes is required in non-interactive mode for wipe")
+			return fmt.Errorf("--yes is required in non-interactive mode for uninstall")
 		}
 	}
 
@@ -90,7 +91,7 @@ func (o *wipeOptions) run(ctx context.Context, root *RootOptions) error {
 
 	output := io.Writer(os.Stdout)
 	logPath := ""
-	if logFile, path, err := logging.OpenRunLog(paths.RepoRoot, "wipe"); err == nil {
+	if logFile, path, err := logging.OpenRunLog(paths.RepoRoot, "uninstall"); err == nil {
 		defer logFile.Close()
 		output = io.MultiWriter(os.Stdout, logFile)
 		logPath = path
@@ -101,11 +102,11 @@ func (o *wipeOptions) run(ctx context.Context, root *RootOptions) error {
 
 	if err := installer.RunWipe(ctx, executil.NewRunner(), paths, cfg, output); err != nil {
 		if logPath != "" {
-			fmt.Fprintf(os.Stderr, "[result] wipe failed; see %s\n", logPath)
+			fmt.Fprintf(os.Stderr, "[result] uninstall failed; see %s\n", logPath)
 		}
 		return err
 	}
 
-	fmt.Fprintln(output, "[result] wipe completed")
+	fmt.Fprintln(output, "[result] uninstall completed")
 	return nil
 }

@@ -6,14 +6,14 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: mas-iam-sample-openldap-tls-generator
-  namespace: iam
+  name: mas-est-iam-openldap-tls-generator
+  namespace: mas-est
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: mas-iam-sample-openldap-tls-generator
-  namespace: iam
+  name: mas-est-iam-openldap-tls-generator
+  namespace: mas-est
 rules:
 - apiGroups: [""]
   resources: ["secrets"]
@@ -22,21 +22,21 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: mas-iam-sample-openldap-tls-generator
-  namespace: iam
+  name: mas-est-iam-openldap-tls-generator
+  namespace: mas-est
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: mas-iam-sample-openldap-tls-generator
+  name: mas-est-iam-openldap-tls-generator
 subjects:
 - kind: ServiceAccount
-  name: mas-iam-sample-openldap-tls-generator
-  namespace: iam
+  name: mas-est-iam-openldap-tls-generator
+  namespace: mas-est
 ---
 apiVersion: security.openshift.io/v1
 kind: SecurityContextConstraints
 metadata:
-  name: mas-iam-openldap-tls-generator
+  name: mas-est-iam-openldap-tls-generator
   annotations:
     kubernetes.io/description: SCC scoped to the TLS generator job for dev installs.
 priority: 5
@@ -70,17 +70,17 @@ volumes:
 - projected
 - secret
 users:
-- system:serviceaccount:iam:mas-iam-sample-openldap-tls-generator
+- system:serviceaccount:mas-est:mas-est-iam-openldap-tls-generator
 groups: []
 ---
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: mas-iam-sample-generate-openldap-tls
-  namespace: iam
+  name: mas-est-iam-generate-openldap-tls
+  namespace: mas-est
   labels:
     app.kubernetes.io/component: openldap
-    app.kubernetes.io/instance: mas-iam-sample
+    app.kubernetes.io/instance: mas-est-iam
     app.kubernetes.io/name: keycloak
 spec:
   ttlSecondsAfterFinished: 300
@@ -88,11 +88,11 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/component: openldap
-        app.kubernetes.io/instance: mas-iam-sample
+        app.kubernetes.io/instance: mas-est-iam
         app.kubernetes.io/name: keycloak
     spec:
       restartPolicy: OnFailure
-      serviceAccountName: mas-iam-sample-openldap-tls-generator
+      serviceAccountName: mas-est-iam-openldap-tls-generator
       containers:
       - name: generate
         image: quay.io/lee_forster/openldap-tls-generator:0.1.0
@@ -103,7 +103,7 @@ spec:
           runAsUser: 10001
         env:
         - name: OPENLDAP_RELEASE
-          value: mas-iam-sample
+          value: mas-est-iam
         - name: LDAP_TRUSTSTORE_PASSWORD
           value: ""
         command:
@@ -126,7 +126,7 @@ spec:
           fi
 
           namespace="${TARGET_NAMESPACE:-$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace)}"
-          release="${OPENLDAP_RELEASE:-mas-iam-sample}"
+          release="${OPENLDAP_RELEASE:-mas-est-iam}"
           truststore_password="${LDAP_TRUSTSTORE_PASSWORD:-}"
           if [[ -z "${truststore_password}" || "${truststore_password}" == "random" ]]; then
             while true; do
@@ -193,7 +193,7 @@ spec:
             --overwrite
 
           "${kubectl_bin}" "${kubectl_args[@]}" annotate secret "${secret}" \
-            mas.ibm.com/generated-by=mas-iam-dev \
+            mas.ibm.com/generated-by=mas-est-dev \
             mas.ibm.com/description="Self-signed TLS material for the Keycloak/OpenLDAP integration (development use only)." \
             --overwrite
 
@@ -205,8 +205,8 @@ spec:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: mas-iam-sample-bootstrap-admin
-  namespace: iam
+  name: mas-est-iam-bootstrap-admin
+  namespace: mas-est
 type: Opaque
 stringData:
   username: admin
@@ -215,8 +215,8 @@ stringData:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: mas-iam-sample-openldap-admin
-  namespace: iam
+  name: mas-est-iam-openldap-admin
+  namespace: mas-est
 type: Opaque
 stringData:
   password: maxadmin
@@ -225,20 +225,28 @@ stringData:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: mas-iam-sample-openldap-user-passwords
-  namespace: iam
+  name: mas-est-iam-openldap-user-passwords
+  namespace: mas-est
 type: Opaque
 stringData:
+  # NOTE: The operator's chart bundle still ships the old LDIF (sysadmin,
+  # jane.doe, joe.bloggs, alex.manager). Until the operator image is rebuilt
+  # with the trimmed dev-base.ldif, these keys must remain — they correspond
+  # to the @@PASSWORD{...}@@ placeholders the seed-init container expects.
+  # The SCIM bridge filter (include-username-prefix: scim.) ensures none of
+  # these legacy users reach MAS Core via the bridge.
   sysadmin: maxadmin
   jane.doe: maxadmin
   joe.bloggs: maxadmin
   alex.manager: maxadmin
+  ldap.user1: maxadmin
+  ldap.user2: maxadmin
 ---
 apiVersion: v1
 kind: Secret
 metadata:
-  name: mas-iam-sample-postgresql
-  namespace: iam
+  name: mas-est-iam-postgresql
+  namespace: mas-est
 type: Opaque
 stringData:
   password: maxadmin
@@ -250,18 +258,18 @@ stringData:
 apiVersion: iam.mas.ibm.com/v1alpha1
 kind: MasIamStack
 metadata:
-  name: mas-iam-sample
-  namespace: iam
+  name: mas-est-iam
+  namespace: mas-est
 spec:
   # Create the referenced secrets before applying this sample:
-  # - mas-iam-sample-bootstrap-admin (username, password)
-  # - mas-iam-sample-openldap-admin (password, configPassword if enabled)
-  # - mas-iam-sample-openldap-user-passwords (one key per seeded user)
-  # - mas-iam-sample-postgresql (password, postgres-password, replication-password if used)
+  # - mas-est-iam-bootstrap-admin (username, password)
+  # - mas-est-iam-openldap-admin (password, configPassword if enabled)
+  # - mas-est-iam-openldap-user-passwords (one key per seeded user)
+  # - mas-est-iam-postgresql (password, postgres-password, replication-password if used)
   keycloak:
     bootstrapAdmin:
       createSecret: false
-      secretName: mas-iam-sample-bootstrap-admin
+      secretName: mas-est-iam-bootstrap-admin
     scim:
       enabled: false
       authenticationMode: KEYCLOAK
@@ -269,29 +277,29 @@ spec:
       autoConfigure: true
       autoConfigureOnUpgrade: false
       # Populate with the name of the secret containing LDAP bind credentials.
-      bindCredentialSecret: mas-iam-sample-openldap-admin
+      bindCredentialSecret: mas-est-iam-openldap-admin
       # Provide the ldaps:// endpoint for your LDAP server.
-      connectionUrl: "ldaps://mas-iam-sample-openldap.iam.svc.cluster.local:636"
+      connectionUrl: "ldaps://mas-est-iam-openldap.mas-est.svc.cluster.local:636"
       tls:
         enabled: true
-        caSecret: mas-iam-sample-keycloak-openldap-tls
-        truststorePasswordSecret: mas-iam-sample-keycloak-openldap-tls
+        caSecret: mas-est-iam-keycloak-openldap-tls
+        truststorePasswordSecret: mas-est-iam-keycloak-openldap-tls
         truststorePasswordKey: truststorePassword
   openldap:
     enabled: true
     admin:
       createSecret: false
-      secretName: mas-iam-sample-openldap-admin
+      secretName: mas-est-iam-openldap-admin
     userPasswords:
       createSecret: false
-      secretName: mas-iam-sample-openldap-user-passwords
+      secretName: mas-est-iam-openldap-user-passwords
   postgresql:
     auth:
-      existingSecret: mas-iam-sample-postgresql
+      existingSecret: mas-est-iam-postgresql
     global:
       postgresql:
         auth:
-          existingSecret: mas-iam-sample-postgresql
+          existingSecret: mas-est-iam-postgresql
     primary:
       persistence:
         # scripts/install-olm-sample.sh injects an explicit storageClass here.

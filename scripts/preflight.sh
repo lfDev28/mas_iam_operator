@@ -14,7 +14,7 @@ Optional environment variables:
 EOF
 }
 
-NAMESPACE="${TARGET_NAMESPACE:-iam}"
+NAMESPACE="${TARGET_NAMESPACE:-mas-est}"
 POSTGRES_STORAGE_CLASS="${POSTGRES_STORAGE_CLASS:-}"
 
 while [[ $# -gt 0 ]]; do

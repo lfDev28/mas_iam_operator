@@ -8,67 +8,42 @@ objectClass: organizationalUnit
 ou: groups
 
 # Demo groups
-dn: cn=admins,ou=groups,dc=demo,dc=local
+dn: cn=ldap-users,ou=groups,dc=demo,dc=local
 objectClass: groupOfUniqueNames
-cn: admins
-uniqueMember: cn=sysadmin,ou=users,dc=demo,dc=local
-uniqueMember: cn=jane.doe,ou=users,dc=demo,dc=local
+cn: ldap-users
+uniqueMember: cn=ldap.user1,ou=users,dc=demo,dc=local
+uniqueMember: cn=ldap.user2,ou=users,dc=demo,dc=local
 
 
-dn: cn=developers,ou=groups,dc=demo,dc=local
+dn: cn=ldap-admins,ou=groups,dc=demo,dc=local
 objectClass: groupOfUniqueNames
-cn: developers
-uniqueMember: cn=jane.doe,ou=users,dc=demo,dc=local
-uniqueMember: cn=joe.bloggs,ou=users,dc=demo,dc=local
-
-
-dn: cn=viewers,ou=groups,dc=demo,dc=local
-objectClass: groupOfUniqueNames
-cn: viewers
-uniqueMember: cn=alex.manager,ou=users,dc=demo,dc=local
-uniqueMember: cn=joe.bloggs,ou=users,dc=demo,dc=local
+cn: ldap-admins
+uniqueMember: cn=ldap.user1,ou=users,dc=demo,dc=local
 
 # Users
+# Two demo users intended to log in via the MAS LDAP identity provider.
+# MAS creates the user record on first login via its LDAP self-registration
+# path; the SCIM bridge skips them (its include-username-prefix is "scim.").
 
-## sysadmin
-dn: cn=sysadmin,ou=users,dc=demo,dc=local
+dn: cn=ldap.user1,ou=users,dc=demo,dc=local
 objectClass: inetOrgPerson
 objectClass: organizationalPerson
 objectClass: person
-cn: sysadmin
-sn: Admin
-uid: sysadmin
-mail: sysadmin@demo.local
-userPassword: @@PASSWORD{sysadmin}@@
+cn: ldap.user1
+sn: One
+givenName: LDAP
+uid: ldap.user1
+mail: ldap.user1@demo.local
+userPassword: @@PASSWORD{ldap.user1}@@
 
-dn: cn=jane.doe,ou=users,dc=demo,dc=local
+
+dn: cn=ldap.user2,ou=users,dc=demo,dc=local
 objectClass: inetOrgPerson
 objectClass: organizationalPerson
 objectClass: person
-cn: jane.doe
-sn: Doe
-uid: jane.doe
-mail: jane.doe@demo.local
-userPassword: @@PASSWORD{jane.doe}@@
-
-
-dn: cn=joe.bloggs,ou=users,dc=demo,dc=local
-objectClass: inetOrgPerson
-objectClass: organizationalPerson
-objectClass: person
-cn: joe.bloggs
-sn: Bloggs
-uid: joe.bloggs
-mail: joe.bloggs@demo.local
-userPassword: @@PASSWORD{joe.bloggs}@@
-
-
-dn: cn=alex.manager,ou=users,dc=demo,dc=local
-objectClass: inetOrgPerson
-objectClass: organizationalPerson
-objectClass: person
-cn: alex.manager
-sn: Manager
-uid: alex.manager
-mail: alex.manager@demo.local
-userPassword: @@PASSWORD{alex.manager}@@
+cn: ldap.user2
+sn: Two
+givenName: LDAP
+uid: ldap.user2
+mail: ldap.user2@demo.local
+userPassword: @@PASSWORD{ldap.user2}@@

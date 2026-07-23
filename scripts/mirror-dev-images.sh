@@ -8,7 +8,7 @@ Usage: mirror-dev-images.sh [--dest <registry/path>] [--dry-run]
 
 Mirrors the upstream OpenLDAP and PostgreSQL container images to a target
 registry while preserving the full multi-architecture manifest list (amd64 and
-arm64). This keeps the MAS IAM development manifests pinned to a single
+arm64). This keeps the MAS EST IAM development manifests pinned to a single
 registry (default: quay.io/lee_forster/mas-iam-operator) without breaking on
 clusters whose nodes have a different CPU architecture.
 

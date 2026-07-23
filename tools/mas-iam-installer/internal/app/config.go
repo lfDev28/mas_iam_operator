@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -26,6 +27,8 @@ const (
 
 	masAPITokenNameKey  = "SCIM_BRIDGE_MAS_API_TOKEN_NAME"
 	masAPITokenValueKey = "SCIM_BRIDGE_MAS_API_TOKEN_VALUE"
+	bridgeLogLevelKey   = "SCIM_BRIDGE_BRIDGE_LOG_LEVEL"
+	bridgePayloadLogKey = "SCIM_BRIDGE_BRIDGE_PAYLOAD_LOGGING"
 )
 
 type runtimeConfigOptions struct {
@@ -36,6 +39,12 @@ type runtimeConfigSetMASAPITokenOptions struct {
 	namespace  string
 	tokenName  string
 	tokenValue string
+}
+
+type runtimeConfigSetBridgeOptions struct {
+	namespace      string
+	logLevel       string
+	payloadLogging string
 }
 
 func newConfigCommand() *cobra.Command {
@@ -86,6 +95,22 @@ func newConfigSetCommand(defaultNamespace string) *cobra.Command {
 	flags.StringVar(&masAPITokenOpts.tokenValue, "token-value", "", "New MAS API token value")
 
 	command.AddCommand(masAPITokenCommand)
+	bridgeOpts := &runtimeConfigSetBridgeOptions{
+		namespace: defaultNamespace,
+	}
+	bridgeCommand := &cobra.Command{
+		Use:   "bridge",
+		Short: "Update SCIM bridge non-secret runtime settings",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return bridgeOpts.run(cmd.Context())
+		},
+	}
+	bridgeFlags := bridgeCommand.Flags()
+	bridgeFlags.StringVar(&bridgeOpts.namespace, "namespace", bridgeOpts.namespace, "Target namespace")
+	bridgeFlags.StringVar(&bridgeOpts.logLevel, "log-level", "", "Bridge log level: debug, info, warn, or error")
+	bridgeFlags.StringVar(&bridgeOpts.payloadLogging, "payload-logging", "", "Enable or disable redacted outbound SCIM payload logging: true or false")
+	command.AddCommand(bridgeCommand)
 	return command
 }
 
@@ -143,16 +168,52 @@ func (o *runtimeConfigSetMASAPITokenOptions) run(ctx context.Context) error {
 	}
 	fmt.Fprintf(os.Stdout, "Updated secret/%s in namespace %s keys: %s, %s\n", scimBridgeSecretName, namespace, masAPITokenNameKey, masAPITokenValueKey)
 
-	if _, err := client.RolloutRestart(ctx, namespace, scimBridgeDeployment); err != nil {
-		return fmt.Errorf("restart %s in namespace %s: %w", scimBridgeDeployment, namespace, err)
-	}
-	fmt.Fprintf(os.Stdout, "Restarted %s in namespace %s\n", scimBridgeDeployment, namespace)
+	return restartBridge(ctx, client, namespace)
+}
 
-	if _, err := client.RolloutStatus(ctx, namespace, scimBridgeDeployment, "5m"); err != nil {
-		return fmt.Errorf("wait for %s rollout in namespace %s: %w", scimBridgeDeployment, namespace, err)
+func (o *runtimeConfigSetBridgeOptions) run(ctx context.Context) error {
+	updates := map[string]string{}
+	if strings.TrimSpace(o.logLevel) != "" {
+		logLevel := strings.ToLower(strings.TrimSpace(o.logLevel))
+		switch logLevel {
+		case "debug", "info", "warn", "error":
+			updates[bridgeLogLevelKey] = logLevel
+		default:
+			return fmt.Errorf("--log-level must be debug, info, warn, or error")
+		}
 	}
-	fmt.Fprintf(os.Stdout, "Rollout complete for %s in namespace %s\n", scimBridgeDeployment, namespace)
-	return nil
+	if strings.TrimSpace(o.payloadLogging) != "" {
+		enabled, err := strconv.ParseBool(strings.TrimSpace(o.payloadLogging))
+		if err != nil {
+			return fmt.Errorf("--payload-logging must be true or false")
+		}
+		updates[bridgePayloadLogKey] = strconv.FormatBool(enabled)
+	}
+	if len(updates) == 0 {
+		return fmt.Errorf("set at least one bridge setting: --log-level or --payload-logging")
+	}
+
+	runner := executil.NewRunner()
+	client := oc.NewClient(runner)
+	if _, err := ensureClusterLogin(ctx, runner, client, ui.IsInteractive()); err != nil {
+		return err
+	}
+
+	namespace := defaultedNamespace(o.namespace)
+	patch, err := configMapMergePatch(updates)
+	if err != nil {
+		return err
+	}
+
+	if _, err := client.Patch(ctx, namespace, "configmap/"+scimBridgeConfigMapName, patch); err != nil {
+		return fmt.Errorf("update configmap/%s in namespace %s: %w", scimBridgeConfigMapName, namespace, err)
+	}
+	fmt.Fprintf(os.Stdout, "Updated configmap/%s in namespace %s keys: %s\n", scimBridgeConfigMapName, namespace, strings.Join(sortedMapKeys(updates), ", "))
+	if value, ok := updates[bridgePayloadLogKey]; ok && value == "true" {
+		fmt.Fprintln(os.Stdout, "Warning: payload logging is enabled for support debugging. Logs may contain customer-sensitive identity data even after redaction.")
+	}
+
+	return restartBridge(ctx, client, namespace)
 }
 
 func defaultedNamespace(namespace string) string {
@@ -210,4 +271,40 @@ func masAPITokenSecretMergePatch(tokenName, tokenValue string) ([]byte, error) {
 		return nil, fmt.Errorf("encode secret/%s patch: %w", scimBridgeSecretName, err)
 	}
 	return raw, nil
+}
+
+func configMapMergePatch(data map[string]string) ([]byte, error) {
+	patch := struct {
+		Data map[string]string `json:"data"`
+	}{
+		Data: data,
+	}
+
+	raw, err := json.Marshal(patch)
+	if err != nil {
+		return nil, fmt.Errorf("encode configmap/%s patch: %w", scimBridgeConfigMapName, err)
+	}
+	return raw, nil
+}
+
+func sortedMapKeys(data map[string]string) []string {
+	keys := make([]string, 0, len(data))
+	for key := range data {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func restartBridge(ctx context.Context, client *oc.Client, namespace string) error {
+	if _, err := client.RolloutRestart(ctx, namespace, scimBridgeDeployment); err != nil {
+		return fmt.Errorf("restart %s in namespace %s: %w", scimBridgeDeployment, namespace, err)
+	}
+	fmt.Fprintf(os.Stdout, "Restarted %s in namespace %s\n", scimBridgeDeployment, namespace)
+
+	if _, err := client.RolloutStatus(ctx, namespace, scimBridgeDeployment, "5m"); err != nil {
+		return fmt.Errorf("wait for %s rollout in namespace %s: %w", scimBridgeDeployment, namespace, err)
+	}
+	fmt.Fprintf(os.Stdout, "Rollout complete for %s in namespace %s\n", scimBridgeDeployment, namespace)
+	return nil
 }

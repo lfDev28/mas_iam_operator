@@ -21,12 +21,13 @@ type Settings struct {
 
 // KeycloakConfig controls how we talk to the source realm.
 type KeycloakConfig struct {
-	BaseURL            string
-	Realm              string
-	ClientID           string
-	ClientSecret       string
-	CAFile             string
-	InsecureSkipVerify bool
+	BaseURL               string
+	Realm                 string
+	ClientID              string
+	ClientSecret          string
+	CAFile                string
+	InsecureSkipVerify    bool
+	IncludeFederatedUsers bool
 }
 
 // MASConfig captures how we address MAS SCIM endpoints.
@@ -41,6 +42,7 @@ type MASConfig struct {
 	APITokenName        string
 	APITokenValue       string
 	InsecureSkipVerify  bool
+	PayloadLogging      bool
 }
 
 // BridgeConfig tunes runtime behavior for the reconciler.
@@ -53,6 +55,8 @@ type BridgeConfig struct {
 	AllowUpdates          bool
 	IncludeUsernames      []string
 	IncludeUsernamePrefix string
+	LogLevel              string
+	PayloadLogging        bool
 }
 
 // DefaultSettings seeds sane defaults for the CLI/env overrides.
@@ -75,6 +79,8 @@ func DefaultSettings() Settings {
 			AllowUpdates:          true,
 			IncludeUsernames:      nil,
 			IncludeUsernamePrefix: "",
+			LogLevel:              "info",
+			PayloadLogging:        false,
 		},
 	}
 }
@@ -94,6 +100,10 @@ func ApplyEnvOverrides(cfg *Settings) error {
 		{envName("KEYCLOAK_CA_FILE"), func(v string) error { cfg.Keycloak.CAFile = v; return nil }},
 		{envName("KEYCLOAK_INSECURE_SKIP_VERIFY"), func(v string) error {
 			cfg.Keycloak.InsecureSkipVerify = v == "1" || strings.EqualFold(v, "true")
+			return nil
+		}},
+		{envName("KEYCLOAK_INCLUDE_FEDERATED_USERS"), func(v string) error {
+			cfg.Keycloak.IncludeFederatedUsers = v == "1" || strings.EqualFold(v, "true")
 			return nil
 		}},
 		{envName("MAS_BASE_URL"), func(v string) error { cfg.MAS.BaseURL = v; return nil }},
@@ -148,6 +158,11 @@ func ApplyEnvOverrides(cfg *Settings) error {
 		}},
 		{envName("BRIDGE_ALLOW_UPDATES"), func(v string) error {
 			cfg.Bridge.AllowUpdates = !(v == "0" || strings.EqualFold(v, "false"))
+			return nil
+		}},
+		{envName("BRIDGE_LOG_LEVEL"), func(v string) error { cfg.Bridge.LogLevel = strings.ToLower(strings.TrimSpace(v)); return nil }},
+		{envName("BRIDGE_PAYLOAD_LOGGING"), func(v string) error {
+			cfg.Bridge.PayloadLogging = v == "1" || strings.EqualFold(v, "true")
 			return nil
 		}},
 		{envName("INCLUDE_USERNAMES"), func(v string) error { cfg.Bridge.IncludeUsernames = ParseList(v); return nil }},
@@ -205,14 +220,19 @@ func (s Settings) Validate() error {
 		return fmt.Errorf("mas auth type must be 'api-key' or 'jwt'")
 	}
 	switch s.Bridge.Mode {
-	case "poll", "event", "hybrid", "run-once", "backfill":
+	case "poll", "hybrid", "run-once", "backfill":
 	default:
-		return fmt.Errorf("bridge mode must be poll, event, hybrid, run-once, or backfill")
+		return fmt.Errorf("bridge mode must be poll, hybrid, run-once, or backfill")
 	}
 	switch s.Bridge.StateBackend {
 	case "memory", "filesystem", "postgresql":
 	default:
 		return fmt.Errorf("state backend must be memory, filesystem, or postgresql")
+	}
+	switch s.Bridge.LogLevel {
+	case "debug", "info", "warn", "error":
+	default:
+		return fmt.Errorf("bridge log level must be debug, info, warn, or error")
 	}
 	if s.Bridge.StateBackend == "filesystem" && s.Bridge.StatePath == "" {
 		return fmt.Errorf("bridge.state_path is required when state backend is filesystem")

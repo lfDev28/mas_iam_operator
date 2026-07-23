@@ -68,8 +68,9 @@ render_template_file() {
   local out_path="$2"
   local vars_csv="${3:-}"
 
-  if [[ -n "${MAS_IAM_RENDERER_BINARY:-}" && -x "${MAS_IAM_RENDERER_BINARY}" ]]; then
-    "${MAS_IAM_RENDERER_BINARY}" render-template --vars "${vars_csv}" "${template_path}" "${out_path}"
+  local renderer_binary="${MAS_EST_RENDERER_BINARY:-${MAS_IAM_RENDERER_BINARY:-}}"
+  if [[ -n "${renderer_binary}" && -x "${renderer_binary}" ]]; then
+    "${renderer_binary}" render-template --vars "${vars_csv}" "${template_path}" "${out_path}"
     return
   fi
 
@@ -116,6 +117,23 @@ ensure_namespace_exists() {
     log_install "creating namespace ${namespace}"
     oc create namespace "${namespace}" >/dev/null
   fi
+}
+
+render_namespace_manifest() {
+  local input="$1"
+  local output="$2"
+  local namespace="$3"
+
+  awk -v ns="${namespace}" '
+    {
+      gsub(/namespace: mas-est/, "namespace: " ns)
+      gsub(/system:serviceaccount:mas-est:/, "system:serviceaccount:" ns ":")
+      if ($0 ~ /^[[:space:]]*- mas-est$/) {
+        sub(/mas-est$/, ns)
+      }
+      print
+    }
+  ' "${input}" > "${output}"
 }
 
 prime_last_applied_annotations() {
@@ -229,7 +247,7 @@ wait_for_operator_csv_succeeded() {
     elapsed=$((elapsed + 10))
   done
 
-  die "timed out waiting for the MAS IAM operator CSV to reach Succeeded in namespace ${namespace}"
+  die "timed out waiting for the MAS EST IAM operator CSV to reach Succeeded in namespace ${namespace}"
 }
 
 list_storage_classes() {

@@ -28,95 +28,201 @@ func PromptInstall(cfg config.InstallConfig, hints InstallDiscoveryHints, storag
 	if cfg.Namespace, err = askRequiredInput(
 		"Namespace",
 		cfg.Namespace,
-		"OpenShift namespace for the MAS IAM stack. Press Enter to accept the current default.",
+		"OpenShift namespace for the MAS EST services. Press Enter to accept the current default.",
 	); err != nil {
 		return cfg, err
 	}
-	if cfg.MASBaseURL, err = askMASBaseURL(cfg.MASBaseURL, hints.MASRoutes); err != nil {
-		return cfg, err
-	}
-	if cfg.MASAPITokenName, err = askRequiredInput(
-		"MAS API token name",
-		cfg.MASAPITokenName,
-		"SCIM API token name used to obtain the MAS JWT.",
-	); err != nil {
+	if cfg.Components, err = askInstallComponents(cfg.Components); err != nil {
 		return cfg, err
 	}
 
-	if cfg.MASAPITokenValue == "" {
-		if cfg.MASAPITokenValue, err = askRequiredSecret(
-			"MAS API token value",
-			"Secret value paired with the MAS API token name.",
+	selectedInstanceID := ""
+	if cfg.HasComponent(config.InstallComponentSCIM) {
+		if cfg.MASBaseURL, err = askMASBaseURL(cfg.MASBaseURL, hints.MASRoutes); err != nil {
+			return cfg, err
+		}
+		if cfg.MASAPITokenName, err = askRequiredInput(
+			"MAS API token name",
+			cfg.MASAPITokenName,
+			"SCIM API token name used to obtain the MAS JWT.",
 		); err != nil {
 			return cfg, err
 		}
-	} else {
-		useExisting := true
-		if err := askOne(&survey.Confirm{
-			Message: "Reuse MAS API token value from env or flags?",
-			Default: true,
-			Help:    "Answer No only if you want to type a different secret now.",
-		}, &useExisting); err != nil {
-			return cfg, err
-		}
-		if !useExisting {
+
+		if cfg.MASAPITokenValue == "" {
 			if cfg.MASAPITokenValue, err = askRequiredSecret(
 				"MAS API token value",
 				"Secret value paired with the MAS API token name.",
 			); err != nil {
 				return cfg, err
 			}
+		} else {
+			useExisting := true
+			if err := askOne(&survey.Confirm{
+				Message: "Reuse MAS API token value from env or flags?",
+				Default: true,
+				Help:    "Answer No only if you want to type a different secret now.",
+			}, &useExisting); err != nil {
+				return cfg, err
+			}
+			if !useExisting {
+				if cfg.MASAPITokenValue, err = askRequiredSecret(
+					"MAS API token value",
+					"Secret value paired with the MAS API token name.",
+				); err != nil {
+					return cfg, err
+				}
+			}
+		}
+
+		selectedInstanceID = instanceIDForMASBaseURL(cfg.MASBaseURL, hints.MASRoutes)
+		if cfg.WorkspaceID, err = askWorkspaceID(cfg.WorkspaceID, selectedInstanceID, hints.Workspaces); err != nil {
+			return cfg, err
+		}
+		if cfg.ProfileID, err = askRequiredInput(
+			"MAS profile ID",
+			cfg.ProfileID,
+			"Profile created or synced by the SCIM bridge. Defaults are fine for most first installs.",
+		); err != nil {
+			return cfg, err
 		}
 	}
 
-	selectedInstanceID := instanceIDForMASBaseURL(cfg.MASBaseURL, hints.MASRoutes)
-	if cfg.WorkspaceID, err = askWorkspaceID(cfg.WorkspaceID, selectedInstanceID, hints.Workspaces); err != nil {
-		return cfg, err
-	}
-	if cfg.ProfileID, err = askRequiredInput(
-		"MAS profile ID",
-		cfg.ProfileID,
-		"Profile created or synced by the SCIM bridge. Defaults are fine for most first installs.",
-	); err != nil {
-		return cfg, err
+	if cfg.HasComponent(config.InstallComponentS3) && !cfg.SkipS3MASConfig {
+		if cfg.MASInstanceID == "" {
+			cfg.MASInstanceID = selectedInstanceID
+			if cfg.MASInstanceID == "" && len(hints.MASRoutes) == 1 {
+				cfg.MASInstanceID = hints.MASRoutes[0].InstanceID
+			}
+		}
+		if cfg.MASInstanceID, err = askRequiredInput(
+			"MAS instance ID",
+			cfg.MASInstanceID,
+			"MAS instance that should receive the ObjectStorageCfg, for example lfmas.",
+		); err != nil {
+			return cfg, err
+		}
+		previousCoreNamespace := cfg.MASCoreNamespace
+		cfg.DefaultMASCoreNamespace()
+		if previousCoreNamespace == "" && cfg.MASCoreNamespace != "" {
+			PrintDerived("MAS core namespace", cfg.MASCoreNamespace, "--mas-core-namespace")
+		} else if cfg.MASCoreNamespace == "" {
+			if cfg.MASCoreNamespace, err = askRequiredInput(
+				"MAS core namespace",
+				cfg.MASCoreNamespace,
+				"Namespace containing the MAS core ObjectStorageCfg resources.",
+			); err != nil {
+				return cfg, err
+			}
+		}
 	}
 
-	if len(storageChoices) > 0 {
+	if cfg.HasComponent(config.InstallComponentLDAP) {
+		if err := askOne(&survey.Confirm{
+			Message: "Configure MAS authentication providers?",
+			Default: cfg.ConfigureMASAuth,
+			Help:    "Creates MAS IDPCfg resources backed by the installed OpenLDAP and Keycloak services.",
+		}, &cfg.ConfigureMASAuth); err != nil {
+			return cfg, err
+		}
+	}
+	if cfg.ConfigureMASAuth {
+		if cfg.MASAuthProviders, err = askMASAuthProviders(cfg.MASAuthProviders, cfg); err != nil {
+			return cfg, err
+		}
+		previousAuthInstanceID := cfg.MASAuthInstanceID
+		if cfg.MASAuthInstanceID == "" {
+			cfg.MASAuthInstanceID = selectedInstanceID
+			if cfg.MASAuthInstanceID == "" && cfg.MASInstanceID != "" {
+				cfg.MASAuthInstanceID = cfg.MASInstanceID
+			}
+			if cfg.MASAuthInstanceID == "" && len(hints.MASRoutes) == 1 {
+				cfg.MASAuthInstanceID = hints.MASRoutes[0].InstanceID
+			}
+		}
+		if previousAuthInstanceID == "" && cfg.MASAuthInstanceID != "" {
+			PrintDerived("MAS auth instance ID", cfg.MASAuthInstanceID, "--mas-auth-instance-id")
+		} else if cfg.MASAuthInstanceID == "" {
+			if cfg.MASAuthInstanceID, err = askRequiredInput(
+				"MAS auth instance ID",
+				cfg.MASAuthInstanceID,
+				"MAS instance that should receive LDAP, OIDC, and SAML IDPCfg resources.",
+			); err != nil {
+				return cfg, err
+			}
+		}
+		previousAuthCoreNamespace := cfg.MASAuthCoreNamespace
+		cfg.DefaultMASAuthTarget()
+		if previousAuthCoreNamespace == "" && cfg.MASAuthCoreNamespace != "" {
+			PrintDerived("MAS auth core namespace", cfg.MASAuthCoreNamespace, "--mas-auth-core-namespace")
+		} else if cfg.MASAuthCoreNamespace == "" {
+			if cfg.MASAuthCoreNamespace, err = askRequiredInput(
+				"MAS auth core namespace",
+				cfg.MASAuthCoreNamespace,
+				"Namespace containing MAS CoreIDP and IDPCfg resources.",
+			); err != nil {
+				return cfg, err
+			}
+		}
+		previousAuthHost := cfg.MASAuthHost
+		if cfg.MASAuthHost == "" {
+			cfg.MASAuthHost = authHostForInstance(cfg.MASAuthInstanceID, hints.MASRoutes)
+		}
+		if previousAuthHost == "" && cfg.MASAuthHost != "" {
+			PrintDerived("MAS auth host", cfg.MASAuthHost, "--mas-auth-host")
+		} else if cfg.MASAuthHost == "" {
+			if cfg.MASAuthHost, err = askRequiredInput(
+				"MAS auth host",
+				cfg.MASAuthHost,
+				"Host part of the MAS auth route, for example auth.<mas-domain>.",
+			); err != nil {
+				return cfg, err
+			}
+		}
+	}
+
+	if len(storageChoices) > 0 && (cfg.HasComponent(config.InstallComponentKeycloak) || cfg.HasComponent(config.InstallComponentS3)) {
 		if cfg.StorageClass, err = askStorageClassSelect(
-			"PostgreSQL storage class",
-			"Choose the class for the PostgreSQL PVC. Block/RBD is usually the safer choice.",
+			"Primary storage class",
+			"Choose the class for Keycloak PostgreSQL and/or MinIO PVCs. Block/RBD is usually the safer choice.",
 			storageChoices,
 			cfg.StorageClass,
 		); err != nil {
 			return cfg, err
 		}
-		if cfg.ScimBridgeStorageClass, err = askStorageClassSelect(
-			"SCIM bridge storage class",
-			"Choose the class for the scim-bridge-state PVC. You can use the same class as PostgreSQL.",
-			storageChoices,
-			cfg.ScimBridgeStorageClass,
-		); err != nil {
-			return cfg, err
-		}
-	} else {
+	} else if cfg.HasComponent(config.InstallComponentKeycloak) || cfg.HasComponent(config.InstallComponentS3) {
 		if cfg.StorageClass, err = askOptionalInput(
-			"PostgreSQL storage class",
+			"Primary storage class",
 			cfg.StorageClass,
-			"Optional explicit override for the PostgreSQL PVC.",
+			"Optional explicit override for Keycloak PostgreSQL and/or MinIO PVCs.",
 		); err != nil {
 			return cfg, err
 		}
-		if cfg.ScimBridgeStorageClass, err = askOptionalInput(
-			"SCIM bridge storage class",
-			cfg.ScimBridgeStorageClass,
-			"Optional explicit override for the scim-bridge-state PVC.",
-		); err != nil {
-			return cfg, err
+	}
+
+	if cfg.HasComponent(config.InstallComponentSCIM) {
+		if len(storageChoices) > 0 {
+			if cfg.ScimBridgeStorageClass, err = askStorageClassSelect(
+				"SCIM bridge storage class",
+				"Choose the class for the scim-bridge-state PVC. You can use the same class as PostgreSQL.",
+				storageChoices,
+				cfg.ScimBridgeStorageClass,
+			); err != nil {
+				return cfg, err
+			}
+		} else {
+			if cfg.ScimBridgeStorageClass, err = askOptionalInput(
+				"SCIM bridge storage class",
+				cfg.ScimBridgeStorageClass,
+				"Optional explicit override for the scim-bridge-state PVC.",
+			); err != nil {
+				return cfg, err
+			}
 		}
 	}
 
 	if err := askOne(&survey.Confirm{
-		Message: "Wipe namespace before install?",
+		Message: "Uninstall namespace before install?",
 		Default: cfg.WipeFirst,
 		Help:    "Use this when you want the CLI to remove the existing namespace before reinstalling.",
 	}, &cfg.WipeFirst); err != nil {
@@ -124,6 +230,118 @@ func PromptInstall(cfg config.InstallConfig, hints InstallDiscoveryHints, storag
 	}
 
 	return cfg, nil
+}
+
+func askInstallComponents(current []string) ([]string, error) {
+	current, _ = config.NormalizeInstallComponents(current)
+	labelForComponent := map[string]string{
+		config.InstallComponentLDAP:     "LDAP directory",
+		config.InstallComponentKeycloak: "Keycloak identity provider",
+		config.InstallComponentSCIM:     "SCIM bridge",
+		config.InstallComponentS3:       "S3 object storage",
+		config.InstallComponentSMTP:     "SMTP Mailpit capture server",
+	}
+	componentForLabel := map[string]string{}
+	options := []string{}
+	for _, component := range []string{
+		config.InstallComponentLDAP,
+		config.InstallComponentKeycloak,
+		config.InstallComponentSCIM,
+		config.InstallComponentS3,
+		config.InstallComponentSMTP,
+	} {
+		label := labelForComponent[component]
+		componentForLabel[label] = component
+		options = append(options, label)
+	}
+	defaultLabels := []string{}
+	for _, component := range current {
+		defaultLabels = append(defaultLabels, labelForComponent[component])
+	}
+
+	for {
+		selectedLabels := defaultLabels
+		if err := askOne(&survey.MultiSelect{
+			Message: "Products to install",
+			Options: options,
+			Default: defaultLabels,
+			Help:    "Use Space to select products. SCIM auto-selects Keycloak and LDAP; Keycloak auto-selects LDAP.",
+		}, &selectedLabels); err != nil {
+			return nil, err
+		}
+		selected := []string{}
+		for _, label := range selectedLabels {
+			selected = append(selected, componentForLabel[label])
+		}
+		normalized, err := config.NormalizeInstallComponents(selected)
+		if err != nil {
+			return nil, err
+		}
+		if len(normalized) > 0 {
+			return normalized, nil
+		}
+		fmt.Println("Select at least one product.")
+	}
+}
+
+func askMASAuthProviders(current []string, cfg config.InstallConfig) ([]string, error) {
+	current, _ = config.NormalizeMASAuthProviders(current)
+
+	labelForProvider := map[string]string{
+		config.MASAuthProviderLDAP: "LDAP provider",
+		config.MASAuthProviderOIDC: "OIDC provider (MAS 9.1+)",
+		config.MASAuthProviderSAML: "SAML provider",
+	}
+	providerForLabel := map[string]string{}
+	options := []string{}
+	available := []string{}
+	if cfg.HasComponent(config.InstallComponentLDAP) {
+		available = append(available, config.MASAuthProviderLDAP)
+	}
+	if cfg.HasComponent(config.InstallComponentKeycloak) {
+		available = append(available, config.MASAuthProviderOIDC, config.MASAuthProviderSAML)
+	}
+	for _, provider := range available {
+		label := labelForProvider[provider]
+		providerForLabel[label] = provider
+		options = append(options, label)
+	}
+
+	defaultLabels := []string{}
+	defaultProviders := current
+	if len(defaultProviders) == 0 {
+		defaultProviders = available
+	}
+	for _, provider := range defaultProviders {
+		label := labelForProvider[provider]
+		if label != "" {
+			defaultLabels = append(defaultLabels, label)
+		}
+	}
+
+	for {
+		selectedLabels := defaultLabels
+		if err := askOne(&survey.MultiSelect{
+			Message: "MAS auth providers to create",
+			Options: options,
+			Default: defaultLabels,
+			Help:    "Use Space to select providers. OIDC requires MAS 9.1 or later with IDPCfg spec.oidc support.",
+		}, &selectedLabels); err != nil {
+			return nil, err
+		}
+		selected := []string{}
+		for _, label := range selectedLabels {
+			selected = append(selected, providerForLabel[label])
+		}
+		normalized, err := config.NormalizeMASAuthProviders(selected)
+		if err != nil {
+			return nil, err
+		}
+		if len(normalized) > 0 {
+			return normalized, nil
+		}
+		fmt.Println("Select at least one MAS auth provider.")
+	}
 }
 
 func PrintInstallDiscovery(hints InstallDiscoveryHints) {
@@ -178,7 +396,7 @@ func PromptWipe(cfg config.WipeConfig) (config.WipeConfig, error) {
 	if err := askOne(&survey.Confirm{
 		Message: "Skip MAS profile delete?",
 		Default: cfg.SkipProfileDelete,
-		Help:    "Choose Yes if you only want to wipe cluster resources and leave the MAS profile alone.",
+		Help:    "Choose Yes if you only want to uninstall cluster resources and leave the MAS profile alone.",
 	}, &cfg.SkipProfileDelete); err != nil {
 		return cfg, err
 	}
@@ -306,19 +524,20 @@ func askWorkspaceID(current, instanceID string, workspaces []oc.ManageWorkspace)
 		candidates = workspaces
 	}
 
+	if current == "" && len(candidates) == 1 {
+		derived := candidates[0].WorkspaceID
+		PrintDerived("Workspace ID", derived, "--workspace-id")
+		return derived, nil
+	}
+
 	if current == "" && len(candidates) > 1 {
 		if current, err = askWorkspaceSelect(candidates); err != nil {
 			return "", err
 		}
 	}
-	if current == "" && len(candidates) == 1 {
-		current = candidates[0].WorkspaceID
-	}
 
 	help := "Workspace used by the MAS profile bootstrap job."
-	if len(candidates) == 1 {
-		help = fmt.Sprintf("Detected from ManageWorkspace %s. Edit it if you need a different workspace.", candidates[0].Name)
-	} else if len(candidates) > 1 && instanceID != "" {
+	if len(candidates) > 1 && instanceID != "" {
 		help = fmt.Sprintf("Detected multiple workspaces for MAS instance %s. A workspace was suggested above; edit it if needed.", instanceID)
 	} else if len(candidates) > 1 {
 		help = "Detected multiple ManageWorkspace resources. A workspace was suggested above; edit it if needed."
@@ -422,19 +641,54 @@ func askStorageClassSelect(message, help string, choices []preflight.StorageChoi
 }
 
 func PrintInstallSummary(cfg config.InstallConfig) {
+	fmt.Printf("[config] components=%s\n", config.InstallComponentsString(cfg.Components))
 	fmt.Printf("[config] namespace=%s\n", cfg.Namespace)
-	fmt.Printf("[config] mas_base_url=%s\n", cfg.MASBaseURL)
-	fmt.Printf("[config] mas_api_token_name=%s\n", cfg.MASAPITokenName)
-	fmt.Printf("[config] mas_api_token_value=%s\n", config.MaskSecret(cfg.MASAPITokenValue))
-	fmt.Printf("[config] workspace_id=%s\n", cfg.WorkspaceID)
-	fmt.Printf("[config] profile_id=%s\n", cfg.ProfileID)
-	if cfg.StorageClass != "" {
-		fmt.Printf("[config] postgres_storage_class=%s\n", cfg.StorageClass)
+	if cfg.HasComponent(config.InstallComponentSCIM) {
+		fmt.Printf("[config] mas_base_url=%s\n", cfg.MASBaseURL)
+		fmt.Printf("[config] mas_api_token_name=%s\n", cfg.MASAPITokenName)
+		fmt.Printf("[config] mas_api_token_value=%s\n", config.MaskSecret(cfg.MASAPITokenValue))
+		fmt.Printf("[config] workspace_id=%s\n", cfg.WorkspaceID)
+		fmt.Printf("[config] profile_id=%s\n", cfg.ProfileID)
 	}
-	if cfg.ScimBridgeStorageClass != "" {
+	if cfg.HasComponent(config.InstallComponentS3) {
+		fmt.Printf("[config] mas_instance_id=%s\n", cfg.MASInstanceID)
+		fmt.Printf("[config] mas_core_namespace=%s\n", cfg.MASCoreNamespace)
+		fmt.Printf("[config] s3_mas_config_enabled=%t\n", !cfg.SkipS3MASConfig)
+	}
+	if cfg.ConfigureMASAuth {
+		fmt.Printf("[config] configure_mas_auth=true\n")
+		fmt.Printf("[config] mas_auth_providers=%s\n", config.MASAuthProvidersString(cfg.MASAuthProviders))
+		fmt.Printf("[config] mas_auth_instance_id=%s\n", cfg.MASAuthInstanceID)
+		fmt.Printf("[config] mas_auth_core_namespace=%s\n", cfg.MASAuthCoreNamespace)
+		fmt.Printf("[config] mas_auth_host=%s\n", cfg.MASAuthHost)
+	}
+	if cfg.StorageClass != "" {
+		fmt.Printf("[config] primary_storage_class=%s\n", cfg.StorageClass)
+	}
+	if cfg.HasComponent(config.InstallComponentSCIM) && cfg.ScimBridgeStorageClass != "" {
 		fmt.Printf("[config] scim_bridge_storage_class=%s\n", cfg.ScimBridgeStorageClass)
 	}
-	fmt.Printf("[config] wipe_first=%t\n", cfg.WipeFirst)
+	fmt.Printf("[config] uninstall_first=%t\n", cfg.WipeFirst)
+}
+
+func authHostForInstance(instanceID string, routes []oc.MASRoute) string {
+	if instanceID == "" {
+		return ""
+	}
+	for _, route := range routes {
+		if route.InstanceID == instanceID {
+			return strings.Replace(route.Host, "api.", "auth.", 1)
+		}
+	}
+	return ""
+}
+
+// PrintDerived prints a one-line confirmation that a value was auto-derived
+// from another known value (typically the MAS instance ID or a discovered
+// route) rather than prompted for. The override flag is shown so a user who
+// wants a different value knows how to set it on the next run.
+func PrintDerived(label, value, overrideFlag string) {
+	fmt.Fprintf(os.Stdout, "[derived] %s: %s (override with %s)\n", label, value, overrideFlag)
 }
 
 func PrintBanner(title string, lines ...string) {
@@ -466,7 +720,7 @@ func PrintClusterContext(action, user, server, namespace string, recommendedStor
 		"Press Enter to accept defaults.",
 		"Use arrow keys to choose storage classes. Type ? during a prompt for field help.",
 	)
-	PrintBanner(fmt.Sprintf("MAS IAM %s", action), lines...)
+	PrintBanner(fmt.Sprintf("MAS EST %s", action), lines...)
 }
 
 func storageChoiceDescription(choice preflight.StorageChoice) string {

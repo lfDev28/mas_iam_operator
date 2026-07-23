@@ -11,15 +11,15 @@ accounts enabled inside Keycloak. The script shell-execs into the Keycloak pod
 and uses kcadm.sh, so it requires access to the cluster via oc.
 
 Required flags:
-  -n, --namespace      Target namespace (default: iam)
-  -r, --release        Helm release / MasIamStack name (default: mas-iam-sample)
+  -n, --namespace      Target namespace (default: mas-est)
+  -r, --release        Helm release / MasIamStack name (default: mas-est-iam)
       --client-id      OAuth client ID to create/use (default: scim-admin)
       --client-secret  Client secret (plain text). Generate a strong value.
 EOF
 }
 
-namespace="iam"
-release="mas-iam-sample"
+namespace="mas-est"
+release="mas-est-iam"
 realm="maximo"
 client_id="scim-admin"
 client_secret=""

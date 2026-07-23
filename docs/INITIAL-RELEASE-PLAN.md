@@ -1,41 +1,43 @@
-# MAS IAM Initial Release Plan
+# MAS External Services Toolkit Initial Release Plan
 
-This document captures the first post-beta release direction for `mas-iam`.
+This document captures the first post-beta release direction for `mas-est`.
 
-The internal beta has proven that the project can bootstrap a local CLI, install a working MAS IAM lab on OpenShift, and sync demo users through the SCIM bridge. The next releases should harden that base, remove remaining manual operational steps, and add the known limitation features that make the lab more useful for real support scenarios.
+The internal beta has proven that the project can bootstrap a local CLI, install a working MAS External Services Toolkit lab on OpenShift, and sync demo users through the SCIM bridge. The next releases should harden that base, remove remaining manual operational steps, and add the known limitation features that make the lab more useful for real support scenarios.
 
 ## Project Direction
 
-`mas-iam` is a support and troubleshooting accelerator for MAS IAM work.
+`mas-est` is a support and troubleshooting accelerator for MAS External Services Toolkit work.
 
 The project should continue to focus on:
 
-- quickly standing up Keycloak, OpenLDAP, PostgreSQL, MAS IAM, and the SCIM bridge on OpenShift
+- quickly standing up Keycloak, OpenLDAP, PostgreSQL, MAS External Services Toolkit, and the SCIM bridge on OpenShift
 - giving support engineers a repeatable lab for SCIM, LDAP, certificate, and generic IAM user-flow testing
 - separating common MAS/IAM behavior from customer-specific IdP configuration
-- making install, reset, diagnostics, and configuration changes easier through the `mas-iam` CLI
+- making install, reset, diagnostics, and configuration changes easier through the `mas-est` CLI
 
 The project should not try to become a full enterprise IdP emulator in the short term. Microsoft Entra-style behavior, customer tenant policy, and vendor-specific provisioning semantics should be treated as targeted compatibility features only when they directly help support work.
+
+There is also a post-beta exploration to broaden the project beyond IAM into a MAS external services toolkit. The first candidate is S3-compatible object storage for reproducing MAS object storage and attachment scenarios on OpenShift. That work should remain experimental until the IAM beta is stable.
 
 ## Current Baseline
 
 Current internal beta baseline:
 
-- released image: `quay.io/lee_forster/mas-iam-tool:v0.1.0-beta.5`
+- released image: `quay.io/lee_forster/mas-external-services-tool:v0.1.0`
 - local bootstrap supports macOS and Linux host workflows
 - published image supports `linux/amd64` and `linux/arm64`
 - supported CLI surface:
-  - `mas-iam preflight`
-  - `mas-iam install`
-  - `mas-iam status`
-  - `mas-iam logs`
-  - `mas-iam ldap-info`
-  - `mas-iam support-bundle`
-  - `mas-iam config view`
-  - `mas-iam config set mas-api-token`
-  - `mas-iam wipe`
+  - `mas-est preflight`
+  - `mas-est install`
+  - `mas-est status`
+  - `mas-est logs`
+  - `mas-est ldap-info`
+  - `mas-est support-bundle`
+  - `mas-est config view`
+  - `mas-est config set mas-api-token`
+  - `mas-est uninstall`
 - default install creates one demo MAS SCIM profile flow
-- default install exposes bundled OpenLDAP connection details through `mas-iam ldap-info`
+- default install exposes bundled OpenLDAP connection details through `mas-est ldap-info`
 
 Recent beta hardening already completed:
 
@@ -56,10 +58,10 @@ Goal: let users safely update bridge configuration without reinstalling.
 
 Initial targets:
 
-- `mas-iam config view` (done for v0.1.1)
-- `mas-iam config set mas-api-token` (done for v0.1.1)
-- `mas-iam config set bridge`
-- `mas-iam restart bridge`
+- `mas-est config view` (done for v0.1.1)
+- `mas-est config set mas-api-token` (done for v0.1.1)
+- `mas-est config set bridge`
+- `mas-est restart bridge`
 
 Required behavior:
 
@@ -81,12 +83,12 @@ Goal: make beta bug reports easier to collect and easier to act on.
 
 Initial target:
 
-- `mas-iam support-bundle --namespace iam` (done for v0.1.1)
+- `mas-est support-bundle --namespace mas-est` (done for v0.1.1)
 
 Bundle contents:
 
-- `mas-iam preflight`
-- `mas-iam status`
+- `mas-est preflight`
+- `mas-est status`
 - selected component logs
 - deployment/job/pod/PVC summaries
 - recent namespace events
@@ -165,11 +167,11 @@ Required behavior:
 
 ### 6. Upgrade And Refresh Flow
 
-Goal: avoid full wipe/reinstall for routine updates.
+Goal: avoid full uninstall/reinstall for routine updates.
 
 Initial targets:
 
-- refresh local `mas-iam` runtime from a new image
+- refresh local `mas-est` runtime from a new image
 - update bridge image/config without wiping the namespace
 - rerun only the required bootstrap jobs when needed
 
@@ -178,6 +180,25 @@ Required behavior:
 - print current and target versions
 - show which OpenShift resources will change
 - avoid deleting user state unless explicitly requested
+
+### 7. S3-Compatible Object Storage Lab
+
+Goal: make MAS object storage and S3 integration issues reproducible without external cloud credentials.
+
+Initial targets:
+
+- MinIO proof of concept with browser console access
+- automatic demo bucket provisioning
+- MAS-compatible `ObjectStorageCfg`
+- clear output for endpoint, console URL, bucket, region, and secret names
+- keep Rook Ceph RGW available as an alternate provider experiment
+
+Required behavior:
+
+- keep this outside the beta IAM launch path until validated
+- verify the S3 endpoint before configuring Manage properties
+- avoid hard-coding one cluster's route domain or MAS instance ID
+- support a future provider split: MinIO, existing S3, Rook Ceph, and ODF/NooBaa
 
 ## Known Bugs And Limitations
 
@@ -190,7 +211,7 @@ Required behavior:
 
 ### Runtime Operations
 
-- MAS API token rotation is supported through `mas-iam config set mas-api-token`.
+- MAS API token rotation is supported through `mas-est config set mas-api-token`.
 - General config changes still require users to know which configmap/secret to edit.
 - Bridge pod restart is required after env-backed config changes; token rotation restarts the bridge automatically.
 - Completed bootstrap jobs do not reread updated secrets unless recreated.
@@ -207,7 +228,7 @@ Required behavior:
 
 - Install summaries are useful but still basic.
 - Troubleshooting guidance is split across docs and command output.
-- v0.1.1 includes the single-command support evidence package with `mas-iam support-bundle`.
+- v0.1.1 includes the single-command support evidence package with `mas-est support-bundle`.
 - There is no guided config editing flow yet.
 
 ## Suggested Release Phases
@@ -222,10 +243,10 @@ Focus:
 
 Feature targets:
 
-- `mas-iam support-bundle` (done)
-- `mas-iam config view` (done)
-- `mas-iam config set mas-api-token` (done)
-- `mas-iam restart bridge`
+- `mas-est support-bundle` (done)
+- `mas-est config view` (done)
+- `mas-est config set mas-api-token` (done)
+- `mas-est restart bridge`
 - clearer install failure messages from real beta feedback
 - updated docs based on team install results
 
@@ -293,7 +314,7 @@ Feature targets:
 
 Exit criteria:
 
-- routine upgrades do not require wipe/reinstall
+- routine upgrades do not require uninstall/reinstall
 - users can customize common demo inputs without editing manifests
 - documentation is organized around install, operate, troubleshoot, and extend
 

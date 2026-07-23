@@ -1,5 +1,5 @@
-NAMESPACE            ?= iam
-RELEASE              ?= mas-iam
+NAMESPACE            ?= mas-est
+RELEASE              ?= mas-est-iam
 CHART                ?= charts/mas-iam-stack
 CONTAINER_ENGINE     ?= podman
 KEYCLOAK_BASE_IMAGE  ?= quay.io/keycloak/keycloak:26.0.5
@@ -17,7 +17,7 @@ TLS_CONTEXT   ?= images/openldap-tls-generator
 
 VALUES_FLAGS := -f $(CHART)/values.yaml
 
-.PHONY: lint deps deploy status health teardown redeploy tls-image tls-push scim-keycloak-image scim-keycloak-push scim-bridge-build
+.PHONY: lint deps deploy status health teardown redeploy tls-image tls-push scim-keycloak-image scim-keycloak-push scim-bridge-build user-guide-pdf user-guide-clean
 
 lint:
 	./scripts/verify-helm-chart.sh
@@ -65,3 +65,31 @@ scim-keycloak-push: scim-keycloak-image
 
 scim-bridge-build:
 	cd $(SCIM_BRIDGE_DIR) && go build ./...
+
+# ---- User-facing PDF guide --------------------------------------------------
+# One-time setup (macOS):
+#   brew install pandoc
+#   brew install --cask basictex
+#   sudo tlmgr update --self && sudo tlmgr install adjustbox titling enumitem soul background
+#   mkdir -p ~/.local/share/pandoc/templates
+#   curl -fsSL https://raw.githubusercontent.com/Wandmalfarbe/pandoc-latex-template/master/eisvogel.latex \
+#     > ~/.local/share/pandoc/templates/eisvogel.latex
+USER_GUIDE_MD ?= docs/MAS-EST-USER-GUIDE.md
+USER_GUIDE_PDF ?= docs/MAS-EST-USER-GUIDE.pdf
+
+user-guide-pdf:
+	pandoc $(USER_GUIDE_MD) \
+		--from markdown \
+		--template eisvogel \
+		--listings \
+		--top-level-division=chapter \
+		--pdf-engine=xelatex \
+		-V book \
+		-V documentclass=report \
+		-V geometry:margin=0.75in \
+		-V fontsize=10pt \
+		-o $(USER_GUIDE_PDF)
+	@echo "Wrote $(USER_GUIDE_PDF)"
+
+user-guide-clean:
+	rm -f $(USER_GUIDE_PDF)

@@ -74,6 +74,13 @@ type JobStatus struct {
 	Complete  bool
 }
 
+type ConditionStatus struct {
+	Type    string
+	Status  string
+	Reason  string
+	Message string
+}
+
 type PVCStatus struct {
 	Name         string
 	Phase        string
@@ -272,6 +279,45 @@ func (c *Client) ManageWorkspaces(ctx context.Context) ([]ManageWorkspace, error
 	})
 
 	return workspaces, nil
+}
+
+func (c *Client) IDPCfgSupportsOIDC(ctx context.Context) (bool, error) {
+	output, err := c.runner.Output(ctx, executil.Options{
+		Name: "oc",
+		Args: []string{"get", "crd", "idpcfgs.config.mas.ibm.com", "-o", "json"},
+	})
+	if err != nil {
+		return false, err
+	}
+
+	var payload struct {
+		Spec struct {
+			Versions []struct {
+				Schema struct {
+					OpenAPIV3Schema struct {
+						Properties map[string]struct {
+							Properties map[string]struct {
+								Properties map[string]any `json:"properties"`
+							} `json:"properties"`
+						} `json:"properties"`
+					} `json:"openAPIV3Schema"`
+				} `json:"schema"`
+			} `json:"versions"`
+		} `json:"spec"`
+	}
+	if err := json.Unmarshal([]byte(output), &payload); err != nil {
+		return false, fmt.Errorf("decode idpcfg CRD schema: %w", err)
+	}
+	for _, version := range payload.Spec.Versions {
+		spec, ok := version.Schema.OpenAPIV3Schema.Properties["spec"]
+		if !ok {
+			continue
+		}
+		if _, ok := spec.Properties["oidc"]; ok {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (c *Client) CSVPhase(ctx context.Context, namespace string) (CSVStatus, error) {
@@ -550,6 +596,41 @@ func (c *Client) PVCs(ctx context.Context, namespace string) ([]PVCStatus, error
 	return pvcs, nil
 }
 
+func (c *Client) ObjectStorageCfgConditions(ctx context.Context, namespace, name string) ([]ConditionStatus, error) {
+	output, err := c.runner.Output(ctx, executil.Options{
+		Name: "oc",
+		Args: []string{"get", "objectstoragecfg", name, "-n", namespace, "-o", "json"},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var payload struct {
+		Status struct {
+			Conditions []struct {
+				Type    string `json:"type"`
+				Status  string `json:"status"`
+				Reason  string `json:"reason"`
+				Message string `json:"message"`
+			} `json:"conditions"`
+		} `json:"status"`
+	}
+	if err := json.Unmarshal([]byte(output), &payload); err != nil {
+		return nil, fmt.Errorf("decode objectstoragecfg %s: %w", name, err)
+	}
+
+	conditions := make([]ConditionStatus, 0, len(payload.Status.Conditions))
+	for _, condition := range payload.Status.Conditions {
+		conditions = append(conditions, ConditionStatus{
+			Type:    condition.Type,
+			Status:  condition.Status,
+			Reason:  condition.Reason,
+			Message: condition.Message,
+		})
+	}
+	return conditions, nil
+}
+
 func (c *Client) ConfigMapData(ctx context.Context, namespace, name string) (map[string]string, error) {
 	output, err := c.runner.Output(ctx, executil.Options{
 		Name: "oc",
@@ -635,6 +716,27 @@ func (c *Client) Patch(ctx context.Context, namespace, target string, patch []by
 		Name: "oc",
 		Args: []string{"patch", target, "-n", namespace, "--type", "merge", "--patch-file", "/dev/stdin"},
 	}, bytes.NewReader(patch))
+}
+
+func (c *Client) Apply(ctx context.Context, manifest []byte) (string, error) {
+	return c.runner.InputOutput(ctx, executil.Options{
+		Name: "oc",
+		Args: []string{"apply", "--server-side", "--force-conflicts", "--field-manager=mas-est-installer", "-f", "-"},
+	}, bytes.NewReader(manifest))
+}
+
+func (c *Client) DeleteIgnoreNotFound(ctx context.Context, namespace, target string) (string, error) {
+	return c.runner.Output(ctx, executil.Options{
+		Name: "oc",
+		Args: []string{"delete", target, "-n", namespace, "--ignore-not-found=true"},
+	})
+}
+
+func (c *Client) WaitForCondition(ctx context.Context, namespace, target, condition, timeout string) (string, error) {
+	return c.runner.Output(ctx, executil.Options{
+		Name: "oc",
+		Args: []string{"wait", "--for=condition=" + condition, target, "-n", namespace, "--timeout=" + timeout},
+	})
 }
 
 func (c *Client) RolloutRestart(ctx context.Context, namespace, target string) (string, error) {

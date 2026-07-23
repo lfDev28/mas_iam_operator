@@ -1,5 +1,5 @@
 {{- $ldap := .Values.keycloak.ldap -}}
-{{- if $ldap.autoConfigure -}}
+{{- if and (ne (toString .Values.keycloak.enabled) "false") $ldap.autoConfigure -}}
 {{- $realm := $ldap.realm | default "" -}}
 {{- if not $realm -}}
   {{- fail "keycloak.ldap.realm must be set when autoConfigure=true" -}}

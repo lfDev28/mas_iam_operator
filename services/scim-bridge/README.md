@@ -38,8 +38,8 @@ go run ./cmd/scim-bridge \
   --mas-profile-id provisioned-profile \
   --mas-token mas-api-key
 
-# if you don't have a live Keycloak yet, run in event mode to skip API calls
-go run ./cmd/scim-bridge ... --bridge-mode event
+# if you don't have a live Keycloak yet, run with --bridge-dry-run to skip MAS HTTP calls
+go run ./cmd/scim-bridge ... --bridge-dry-run
 ```
 
 ## Configuration surface
@@ -70,12 +70,15 @@ oc process -f https://raw.githubusercontent.com/<org>/<repo>/main/manifests/scim
 | `--mas-profile-require-label` | `SCIM_BRIDGE_MAS_PROFILE_REQUIRE_LABEL` | When `true`, users without a mapped `masProfile` label are skipped (no default fallback). |
 | `--mas-token` | `SCIM_BRIDGE_MAS_TOKEN` | API key / JWT with permission to call MAS SCIM APIs. |
 | `--mas-ca-file` | `SCIM_BRIDGE_MAS_CA_FILE` | Optional CA bundle path for MAS TLS (mount via volume). |
-| `--bridge-mode` | `SCIM_BRIDGE_BRIDGE_MODE` | `poll`, `run-once`, `backfill`, `event`, or `hybrid`. |
+| `--bridge-mode` | `SCIM_BRIDGE_BRIDGE_MODE` | `poll`, `run-once`, `backfill`, or `hybrid`. |
+| `--keycloak-include-federated-users` | `SCIM_BRIDGE_KEYCLOAK_INCLUDE_FEDERATED_USERS` | Include LDAP-federated Keycloak users in sync. Defaults to `false` so LDAP self-reg in MAS isn't shadowed by duplicate SCIM creates. Set to `true` only if you genuinely want both paths to populate MAS. |
 | `--bridge-poll-interval` | `SCIM_BRIDGE_BRIDGE_POLL_INTERVAL` | Go duration string (e.g., `30s`, `5m`). Dev: 30–60s; Prod: 5–10m. |
 | `--bridge-state-backend` | `SCIM_BRIDGE_BRIDGE_STATE_BACKEND` | `memory` (default) or `filesystem`. |
 | `--bridge-state-path` | `SCIM_BRIDGE_BRIDGE_STATE_PATH` | File to persist correlations when backend=`filesystem`. |
 | `--bridge-dry-run` | `SCIM_BRIDGE_BRIDGE_DRY_RUN` | Skip MAS HTTP calls, only log + store simulated IDs (default `true`). |
 | `--bridge-allow-updates` | `SCIM_BRIDGE_BRIDGE_ALLOW_UPDATES` | When `false`, log update attempts as “updates disabled” and skip MAS PUTs (creates still run). |
+| `--bridge-log-level` | `SCIM_BRIDGE_BRIDGE_LOG_LEVEL` | `debug`, `info`, `warn`, or `error` (default `info`). |
+| `--bridge-payload-logging` | `SCIM_BRIDGE_BRIDGE_PAYLOAD_LOGGING` | Logs redacted outbound MAS SCIM payloads for support debugging. Keep disabled by default. |
 | `--include-usernames` | `SCIM_BRIDGE_INCLUDE_USERNAMES` | Optional comma-separated allowlist of usernames to reconcile. |
 | `--include-username-prefix` | `SCIM_BRIDGE_INCLUDE_USERNAME_PREFIX` | Optional prefix filter applied to Keycloak usernames; combined with `--include-usernames` when both are set. |
 

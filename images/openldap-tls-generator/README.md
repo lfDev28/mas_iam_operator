@@ -1,6 +1,6 @@
 # OpenLDAP TLS generator image
 
-This container image is used by the `mas-iam-sample-generate-openldap-tls`
+This container image is used by the `mas-est-iam-generate-openldap-tls`
 Kubernetes job in `manifests/install-olm.yaml`. It contains only the tooling
 required by the bootstrap script (`bash`, `openssl`, `kubectl`) and runs as an
 unprivileged user by default.

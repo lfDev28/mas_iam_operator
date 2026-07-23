@@ -59,7 +59,7 @@ func newSupportBundleCommand() *cobra.Command {
 
 	command := &cobra.Command{
 		Use:   "support-bundle",
-		Short: "Collect a redacted MAS IAM support evidence bundle",
+		Short: "Collect a redacted MAS EST support evidence bundle",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return opts.run(cmd.Context())
 		},
@@ -115,7 +115,7 @@ func (o *supportBundleOptions) run(ctx context.Context) error {
 }
 
 func (c *supportBundleCollector) collect(tail int) error {
-	c.writeText("mas-iam-version.txt", version.String()+"\n")
+	c.writeText("mas-est-version.txt", version.String()+"\n")
 	c.writeText("oc-whoami.txt", c.cluster.User+"\n")
 	c.writeText("oc-server.txt", c.cluster.Server+"\n")
 
@@ -134,7 +134,7 @@ func (c *supportBundleCollector) collect(tail int) error {
 
 	var status bytes.Buffer
 	printMASIAMStatus(&status, c.ctx, c.client, c.namespace, c.cluster)
-	c.writeText("mas-iam-status.txt", c.redactor.Redact(status.String()))
+	c.writeText("mas-est-status.txt", c.redactor.Redact(status.String()))
 
 	c.collectCommand("pods-wide.txt", []string{"get", "pods", "-n", c.namespace, "-o", "wide"})
 	c.collectCommand("deployments-wide.txt", []string{"get", "deployments", "-n", c.namespace, "-o", "wide"})
@@ -155,7 +155,7 @@ func (c *supportBundleCollector) collect(tail int) error {
 		},
 		{
 			file: "logs-keycloak.txt",
-			args: []string{"logs", "deployment/mas-iam-sample", "-n", c.namespace, fmt.Sprintf("--tail=%d", tail)},
+			args: []string{"logs", "deployment/mas-est-iam", "-n", c.namespace, fmt.Sprintf("--tail=%d", tail)},
 		},
 		{
 			file: "logs-scim-bridge.txt",
@@ -211,7 +211,7 @@ func (c *supportBundleCollector) writeManifest() {
 	if finished.IsZero() {
 		finished = time.Now()
 	}
-	manifest := fmt.Sprintf(`MAS IAM support bundle
+	manifest := fmt.Sprintf(`MAS External Services Toolkit support bundle
 Namespace: %s
 Cluster user: %s
 Cluster server: %s
@@ -233,7 +233,7 @@ func createSupportBundleDir(outputDir, namespace string, now time.Time) (string,
 	if base == "" {
 		base = "."
 	}
-	name := fmt.Sprintf("mas-iam-support-%s-%s", safePathToken(namespace), now.Format(supportBundleTimeFormat))
+	name := fmt.Sprintf("mas-est-support-%s-%s", safePathToken(namespace), now.Format(supportBundleTimeFormat))
 	if err := os.MkdirAll(base, 0o700); err != nil {
 		return "", fmt.Errorf("create support bundle parent directory %s: %w", base, err)
 	}

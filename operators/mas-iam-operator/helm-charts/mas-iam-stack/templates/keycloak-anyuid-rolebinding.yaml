@@ -1,4 +1,4 @@
-{{- if and (has "security.openshift.io/v1/SecurityContextConstraints" .Capabilities.APIVersions) (.Values.keycloak.enabled | default true) -}}
+{{- if and (has "security.openshift.io/v1/SecurityContextConstraints" .Capabilities.APIVersions) (ne (toString .Values.keycloak.enabled) "false") -}}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:

@@ -61,7 +61,7 @@
 - Created `scim-bridge-ca` Secret from `openshift-config-managed/default-ingress-cert` (`ca-bundle.crt`).
 - Set `SCIM_BRIDGE_KEYCLOAK_CA_FILE=/etc/scim-bridge/certs/keycloak-ca.crt`.
 - Verified the CA bundle succeeds from an in-cluster debug pod (`curl --cacert ...` to Keycloak route).
-- Switched `SCIM_BRIDGE_KEYCLOAK_BASE_URL` to the internal service `http://mas-iam-sample:8080`.
+- Switched `SCIM_BRIDGE_KEYCLOAK_BASE_URL` to the internal service `http://mas-est-iam:8080`.
 
 ### Findings
 - TLS verification to the Keycloak route still failed in the bridge despite the CA bundle.
@@ -78,8 +78,8 @@
 ## 2026-01-13
 
 ### Actions
-- Generated a custom route certificate for `mas-iam-sample-iam.apps.masapmonitor.cp.fyre.ibm.com` signed by a new local CA (`mas-iam-route-ca`).
-- Patched the `mas-iam-sample` Route to use the custom cert (edge termination).
+- Generated a custom route certificate for `mas-est-iam-mas-est.apps.masapmonitor.cp.fyre.ibm.com` signed by a new local CA (`mas-est-route-ca`).
+- Patched the `mas-est-iam` Route to use the custom cert (edge termination).
 - Updated `scim-bridge-ca` with the new CA.
 - Set `SSL_CERT_FILE` and `SSL_CERT_DIR` on the `scim-bridge` Deployment to ensure Go trusts the mounted CA bundle.
 - Restored `SCIM_BRIDGE_KEYCLOAK_BASE_URL` to the https route and restarted the bridge.
@@ -103,7 +103,7 @@
 
 ### Next steps
 1) Re-run `./scripts/scim-bridge-02-deploy.sh` once API connectivity returns.
-2) Confirm Job success: `oc get job -n iam scim-bridge-keycloak-route-cert`.
+2) Confirm Job success: `oc get job -n mas-est scim-bridge-keycloak-route-cert`.
 3) Verify `scim-bridge` pod starts and can authenticate to Keycloak over the custom Route.
 
 ## 2026-01-15

@@ -2,9 +2,9 @@
 
 This guide covers repo-backed SCIM bridge development and maintainer operations.
 
-The supported end-user path for full installs is now the bootstrapped local `mas-iam` CLI documented in [INSTALL-ALL-IN-ONE.md](INSTALL-ALL-IN-ONE.md). Use this document when:
+The supported end-user path for full installs is now the bootstrapped local `mas-est` CLI documented in [INSTALL-ALL-IN-ONE.md](INSTALL-ALL-IN-ONE.md). Use this document when:
 
-- the MAS IAM operator and sample IAM stack already exist
+- the MAS EST IAM operator and sample IAM stack already exist
 - you want to iterate on bridge configuration or image selection from a local clone
 - you need the script-backed deployment flow that this repo tests internally
 
@@ -86,8 +86,8 @@ Deploy from the repo:
 Verify:
 
 ```bash
-oc get deployment,job,pvc -n iam | grep scim-bridge
-oc logs deploy/scim-bridge -n iam --tail=200
+oc get deployment,job,pvc -n mas-est | grep scim-bridge
+oc logs deploy/scim-bridge -n mas-est --tail=200
 MAS_SCIM_BASE="${SCIM_BRIDGE_MAS_BASE_URL}" \
 MAS_PROFILE_ID="${SCIM_BRIDGE_MAS_PROFILE_ID}" \
 API_TOKEN_NAME="${SCIM_BRIDGE_MAS_API_TOKEN_NAME}" \
@@ -148,7 +148,7 @@ That means:
 - if `SCIM_BRIDGE_STORAGE_CLASS` is unset, the bridge PVC still inherits the cluster default
 - if there is no suitable default and no explicit override, `scim-bridge-state` can remain `Pending`
 
-For full-stack installs, PostgreSQL storage selection is handled separately by `scripts/install-olm-sample.sh` and the user-facing `iam install` flow.
+For full-stack installs, PostgreSQL storage selection is handled separately by `scripts/install-olm-sample.sh` and the user-facing `mas-est install` flow.
 
 ### MAS Profile Mapping
 
@@ -176,19 +176,19 @@ For local repo work and for the current tested flow, `scripts/scim-bridge-02-dep
 Rotate MAS API token values:
 
 ```bash
-oc create secret generic scim-bridge-secret -n iam \
+oc create secret generic scim-bridge-secret -n mas-est \
   --from-literal=SCIM_BRIDGE_MAS_API_TOKEN_NAME='<mas-api-token-name>' \
   --from-literal=SCIM_BRIDGE_MAS_API_TOKEN_VALUE='<mas-api-token-value>' \
   --dry-run=client -o yaml \
 | oc apply -f -
 
-oc rollout restart deployment/scim-bridge -n iam
+oc rollout restart deployment/scim-bridge -n mas-est
 ```
 
 If the Keycloak client secret changes, rerun the bootstrap path that matches your deployment mode:
 
 ```bash
-oc delete job scim-bridge-keycloak-bootstrap -n iam --ignore-not-found
+oc delete job scim-bridge-keycloak-bootstrap -n mas-est --ignore-not-found
 ./scripts/scim-bridge-02-deploy.sh
 ```
 
@@ -242,8 +242,8 @@ Fix:
 Checks:
 
 ```bash
-oc get job -n iam scim-bridge-keycloak-bootstrap
-oc logs job/scim-bridge-keycloak-bootstrap -n iam --tail=200
+oc get job -n mas-est scim-bridge-keycloak-bootstrap
+oc logs job/scim-bridge-keycloak-bootstrap -n mas-est --tail=200
 ```
 
 Common causes:

@@ -82,6 +82,13 @@ type User struct {
 	LastName   string
 	Attributes map[string][]string
 	MasProfile string
+	// FederationLink identifies the user federation provider that owns
+	// this user (e.g. an LDAP provider). Non-empty means the user was
+	// imported from a federation source rather than created directly in
+	// Keycloak. The bridge defaults to filtering these users out so
+	// LDAP-imported accounts aren't double-created via SCIM self-reg —
+	// see KeycloakConfig.IncludeFederatedUsers for the override.
+	FederationLink string
 }
 
 // ListUsers fetches a single page of users from Keycloak.
@@ -123,29 +130,38 @@ func (c *Client) ListUsers(ctx context.Context, params ListUsersParams) ([]User,
 		return nil, fmt.Errorf("keycloak list users: %s: %s", resp.Status, bodyText)
 	}
 	var payload []struct {
-		ID         string              `json:"id"`
-		Username   string              `json:"username"`
-		Email      string              `json:"email"`
-		Enabled    bool                `json:"enabled"`
-		FirstName  string              `json:"firstName"`
-		LastName   string              `json:"lastName"`
-		Attributes map[string][]string `json:"attributes"`
+		ID             string              `json:"id"`
+		Username       string              `json:"username"`
+		Email          string              `json:"email"`
+		Enabled        bool                `json:"enabled"`
+		FirstName      string              `json:"firstName"`
+		LastName       string              `json:"lastName"`
+		Attributes     map[string][]string `json:"attributes"`
+		FederationLink string              `json:"federationLink"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
 		return nil, fmt.Errorf("decode users: %w", err)
 	}
 	users := make([]User, 0, len(payload))
 	for _, u := range payload {
+		// Skip users owned by a user-federation provider (e.g. LDAP) unless
+		// the operator has explicitly opted in. Without this filter the
+		// bridge re-syncs LDAP-imported users into MAS via SCIM, which
+		// double-creates them and breaks LDAP self-reg with a 409 conflict.
+		if !c.cfg.IncludeFederatedUsers && strings.TrimSpace(u.FederationLink) != "" {
+			continue
+		}
 		attrs := normalizeAttributes(u.Attributes)
 		users = append(users, User{
-			ID:         u.ID,
-			Username:   u.Username,
-			Email:      u.Email,
-			Enabled:    u.Enabled,
-			FirstName:  u.FirstName,
-			LastName:   u.LastName,
-			Attributes: attrs,
-			MasProfile: firstAttribute(attrs, "masProfile"),
+			ID:             u.ID,
+			Username:       u.Username,
+			Email:          u.Email,
+			Enabled:        u.Enabled,
+			FirstName:      u.FirstName,
+			LastName:       u.LastName,
+			Attributes:     attrs,
+			MasProfile:     firstAttribute(attrs, "masProfile"),
+			FederationLink: u.FederationLink,
 		})
 	}
 	return users, nil

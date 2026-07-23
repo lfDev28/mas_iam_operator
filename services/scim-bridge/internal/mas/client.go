@@ -267,6 +267,9 @@ func (c *Client) newRequest(ctx context.Context, method, endpoint string, body a
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/scim+json")
+		if c.cfg.PayloadLogging {
+			log.Printf("MAS SCIM request payload method=%s url=%s body=%s", method, endpoint, RedactPayload(data))
+		}
 	}
 	req.Header.Set("Authorization", c.authHeader())
 	return req, nil

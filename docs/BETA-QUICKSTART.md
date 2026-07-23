@@ -1,8 +1,8 @@
-# MAS IAM Beta Quickstart
+# MAS External Services Toolkit Beta Quickstart
 
 This is the shortest supported path for the internal beta.
 
-Use it when you want a working MAS IAM plus SCIM bridge environment quickly and you are happy to let the installer guide you through the prompts.
+Use it when you want a working MAS External Services Toolkit plus SCIM bridge environment quickly and you are happy to let the installer guide you through the prompts.
 
 ## What You Need
 
@@ -29,35 +29,35 @@ https://api.<mas-host>/scim/v2
 Set the beta image:
 
 ```bash
-export MAS_IAM_IMAGE='quay.io/lee_forster/mas-iam-tool:v0.1.0-beta.5'
+export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.0'
 ```
 
-Install the local `mas-iam` command:
+Install the local `mas-est` command:
 
 ```bash
-mkdir -p "$HOME/mas-iam"
-podman run -ti --rm -v "$HOME/mas-iam:/tmp" --pull always "$MAS_IAM_IMAGE"
-export PATH="$HOME/mas-iam:$PATH"
+mkdir -p "$HOME/mas-est"
+podman run -ti --rm -v "$HOME/mas-est:/tmp" --pull always "$MAS_EST_IMAGE"
+export PATH="$HOME/mas-est:$PATH"
 ```
 
 If you already bootstrapped an older runtime, overwrite it with:
 
 ```bash
-podman run -ti --rm -v "$HOME/mas-iam:/tmp" --pull always "$MAS_IAM_IMAGE" bootstrap --force
-export PATH="$HOME/mas-iam:$PATH"
+podman run -ti --rm -v "$HOME/mas-est:/tmp" --pull always "$MAS_EST_IMAGE" bootstrap --force
+export PATH="$HOME/mas-est:$PATH"
 ```
 
 Confirm the command is available:
 
 ```bash
-mas-iam version
-mas-iam --help
+mas-est version
+mas-est --help
 ```
 
 ## 2. Run Preflight
 
 ```bash
-mas-iam preflight
+mas-est preflight
 ```
 
 Preflight checks the active cluster context, basic tool availability, storage classes, and MAS URL shape. If you are not logged in to OpenShift yet, the CLI will offer to run `oc login` before continuing. If the cluster has more than one plausible storage class, note the block/RBD class names. You may need them during install.
@@ -65,7 +65,7 @@ Preflight checks the active cluster context, basic tool availability, storage cl
 ## 3. Run Install
 
 ```bash
-mas-iam install
+mas-est install
 ```
 
 The installer prompts for:
@@ -83,15 +83,23 @@ For the beta, choose an RBD/block-style storage class for PostgreSQL and the SCI
 ## 4. Check Health
 
 ```bash
-mas-iam status --namespace iam
-mas-iam logs --namespace iam --component bridge
+mas-est status --namespace mas-est
+mas-est logs --namespace mas-est --component bridge
 ```
 
 To print the bundled OpenLDAP connection values:
 
 ```bash
-mas-iam ldap-info --namespace iam
+mas-est ldap-info --namespace mas-est
 ```
+
+To print generated connection details for installed services:
+
+```bash
+mas-est details --namespace mas-est --component all
+```
+
+If you selected MAS auth auto-configuration during install, the generated provider IDs are `mas-est-ldap`, `mas-est-oidc`, and `mas-est-saml`. OIDC is MAS 9.1+ only; the installer checks for `spec.oidc` support before creating an OIDC provider.
 
 A healthy install should show:
 
@@ -109,7 +117,7 @@ A healthy install should show:
 To remove the namespace and optionally delete the MAS profile:
 
 ```bash
-mas-iam wipe --namespace iam --profile-id demo
+mas-est uninstall --namespace mas-est --profile-id demo
 ```
 
 Use `--skip-profile-delete` if you only want to remove the OpenShift lab resources.
@@ -121,11 +129,11 @@ Capture this output before changing the cluster:
 ```bash
 oc whoami
 oc whoami --show-server
-mas-iam preflight
-mas-iam status --namespace iam
-mas-iam logs --namespace iam --component operator
-mas-iam logs --namespace iam --component keycloak
-mas-iam logs --namespace iam --component bridge
+mas-est preflight
+mas-est status --namespace mas-est
+mas-est logs --namespace mas-est --component operator
+mas-est logs --namespace mas-est --component keycloak
+mas-est logs --namespace mas-est --component bridge
 ```
 
 Most beta install failures so far have come from cluster prerequisites: storage class defaults, image pull access, registry health, DNS, or certificate/route differences. Capture the evidence and treat those as beta bug reports.
