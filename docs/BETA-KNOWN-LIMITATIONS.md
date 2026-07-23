@@ -115,6 +115,9 @@ See `OBJECT-STORAGE-POC.md` and `INSTALL-ALL-IN-ONE.md` for the documented Mailp
 
 ## What Is Supported
 
+**v0.1.0 release notes:**
+- v0.1.0 is the release build of beta.24 — identical code, release version strings. The beta.22–24 notes below describe the fixes that landed since the last widely-tested beta (beta.21): SCIM-user Manage sync (identity key + forced re-sync) and the MinIO RWO Recreate strategy.
+
 **v0.1.0-beta.24 notes:**
 - The SCIM-user OIDC linker now flips `applications.manage.sync.state` (and `sync.status`) to `PENDING` when it rewrites a user's identities map. The SCIM bridge provisions users minutes before `mas-auth apply` runs the linker, so the user-sync agent's first Manage pass always lands with the pre-link identities and records a stale `local` MASUSERIDP row; the PENDING flip forces a re-sync with the corrected `default-oidc` identity on the agent's next poll. Without it, OIDC login into Manage cannot map SCIM-provisioned users. Verified end-to-end on a fresh itz-4mwtok install.
 
