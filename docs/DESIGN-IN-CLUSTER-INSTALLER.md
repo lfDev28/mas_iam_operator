@@ -103,16 +103,21 @@ substitute their own.
 
 ### Known blockers to solve during implementation
 
-1. **Run-log path is not writable.** `logging.OpenRunLog` writes to
-   `{repoRoot}/.mas-est-installer/logs` (`logfile.go:11`) — i.e. `/opt/mas-est/…`
-   in the image. Under OpenShift's default `restricted-v2` SCC the pod gets an
-   arbitrary UID that cannot write there. Fix: honour a log-dir override
-   (env or flag) and point it at an `emptyDir` mounted at `/tmp`, or fall back to
-   stdout-only when the directory is unwritable. **The Job must not fail because
-   it cannot open a log file** — stdout is the real log here anyway.
+1. **Run-log path is not writable — but already degrades gracefully.** Verified by
+   running the v0.1.3 image as a non-root UID: `/opt/mas-est` is `root:root 0755`,
+   so `logging.OpenRunLog` (`logfile.go:11`) cannot create
+   `{repoRoot}/.mas-est-installer/logs`. `install.go` guards that call with
+   `if … err == nil`, so the run continues with stdout-only output. Net effect in
+   a pod: no persisted log file, which is correct — stdout *is* the log for a Job,
+   captured by `oc logs`. No fix required; do not "improve" this into a hard
+   failure. A log-dir override (env/flag) pointed at an `emptyDir` is optional
+   polish if we ever want the file too.
 2. **Arbitrary UID generally.** The image declares `USER root`; scripts that
    assume a writable `$HOME` need the same treatment the Keycloak bootstrap
-   already uses (`export HOME=/tmp/...`). Audit before shipping.
+   already uses (`export HOME=/tmp/...`). Bash helpers already use `mktemp -d`
+   (writable `/tmp`). Verified as UID 1001: `est version` and `est install
+   --non-interactive` both run and fail cleanly at the login check, not on
+   filesystem permissions. Audit remaining scripts before shipping.
 3. **In-cluster auth.** `ensureClusterLogin` (non-interactive branch) requires
    `currentClusterContext` to succeed. With the SA token mounted, `oc whoami`
    resolves in-cluster — verify end-to-end, and ensure the interactive `oc login`
