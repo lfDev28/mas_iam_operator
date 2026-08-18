@@ -174,6 +174,7 @@ These are good next-phase enhancements, but they are not part of the `v0.1.x` pr
 - auto-wiring MAS Manage doclinks to the installed S3 storage (scripting the `mxe.cos*` system properties as an optional install step, planned for `v0.1.1`) — currently a manual follow-up documented in `OBJECT-STORAGE-POC.md`
 - SCIM bridge post-provision identity remediation for users created after `mas-auth apply` has run (the install-time linker covers users provisioned before it; later arrivals keep a `_local`-only identity until the linker runs again, planned for `v0.1.1`)
 - group-based profile routing (planned for `v0.2.0`)
+- group-based SCIM bridge scoping — sync by `mas-scim-users` Keycloak group membership instead of the `scim.` username prefix (planned for `v0.2.0`, design: [DESIGN-SCIM-GROUP-SCOPING.md](DESIGN-SCIM-GROUP-SCOPING.md))
 - precedence rules between `masProfile` and groups
 - richer remediation for adopted existing users
 - more advanced identity-source emulation
