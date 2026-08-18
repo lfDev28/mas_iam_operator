@@ -115,6 +115,13 @@ See `OBJECT-STORAGE-POC.md` and `INSTALL-ALL-IN-ONE.md` for the documented Mailp
 
 ## What Is Supported
 
+**v0.1.3 release notes** (CLI `v0.1.3` + SCIM bridge image `scim-bridge-v0.1.2`):
+- SCIM users are now linked to SAML when OIDC is not configured. The linker was OIDC-only, so on installs without OIDC (every MAS 9.0 install — 9.0 has no OIDC Admin API) SCIM-provisioned users stayed `_local`-only and could not log in. The SAML identity is keyed by the user's primary email because MAS's SAML resolver matches on the assertion NameID, which the mas-est Keycloak SAML client forces to EMAIL format. LDAP-only installs still skip linking (SCIM users do not exist in OpenLDAP).
+- New preflight check `mas-oidc-endpoint`: probes the MAS OIDC Admin API and fails fast on MAS 9.0 (404 `AIUCO1022E`) with instructions to re-run using `--mas-auth-providers ldap,saml`, instead of failing mid-install. The same guidance is attached to a late-stage OIDC PUT failure.
+- New preflight check `mas-api-key`: authenticates the MAS API key and probes the SCIM API. A key lacking `userAdmin` + `systemAdmin` now fails preflight in seconds (403 `AIUCO1003E`) instead of a 15-minute profile-bootstrap job timeout. `mas-est preflight` gained `--mas-api-token-name` / `--mas-api-token-value`.
+- SCIM bridge scoping by Keycloak group (`SCIM_BRIDGE_INCLUDE_GROUPS`, installer default `mas-scim-users`): membership is paged in full, removing the 50-user single-page cap, and composes with the username filters (AND). The `scim.` prefix default is retained for this release and drops in the next.
+- SCIM bridge deactivate-on-removal: a tracked user removed from the scoped group is deactivated in MAS (SCIM `active: false`, never deleted) and tombstoned so it fires once; re-adding them to the group reactivates. Runs in group mode only — the legacy prefix mode reads a single 50-user page, and diffing state against it would deactivate off-page users.
+
 **v0.1.2 release notes:**
 - `mas-est preflight` now discovers MAS API routes the same way `install` does: the SCIM base URL prompt is pre-filled from a single detected route, offers a picker when several are found, and prints the detected-route hints before prompting.
 

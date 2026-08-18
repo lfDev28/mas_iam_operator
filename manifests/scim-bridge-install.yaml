@@ -84,7 +84,7 @@ spec:
 
       containers:
         - name: scim-bridge
-          image: "quay.io/lee_forster/mas-iam-scim-bridge:scim-bridge-v0.1.1"
+          image: "quay.io/lee_forster/mas-iam-scim-bridge:scim-bridge-v0.1.2"
           imagePullPolicy: Always
           args:
             - "--bridge-mode=poll"
