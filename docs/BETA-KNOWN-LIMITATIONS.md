@@ -115,6 +115,9 @@ See `OBJECT-STORAGE-POC.md` and `INSTALL-ALL-IN-ONE.md` for the documented Mailp
 
 ## What Is Supported
 
+**v0.1.2 release notes:**
+- `mas-est preflight` now discovers MAS API routes the same way `install` does: the SCIM base URL prompt is pre-filled from a single detected route, offers a picker when several are found, and prints the detected-route hints before prompting.
+
 **v0.1.1 release notes:**
 - Fixed: deselecting options in the interactive multi-select prompts ("Products to install", "MAS auth providers to create") was silently ignored — the resolved config always kept the full default set (e.g. OIDC stayed enabled after being unchecked, which breaks installs on MAS 9.0 where the OIDC Admin API does not exist). Cause: the survey library appends multi-select answers to a pre-seeded response slice, so the result was the union of defaults and picks. Workaround on v0.1.0: pass the selection as flags (`--components ...`, `--mas-auth-providers ...`).
 - Known (unchanged in v0.1.1): the OIDC auth provider requires MAS 9.1+ (`PUT /config/oidc/{id}` returns 404 AIUCO1022E on 9.0). Select only `ldap,saml` on MAS 9.0. A preflight guard is planned.
