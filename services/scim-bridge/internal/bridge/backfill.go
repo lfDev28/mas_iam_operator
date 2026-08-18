@@ -34,6 +34,12 @@ func (b *Backfill) WithMASClient(m MASClient) *Backfill {
 }
 
 // Run performs a single backfill pass.
+//
+// Backfill deliberately performs no removal detection: it is a bootstrap
+// sweep that seeds correlations for the current scoped set. Deactivating
+// users absent from the set is the steady-state poller's job (group mode
+// only) — a one-shot backfill run against a partially-populated group must
+// not deactivate anyone.
 func (b *Backfill) Run(ctx context.Context) error {
 	if b.masClient == nil {
 		return fmt.Errorf("mas client not configured for backfill")

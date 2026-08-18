@@ -107,10 +107,80 @@ func (e *Executor) Execute(ctx context.Context, action Action) error {
 			return nil
 		}
 		return e.updateWithPatch(ctx, action, payload)
+	case ActionDeactivate:
+		return e.deactivate(ctx, action)
 	default:
 		e.logger.Info("unhandled action", "action", action.Type)
 		return nil
 	}
+}
+
+// deactivate sets SCIM active:false on the MAS user (never delete) and
+// tombstones the state entry so the deactivation fires once. A failed MAS
+// call must not tombstone: the entry keeps a non-deactivated status so the
+// next cycle plans the deactivation again.
+func (e *Executor) deactivate(ctx context.Context, action Action) error {
+	if action.ExistingMAS == "" {
+		return fmt.Errorf("missing MAS ID for deactivate")
+	}
+	if !e.allowUpdates {
+		e.logger.Info("updates disabled; skipping deactivate", "username", action.User.Username, "mas_id", action.ExistingMAS, "mas_profile_id", action.ProfileID)
+		return nil
+	}
+	tombstone := state.Entry{
+		MASID:       action.ExistingMAS,
+		ProfileID:   action.ProfileID,
+		Status:      state.StatusDeactivated,
+		Username:    action.User.Username,
+		LastApplied: deactivatedSnapshot(action.StateLastApplied),
+	}
+	if e.dryRun {
+		e.logger.Info("dry-run deactivate", "username", action.User.Username, "mas_id", action.ExistingMAS, "mas_profile_id", action.ProfileID)
+		return e.store.Save(ctx, action.User.ID, tombstone)
+	}
+	ops := []mas.PatchOperation{{Op: "replace", Path: "active", Value: false}}
+	if err := e.mas.PatchUser(ctx, action.ProfileID, action.ExistingMAS, ops); err != nil {
+		var respErr *mas.ResponseError
+		if errors.As(err, &respErr) {
+			switch respErr.StatusCode {
+			case 401:
+				return wrapMASUnauthorized(err)
+			case 404:
+				// Already gone from MAS; tombstone so we stop retrying.
+				e.logger.Info("MAS user missing on deactivate; tombstoning", "username", action.User.Username, "mas_id", action.ExistingMAS, "mas_profile_id", action.ProfileID)
+				return e.store.Save(ctx, action.User.ID, tombstone)
+			default:
+				e.logger.Error("MAS deactivate failed", "username", action.User.Username, "mas_id", action.ExistingMAS, "status", respErr.Status, "status_code", respErr.StatusCode, "response_body", respErr.Body, "mas_profile_id", action.ProfileID)
+				saveErr := e.store.Save(ctx, action.User.ID, state.Entry{
+					MASID:       action.ExistingMAS,
+					ProfileID:   action.ProfileID,
+					Status:      state.StatusError,
+					LastError:   fmt.Sprintf("%s: %s", respErr.Status, respErr.Body),
+					Username:    action.User.Username,
+					LastApplied: action.StateLastApplied,
+				})
+				if saveErr != nil {
+					return fmt.Errorf("record deactivate failure: %w", saveErr)
+				}
+				return nil
+			}
+		}
+		return fmt.Errorf("deactivate MAS user: %w", err)
+	}
+	e.logger.Info("deactivated MAS user", "username", action.User.Username, "mas_id", action.ExistingMAS, "mas_profile_id", action.ProfileID)
+	return e.store.Save(ctx, action.User.ID, tombstone)
+}
+
+// deactivatedSnapshot flips active on the recorded snapshot. A zero snapshot
+// stays zero so a later reactivation falls back to a full PUT rather than
+// patching against fabricated field state.
+func deactivatedSnapshot(prev state.Snapshot) state.Snapshot {
+	if prev.IsZero() {
+		return prev
+	}
+	prev.Active = false
+	prev.HasActive = true
+	return prev
 }
 
 func (e *Executor) handleConflict(ctx context.Context, action Action, payload mas.UserResource) error {
@@ -200,6 +270,17 @@ func (e *Executor) updateWithPatch(ctx context.Context, action Action, payload m
 
 	nextSnapshot, ops := diffToPatch(prevSnapshot, payload, action.ProfileID)
 	if len(ops) == 0 {
+		if action.StateStatus == state.StatusDeactivated {
+			// Re-added user already matches desired state (e.g. disabled in
+			// Keycloak); clear the tombstone so removal detection tracks it again.
+			return e.store.Save(ctx, action.User.ID, state.Entry{
+				MASID:       action.ExistingMAS,
+				ProfileID:   action.ProfileID,
+				Status:      state.StatusOK,
+				Username:    action.User.Username,
+				LastApplied: prevSnapshot,
+			})
+		}
 		// No changes; skip update.
 		return nil
 	}

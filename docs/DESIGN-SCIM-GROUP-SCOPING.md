@@ -1,6 +1,6 @@
 # Design: Group-Based SCIM Bridge Scoping
 
-Status: proposed (target v0.2.0). Owner: mas-est. Origin: field feedback 2026-08-18 —
+Status: phase 1 and phase 2 implemented (target v0.2.0). Owner: mas-est. Origin: field feedback 2026-08-18 —
 a support engineer added a user to the `mas-scim-users` Keycloak group and expected
 the bridge to sync it; nothing happened because scoping is username-prefix-based.
 
@@ -47,18 +47,31 @@ users payload, so `keycloak.User` mapping is reused; the federated-user filter
 
 ### Phasing
 
-- **Phase 1 (this design): scoping only.** The planner only has Create/Update;
+- **Phase 1 (implemented): scoping only.** The planner only has Create/Update;
   a user removed from the group is no longer reconciled (left as-is in MAS),
   matching today's behavior when a user stops matching the prefix. Phase 1 must
   make the resolved scoped set an explicit value in the poller so phase 2 can
   diff it against the bridge's state store.
-- **Phase 2 (committed, after phase 1 validates): deactivate-on-removal.**
+- **Phase 2 (implemented): deactivate-on-removal.**
   A user present in the bridge state store but absent from the scoped set gets
   deactivated in MAS (SCIM PATCH `active: false` — not delete) and tombstoned
-  in state so the deactivation fires once. Needs care around transient Keycloak
-  errors (an empty member list due to an API failure must not mass-deactivate —
-  hard-fail the cycle instead) and re-add semantics (rejoining the group clears
-  the tombstone and reactivates).
+  in state (`status: deactivated`) so the deactivation fires once. Transient
+  Keycloak errors must not mass-deactivate: any group-resolve or member-list
+  failure hard-fails the cycle before removal detection runs, so an empty
+  scoped set only ever means the groups are genuinely empty (valid — it
+  deactivates every tracked user, behind a warn-level log line with counts).
+  Rejoining the group clears the tombstone and reactivates via the normal
+  update path; a failed deactivation records `status: error` without a
+  tombstone so the next cycle retries it.
+  - **Group mode only (hard constraint).** Removal detection runs *only* when
+    `SCIM_BRIDGE_INCLUDE_GROUPS` is set. Group membership is paged fully, so
+    the scoped set is complete and safe to diff against state. The legacy
+    prefix/`ListUsers` mode fetches a single 50-user page — diffing state
+    against that page would mass-deactivate every tracked user beyond page
+    one, so it never feeds removal detection.
+  - **Poller only.** Backfill is a bootstrap sweep that seeds correlations;
+    a one-shot backfill against a partially-populated group must not
+    deactivate anyone, so removal detection lives in the steady-state poller.
 
 ### Explicit non-goals
 

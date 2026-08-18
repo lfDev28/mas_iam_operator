@@ -23,6 +23,10 @@ type Entry struct {
 const (
 	StatusOK    = "ok"
 	StatusError = "error"
+	// StatusDeactivated tombstones a user that was deactivated in MAS after
+	// leaving the scoped set; it makes deactivation fire once and is cleared
+	// when the user re-enters scope and syncs successfully.
+	StatusDeactivated = "deactivated"
 )
 
 // Store tracks Keycloak ↔ MAS correlations.
@@ -30,6 +34,8 @@ type Store interface {
 	Close(ctx context.Context) error
 	Lookup(ctx context.Context, keycloakID string) (entry Entry, ok bool, err error)
 	Save(ctx context.Context, keycloakID string, entry Entry) error
+	// List returns a copy of every tracked correlation keyed by Keycloak ID.
+	List(ctx context.Context) (map[string]Entry, error)
 }
 
 // Options controls backend-specific settings.
@@ -78,6 +84,12 @@ func (m *memoryStore) Save(ctx context.Context, keycloakID string, entry Entry) 
 	return nil
 }
 
+func (m *memoryStore) List(ctx context.Context) (map[string]Entry, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return copyEntries(m.items), nil
+}
+
 // filesystemStore persists correlations to a JSON file.
 type filesystemStore struct {
 	path             string
@@ -108,6 +120,20 @@ func (f *filesystemStore) Save(ctx context.Context, keycloakID string, entry Ent
 	defer f.mu.Unlock()
 	f.items[keycloakID] = normalizeEntry(entry, f.defaultProfileID)
 	return f.persistLocked()
+}
+
+func (f *filesystemStore) List(ctx context.Context) (map[string]Entry, error) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return copyEntries(f.items), nil
+}
+
+func copyEntries(items map[string]Entry) map[string]Entry {
+	out := make(map[string]Entry, len(items))
+	for id, entry := range items {
+		out[id] = entry
+	}
+	return out
 }
 
 func (f *filesystemStore) load() error {

@@ -3,6 +3,7 @@ package bridge
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/lfDev28/mas-iam/services/scim-bridge/internal/keycloak"
 	"github.com/lfDev28/mas-iam/services/scim-bridge/internal/state"
@@ -24,8 +25,9 @@ func NewPlanner(store state.Store, resolver ProfileResolver, logger Logger) *Pla
 type ActionType string
 
 const (
-	ActionCreate ActionType = "create"
-	ActionUpdate ActionType = "update"
+	ActionCreate     ActionType = "create"
+	ActionUpdate     ActionType = "update"
+	ActionDeactivate ActionType = "deactivate"
 )
 
 // Action pairs a Keycloak user with an intended MAS operation.
@@ -86,4 +88,50 @@ func (p *Planner) Plan(ctx context.Context, users []keycloak.User) []Action {
 		actions = append(actions, action)
 	}
 	return actions
+}
+
+// PlanRemovals emits deactivate actions for users tracked in state but absent
+// from the resolved scoped set. Callers must only feed it a scoped set sourced
+// from group membership (the poller gates this); the legacy ListUsers path is
+// a single page and diffing against it would deactivate off-page users.
+func (p *Planner) PlanRemovals(ctx context.Context, scoped []keycloak.User) ([]Action, error) {
+	entries, err := p.store.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list state entries: %w", err)
+	}
+	present := make(map[string]struct{}, len(scoped))
+	for _, u := range scoped {
+		present[u.ID] = struct{}{}
+	}
+	ids := make([]string, 0, len(entries))
+	for id := range entries {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	var actions []Action
+	for _, kcID := range ids {
+		if _, ok := present[kcID]; ok {
+			continue
+		}
+		entry := entries[kcID]
+		// Tombstoned: deactivation already applied, fire once only.
+		if entry.Status == state.StatusDeactivated {
+			continue
+		}
+		// Never materialized in MAS (e.g. failed create); nothing to deactivate.
+		if entry.MASID == "" {
+			continue
+		}
+		actions = append(actions, Action{
+			Type:             ActionDeactivate,
+			User:             keycloak.User{ID: kcID, Username: entry.Username},
+			ExistingMAS:      entry.MASID,
+			StateStatus:      entry.Status,
+			StateLastError:   entry.LastError,
+			StateLastApplied: entry.LastApplied,
+			ProfileID:        entry.ProfileID,
+		})
+	}
+	return actions, nil
 }

@@ -1,6 +1,7 @@
 package state
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -37,6 +38,29 @@ func TestLoadFromFileAddsProfileID(t *testing.T) {
 	entry := entries["kc1"]
 	if entry.ProfileID != "profile-x" {
 		t.Fatalf("expected default profile applied, got %q", entry.ProfileID)
+	}
+}
+
+func TestListReturnsCopyOfEntries(t *testing.T) {
+	store, err := NewStore("memory", Options{DefaultProfileID: "p"})
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	ctx := context.Background()
+	_ = store.Save(ctx, "kc1", Entry{MASID: "mas1", Status: StatusOK, Username: "alice"})
+	_ = store.Save(ctx, "kc2", Entry{MASID: "mas2", Status: StatusDeactivated, Username: "bob"})
+
+	entries, err := store.List(ctx)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(entries) != 2 || entries["kc1"].MASID != "mas1" || entries["kc2"].Status != StatusDeactivated {
+		t.Fatalf("unexpected entries: %+v", entries)
+	}
+	// Mutating the returned map must not affect the store.
+	delete(entries, "kc1")
+	if _, ok, _ := store.Lookup(ctx, "kc1"); !ok {
+		t.Fatalf("expected store unaffected by mutation of listed map")
 	}
 }
 

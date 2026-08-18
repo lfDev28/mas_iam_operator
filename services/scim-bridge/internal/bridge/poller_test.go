@@ -16,6 +16,7 @@ type fakeScopeKC struct {
 	users          []keycloak.User
 	groups         []keycloak.Group
 	members        map[string][]keycloak.User // groupID -> full member list
+	membersErr     error                      // returned by ListGroupMembers when set
 	listUsersCalls int
 }
 
@@ -29,6 +30,9 @@ func (f *fakeScopeKC) ListGroups(ctx context.Context, search string) ([]keycloak
 }
 
 func (f *fakeScopeKC) ListGroupMembers(ctx context.Context, groupID string, first, max int) ([]keycloak.User, int, error) {
+	if f.membersErr != nil {
+		return nil, 0, f.membersErr
+	}
 	all := f.members[groupID]
 	if first >= len(all) {
 		return nil, 0, nil
