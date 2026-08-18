@@ -336,7 +336,7 @@ func (o *masAuthApplyOptions) applyViaCR(ctx context.Context, client *oc.Client,
 		return err
 	}
 	for _, manifest := range manifests {
-		if err := applyObjectStorageManifest(ctx, client, manifest); err != nil {
+		if err := applyManifest(ctx, client, manifest); err != nil {
 			return err
 		}
 	}

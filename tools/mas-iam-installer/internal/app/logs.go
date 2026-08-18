@@ -16,6 +16,7 @@ import (
 type logsOptions struct {
 	namespace string
 	component string
+	jobName   string
 	tail      int
 	follow    bool
 }
@@ -24,6 +25,7 @@ func newLogsCommand() *cobra.Command {
 	opts := &logsOptions{
 		namespace: config.LoadInstallConfigFromEnv().Namespace,
 		component: "bridge",
+		jobName:   installerJobDefaultName,
 		tail:      200,
 	}
 
@@ -37,7 +39,8 @@ func newLogsCommand() *cobra.Command {
 
 	flags := command.Flags()
 	flags.StringVar(&opts.namespace, "namespace", opts.namespace, "Target namespace")
-	flags.StringVar(&opts.component, "component", opts.component, "Log target: operator, keycloak, openldap, bridge, profile-bootstrap, minio, minio-init, or smtp")
+	flags.StringVar(&opts.component, "component", opts.component, "Log target: operator, keycloak, openldap, bridge, profile-bootstrap, minio, minio-init, smtp, or install-job")
+	flags.StringVar(&opts.jobName, "job-name", opts.jobName, "Installer Job name used by --component install-job")
 	flags.IntVar(&opts.tail, "tail", opts.tail, "Number of log lines to show")
 	flags.BoolVar(&opts.follow, "follow", false, "Follow logs")
 
@@ -77,8 +80,13 @@ func (o *logsOptions) componentArgs() ([]string, error) {
 		args = append(args, "job/mas-minio-bucket-init")
 	case "smtp":
 		args = append(args, "deployment/mas-mailpit")
+	case "install-job":
+		// Reattach target for `mas-est install --in-cluster`. Works while the
+		// Job runs and after it finishes, since the Job has no
+		// ttlSecondsAfterFinished.
+		args = append(args, "job/"+o.jobName)
 	default:
-		return nil, fmt.Errorf("unknown component %q (expected operator, keycloak, openldap, bridge, profile-bootstrap, minio, minio-init, or smtp)", o.component)
+		return nil, fmt.Errorf("unknown component %q (expected operator, keycloak, openldap, bridge, profile-bootstrap, minio, minio-init, smtp, or install-job)", o.component)
 	}
 
 	args = append(args, fmt.Sprintf("--tail=%d", o.tail))

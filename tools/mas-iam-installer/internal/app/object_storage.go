@@ -206,7 +206,7 @@ func (o *objectStorageInstallOptions) run(ctx context.Context) error {
 	fmt.Fprintf(os.Stdout, "[object-storage] installing Rook Ceph S3 endpoint %s in namespace %s\n", o.storeName, o.rookNamespace)
 
 	for _, manifest := range o.installManifests() {
-		if err := applyObjectStorageManifest(ctx, client, manifest); err != nil {
+		if err := applyManifest(ctx, client, manifest); err != nil {
 			return err
 		}
 	}
@@ -274,7 +274,7 @@ func (o *minioInstallOptions) run(ctx context.Context) error {
 
 	fmt.Fprintf(os.Stdout, "[object-storage] installing MinIO %s in namespace %s\n", o.name, o.namespace)
 
-	if err := applyObjectStorageManifest(ctx, client, minioNamespaceManifest(o)); err != nil {
+	if err := applyManifest(ctx, client, minioNamespaceManifest(o)); err != nil {
 		return err
 	}
 	if err := o.ensureRootSecret(ctx, client); err != nil {
@@ -284,7 +284,7 @@ func (o *minioInstallOptions) run(ctx context.Context) error {
 		return err
 	}
 	for _, manifest := range o.installManifests() {
-		if err := applyObjectStorageManifest(ctx, client, manifest); err != nil {
+		if err := applyManifest(ctx, client, manifest); err != nil {
 			return err
 		}
 	}
@@ -534,7 +534,7 @@ func (o *minioInstallOptions) ensureRootSecret(ctx context.Context, client *oc.C
 			"MINIO_ROOT_PASSWORD": password,
 		},
 	}
-	return applyObjectStorageManifest(ctx, client, manifest)
+	return applyManifest(ctx, client, manifest)
 }
 
 func (o *minioInstallOptions) runBucketInitJob(ctx context.Context, client *oc.Client) error {
@@ -542,7 +542,7 @@ func (o *minioInstallOptions) runBucketInitJob(ctx context.Context, client *oc.C
 	if _, err := client.DeleteIgnoreNotFound(ctx, o.namespace, "job/"+jobName); err != nil {
 		return err
 	}
-	if err := applyObjectStorageManifest(ctx, client, minioBucketInitJobManifest(o, jobName)); err != nil {
+	if err := applyManifest(ctx, client, minioBucketInitJobManifest(o, jobName)); err != nil {
 		return err
 	}
 	if _, err := client.WaitForCondition(ctx, o.namespace, "job/"+jobName, "complete", o.timeout.String()); err != nil {
@@ -553,11 +553,11 @@ func (o *minioInstallOptions) runBucketInitJob(ctx context.Context, client *oc.C
 
 func (o *minioInstallOptions) enableVirtualHostStyle(ctx context.Context, client *oc.Client) error {
 	for _, bucket := range o.manageBucketNames() {
-		if err := applyObjectStorageManifest(ctx, client, minioBucketAliasServiceManifest(o, bucket)); err != nil {
+		if err := applyManifest(ctx, client, minioBucketAliasServiceManifest(o, bucket)); err != nil {
 			return err
 		}
 	}
-	if err := applyObjectStorageManifest(ctx, client, minioDeploymentManifest(o, true)); err != nil {
+	if err := applyManifest(ctx, client, minioDeploymentManifest(o, true)); err != nil {
 		return err
 	}
 	if _, err := client.RolloutStatus(ctx, o.namespace, "deployment/"+o.name, o.timeout.String()); err != nil {
@@ -738,7 +738,7 @@ func applyMASObjectStorageConfig(ctx context.Context, client *oc.Client, options
 			"password": options.secretKey,
 		},
 	}
-	if err := applyObjectStorageManifest(ctx, client, credentialSecret); err != nil {
+	if err := applyManifest(ctx, client, credentialSecret); err != nil {
 		return err
 	}
 
@@ -773,7 +773,7 @@ func applyMASObjectStorageConfig(ctx context.Context, client *oc.Client, options
 			"crt":   options.caCert,
 		}}
 	}
-	return applyObjectStorageManifest(ctx, client, objectStorageCfg)
+	return applyManifest(ctx, client, objectStorageCfg)
 }
 
 func (o *objectStorageInstallOptions) printSummary(details s3BucketDetails, endpointURL string) {
@@ -882,7 +882,7 @@ func (o *minioInstallOptions) minioDetails(details s3BucketDetails) map[string]s
 	return updates
 }
 
-func applyObjectStorageManifest(ctx context.Context, client *oc.Client, manifest map[string]any) error {
+func applyManifest(ctx context.Context, client *oc.Client, manifest map[string]any) error {
 	raw, err := json.Marshal(manifest)
 	if err != nil {
 		return fmt.Errorf("encode manifest: %w", err)

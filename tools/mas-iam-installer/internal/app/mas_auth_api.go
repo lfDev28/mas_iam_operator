@@ -298,7 +298,7 @@ func (o *masAuthApplyOptions) applySelfRegConfigMap(ctx context.Context, client 
 	}
 
 	fmt.Fprintf(os.Stdout, "[mas-auth] applying self-reg ConfigMap %s/%s\n", o.masCoreNamespace, name)
-	if err := applyObjectStorageManifest(ctx, client, manifest); err != nil {
+	if err := applyManifest(ctx, client, manifest); err != nil {
 		return fmt.Errorf("apply self-reg configmap: %w", err)
 	}
 	return nil

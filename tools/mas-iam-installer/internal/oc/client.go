@@ -72,6 +72,15 @@ type JobStatus struct {
 	Succeeded int32
 	Failed    int32
 	Complete  bool
+
+	// FailedCondition is the Job's Failed=True condition, which is distinct
+	// from Failed: Failed counts failed pods, while the condition is what the
+	// Job controller sets when it gives up (backoff limit exceeded) or when
+	// activeDeadlineSeconds is hit. With backoffLimit 0 a pod failure and the
+	// condition arrive together, but DeadlineExceeded only sets the condition.
+	FailedCondition bool
+	FailedReason    string
+	FailedMessage   string
 }
 
 type ConditionStatus struct {
@@ -533,8 +542,10 @@ func (c *Client) Job(ctx context.Context, namespace, name string) (JobStatus, er
 			Succeeded  int32 `json:"succeeded"`
 			Failed     int32 `json:"failed"`
 			Conditions []struct {
-				Type   string `json:"type"`
-				Status string `json:"status"`
+				Type    string `json:"type"`
+				Status  string `json:"status"`
+				Reason  string `json:"reason"`
+				Message string `json:"message"`
 			} `json:"conditions"`
 		} `json:"status"`
 	}
@@ -542,21 +553,27 @@ func (c *Client) Job(ctx context.Context, namespace, name string) (JobStatus, er
 		return JobStatus{}, fmt.Errorf("decode job %s: %w", name, err)
 	}
 
-	complete := false
-	for _, condition := range payload.Status.Conditions {
-		if condition.Type == "Complete" && condition.Status == "True" {
-			complete = true
-			break
-		}
-	}
-
-	return JobStatus{
+	status := JobStatus{
 		Name:      payload.Metadata.Name,
 		Active:    payload.Status.Active,
 		Succeeded: payload.Status.Succeeded,
 		Failed:    payload.Status.Failed,
-		Complete:  complete,
-	}, nil
+	}
+	for _, condition := range payload.Status.Conditions {
+		if condition.Status != "True" {
+			continue
+		}
+		switch condition.Type {
+		case "Complete":
+			status.Complete = true
+		case "Failed":
+			status.FailedCondition = true
+			status.FailedReason = condition.Reason
+			status.FailedMessage = condition.Message
+		}
+	}
+
+	return status, nil
 }
 
 func (c *Client) PVCs(ctx context.Context, namespace string) ([]PVCStatus, error) {

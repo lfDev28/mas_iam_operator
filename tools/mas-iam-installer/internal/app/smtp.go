@@ -124,7 +124,7 @@ func (o *mailpitInstallOptions) run(ctx context.Context) error {
 
 	fmt.Fprintf(os.Stdout, "[smtp] installing Mailpit %s in namespace %s\n", o.name, o.namespace)
 	for _, manifest := range o.manifests() {
-		if err := applyObjectStorageManifest(ctx, client, manifest); err != nil {
+		if err := applyManifest(ctx, client, manifest); err != nil {
 			return err
 		}
 	}

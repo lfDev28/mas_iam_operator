@@ -222,6 +222,101 @@ mas-est install \
 
 MAS's own SMTP config doesn't change — it still talks plain SMTP to `mas-mailpit.mas-est.svc.cluster.local:1025`. Captured messages appear in the Mailpit UI as before AND get forwarded upstream. See [docs/CONNECTION-DETAILS.md](CONNECTION-DETAILS.md#smtp-relay-optional) for the full flag set + provider walkthroughs (Gmail, SendGrid, AWS SES, Outlook/365).
 
+## In-Cluster Install (`--in-cluster`)
+
+A normal `mas-est install` drives the cluster from your laptop for 15–30 minutes, which makes the laptop a single point of failure: sleeping the lid, dropping VPN, or closing the terminal kills the run mid-phase.
+
+`--in-cluster` moves the execution into the cluster. The CLI still prompts you locally and still runs preflight locally, then hands the resolved settings to a Kubernetes Job that does the actual work:
+
+```bash
+mas-est install --in-cluster
+```
+
+It works with `--non-interactive` and every other install flag too:
+
+```bash
+mas-est install --in-cluster --non-interactive \
+  --components ldap,keycloak,scim \
+  --mas-base-url 'https://api.<mas-host>/scim/v2' \
+  --mas-api-token-name '<mas-api-token-name>' \
+  --mas-api-token-value '<mas-api-token-value>' \
+  --workspace-id '<workspace-id>'
+```
+
+### What it creates
+
+| Resource | Notes |
+|---|---|
+| `Namespace/mas-est` | Target namespace, same as the local path |
+| `ServiceAccount/mas-est-installer` | Job identity |
+| `ClusterRole/mas-est-installer` + `ClusterRoleBinding/mas-est-installer-<namespace>` | Cross-namespace permissions, see below |
+| `Role/mas-est-installer` + `RoleBinding/mas-est-installer` | Full CRUD inside the target namespace |
+| `Secret/mas-est-install-credentials` | MAS API token name/value and, if set, the SMTP relay password |
+| `Job/mas-est-install` | Runs `est install --non-interactive …` |
+
+Every non-secret setting is passed to the Job as explicit CLI flags, so `oc get job mas-est-install -n mas-est -o yaml` is a complete record of what was requested. The MAS API token and the SMTP relay password are the exceptions — they reach the container through `secretKeyRef` env vars so they never appear in the Job spec.
+
+The Job runs `quay.io/lee_forster/mas-external-services-tool:v<cli-version>`, matching the CLI that launched it. Override with `--installer-image` when mirroring into a private registry. Override the Job name with `--job-name` when two engineers share a cluster.
+
+The Job uses `restartPolicy: Never` and `backoffLimit: 0` — the install is idempotent, but a blind restart silently repeats 20+ minutes of work, so re-running is a human decision. `activeDeadlineSeconds` is 5400 (90 minutes).
+
+### Ctrl-C is safe
+
+After creating the Job, the CLI streams its logs. **Ctrl-C detaches from the log stream; it does not cancel the install.** So does closing the laptop, dropping VPN, or killing the terminal.
+
+Reattach at any time — while it runs, or after it finishes:
+
+```bash
+mas-est logs --namespace mas-est --component install-job --follow
+```
+
+The Job has no `ttlSecondsAfterFinished`, so a finished Job and its logs stay around as the post-mortem artifact.
+
+To actually cancel a running install:
+
+```bash
+oc delete job mas-est-install -n mas-est
+```
+
+### Cleaning up
+
+`mas-est uninstall` does not remove the installer Job or its RBAC. Remove them by hand when you are done:
+
+```bash
+oc delete job mas-est-install -n mas-est --ignore-not-found
+oc delete secret mas-est-install-credentials -n mas-est --ignore-not-found
+oc delete rolebinding mas-est-installer -n mas-est --ignore-not-found
+oc delete role mas-est-installer -n mas-est --ignore-not-found
+oc delete serviceaccount mas-est-installer -n mas-est --ignore-not-found
+oc delete clusterrolebinding mas-est-installer-mas-est --ignore-not-found
+oc delete clusterrole mas-est-installer --ignore-not-found
+```
+
+Rerunning `mas-est install --in-cluster` when a Job of the same name already exists prompts to delete and recreate it in interactive mode, and fails with instructions in `--non-interactive` mode. It never silently replaces one — it may be somebody else's install.
+
+### RBAC note: the ClusterRole is broad
+
+The install genuinely touches a lot of the cluster, and the MAS core and MAS Mongo namespaces are not known until your settings are resolved, so they cannot be named in a namespaced Role. The shipped `ClusterRole/mas-est-installer` therefore grants, cluster-wide:
+
+- `namespaces` get/list/create; `nodes` get/list; `customresourcedefinitions` get/create; `storageclasses` get/list
+- `securitycontextconstraints` **use** on `anyuid` (needed by the OpenLDAP TLS generator job), plus `bind` on the `admin` and `system:openshift:scc:anyuid` ClusterRoles so `manifests/install-olm.yaml` can be applied
+- `clusterroles`/`clusterrolebindings` get/list/create/update/patch
+- OLM `catalogsources`, `operatorgroups`, `subscriptions`, `clusterserviceversions`, `installplans` full CRUD, and `packagemanifests` get/list
+- `idpcfgs`/`objectstoragecfgs` get/list/create/update/patch, `suites` get/list/patch, `manageworkspaces` get/list
+- `secrets` **get/list/create**, `configmaps` get/list/create/update/patch/delete, `routes` get/list
+- `pods` get/list, `pods/log` get, and **`pods/exec` create**
+
+`pods/exec` is required — `scripts/link-scim-users-oidc.sh` runs `oc exec … mongosh` inside the MAS Mongo pod to link SCIM users to their OIDC identities. `pods/exec` plus cross-namespace secret reads is close to cluster-admin in practice.
+
+Destructive verbs are deliberately kept out of the ClusterRole: deleting and rewriting workloads (`secrets`, `configmaps`, `deployments`, `statefulsets`, `jobs`, `services`, `routes`, `persistentvolumeclaims`, `serviceaccounts`, `pods`, `masiamstacks`) is granted only by the namespaced `Role/mas-est-installer` inside the target namespace.
+
+If your cluster's security posture rules this out, apply your own ServiceAccount and role bindings under the same names before running `--in-cluster`, or keep using the local install path.
+
+### Limitations
+
+- `--in-cluster` cannot be combined with `--uninstall-first`: the Job lives in the namespace the uninstall would delete, so it would remove itself mid-run. Run `mas-est uninstall` first, then rerun with `--in-cluster`.
+- The Job writes no run-log file — `/opt/mas-est` is not writable in the container. Stdout is the log, captured by `oc logs`.
+
 ## Connection Details
 
 The installer writes common connection values to:

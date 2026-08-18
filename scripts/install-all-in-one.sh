@@ -150,33 +150,48 @@ log_install "applying operator CRDs, RBAC, CatalogSource (deferring Subscription
 pre_sub_manifest="${TMPDIR:-/tmp}/mas-est-pre-sub.yaml"
 sub_manifest="${TMPDIR:-/tmp}/mas-est-sub.yaml"
 # Split the multi-doc yaml into "everything except Subscription" + "only the
-# Subscription" so we can apply them separately. python3 is available on
-# both macOS (system default) and Linux installer images; awk's print-redirect
+# Subscription" so we can apply them separately. Pure bash on purpose: the
+# published mas-est image ships no python3, so the previous python3 heredoc
+# aborted the whole install at this line when the installer ran in-cluster
+# (`mas-est install --in-cluster`). awk is avoided because its print-redirect
 # syntax is fragile across BSD/GNU implementations.
-python3 - "${operator_manifest}" "${pre_sub_manifest}" "${sub_manifest}" <<'PY'
-import sys
-src, pre_path, sub_path = sys.argv[1], sys.argv[2], sys.argv[3]
-with open(src) as f:
-    text = f.read()
-# Split on `---` on its own line; first chunk may be empty if file starts with ---.
-docs = []
-buf = []
-for line in text.splitlines():
-    if line.strip() == '---':
-        docs.append('\n'.join(buf))
-        buf = []
-    else:
-        buf.append(line)
-if buf:
-    docs.append('\n'.join(buf))
-pre_docs = [d for d in docs if d.strip() and 'kind: Subscription' not in d]
-sub_docs = [d for d in docs if d.strip() and 'kind: Subscription' in d]
-with open(pre_path, 'w') as f:
-    f.write('\n---\n'.join(pre_docs) + '\n')
-with open(sub_path, 'w') as f:
-    if sub_docs:
-        f.write('\n---\n'.join(sub_docs) + '\n')
-PY
+split_subscription_manifest() {
+  local src="$1" pre_path="$2" sub_path="$3"
+  local line doc="" doc_started=0
+  : >"${pre_path}"
+  : >"${sub_path}"
+
+  emit_doc() {
+    # Drop whitespace-only documents so the output never starts or ends with
+    # a stray separator.
+    [[ -n "$(printf '%s' "${doc}" | tr -d '[:space:]')" ]] || return 0
+    local target="${pre_path}"
+    if [[ "${doc}" == *"kind: Subscription"* ]]; then
+      target="${sub_path}"
+    fi
+    if [[ -s "${target}" ]]; then
+      printf -- '---\n' >>"${target}"
+    fi
+    printf '%s\n' "${doc}" >>"${target}"
+  }
+
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    if [[ "${line}" =~ ^[[:space:]]*---[[:space:]]*$ ]]; then
+      emit_doc
+      doc=""
+      doc_started=0
+      continue
+    fi
+    if (( doc_started == 0 )); then
+      doc="${line}"
+      doc_started=1
+    else
+      doc="${doc}"$'\n'"${line}"
+    fi
+  done <"${src}"
+  emit_doc
+}
+split_subscription_manifest "${operator_manifest}" "${pre_sub_manifest}" "${sub_manifest}"
 # Sanity check: if the split produced an empty Subscription file, the source
 # yaml has no Subscription block and the apply will fail. Fall back to a
 # single apply with a loud warning.

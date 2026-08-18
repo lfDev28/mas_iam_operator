@@ -72,6 +72,8 @@ mas-est logs --namespace mas-est --component bridge
 mas-est uninstall --namespace mas-est --profile-id demo
 ```
 
+To run the install inside the cluster instead of from your laptop, add `--in-cluster` (see [In-Cluster Install](#in-cluster-install)).
+
 ## Interactive Prompts
 
 The `install` command prompts for:
@@ -136,6 +138,22 @@ mas-est install \
   --scim-bridge-storage-class ocs-external-storagecluster-ceph-rbd \
   --non-interactive
 ```
+
+## In-Cluster Install
+
+`mas-est install --in-cluster` resolves the config the same way (prompts and preflight still run locally), then runs the install as a Kubernetes Job inside the cluster instead of from this machine, so it survives sleep, VPN drops, and closed terminals.
+
+It creates `ServiceAccount/mas-est-installer`, a ClusterRole + namespaced Role and their bindings, `Secret/mas-est-install-credentials` for the MAS API token, and `Job/mas-est-install`, then streams the Job's logs.
+
+**Ctrl-C detaches from the log stream; it does not cancel the install.** Reattach with:
+
+```bash
+mas-est logs --namespace mas-est --component install-job --follow
+```
+
+Cancel with `oc delete job mas-est-install -n mas-est`. `--installer-image` overrides the image (default: this CLI's own version), `--job-name` the Job name.
+
+The ClusterRole is broad — it includes `pods/exec` (required by the SCIM identity linker's `oc exec … mongosh`) and cross-namespace secret reads. Security-conscious operators can substitute their own. See [docs/INSTALL-ALL-IN-ONE.md](../../docs/INSTALL-ALL-IN-ONE.md#in-cluster-install---in-cluster) for the full verb list, cleanup commands, and limitations.
 
 Env vars:
 
