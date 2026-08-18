@@ -2,13 +2,18 @@ package preflight
 
 import (
 	"context"
+	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/config"
+	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/masadmin"
 	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/oc"
 )
 
@@ -23,6 +28,18 @@ const (
 type Input struct {
 	Namespace  string
 	MASBaseURL string
+	// CheckOIDCEndpoint probes whether MAS exposes the OIDC external-IdP
+	// Admin API (/config/oidc/default). MAS 9.0 does not ship the endpoint —
+	// the unauthenticated probe 404s with exception id AIUCO1022E — while
+	// 9.1+ answers 401 (endpoint exists, auth required). Requires MASBaseURL.
+	CheckOIDCEndpoint bool
+	// APITokenName/APITokenValue, when both set alongside MASBaseURL, verify
+	// the MAS API key can authenticate AND is authorized for the SCIM API.
+	// Keys minted with all-false permission flags still authenticate but get
+	// 403 AIUCO1003E on SCIM endpoints, which otherwise only surfaces as a
+	// silent 13-minute timeout in the scim profile-bootstrap Job.
+	APITokenName  string
+	APITokenValue string
 }
 
 type Result struct {
@@ -165,6 +182,15 @@ func Run(ctx context.Context, client *oc.Client, input Input) Report {
 		Message: fmt.Sprintf("parsed MAS host %s", masHost),
 	})
 
+	// Direct MAS probes run before the route lookup: the lookup warns and
+	// returns early on oc errors, and a transient oc blip must not skip these.
+	if input.CheckOIDCEndpoint {
+		report.Results = append(report.Results, CheckOIDCEndpoint(ctx, masHTTPClient(), input.MASBaseURL))
+	}
+	if input.APITokenName != "" && input.APITokenValue != "" {
+		report.Results = append(report.Results, CheckAPIKey(ctx, masHTTPClient(), input.MASBaseURL, input.APITokenName, input.APITokenValue))
+	}
+
 	routes, err := client.RoutesByHost(ctx, masHost)
 	if err != nil {
 		report.Results = append(report.Results, Result{
@@ -201,6 +227,130 @@ func Run(ctx context.Context, client *oc.Client, input Input) Report {
 	}
 
 	return report
+}
+
+// masHTTPClient returns the client used for direct MAS probes. TLS
+// verification is skipped because MAS routes are commonly signed by a
+// cluster-local CA that is not in the system trust store — same policy as
+// internal/masadmin's WithInsecureTLS, which the installer always enables.
+func masHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout: 15 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+}
+
+// CheckOIDCEndpoint probes GET {root}/config/oidc/default without auth, where
+// {root} is MASBaseURL minus the /scim/v2 suffix. MAS 9.1+ answers 401
+// (endpoint exists, auth required); MAS 9.0 answers 404 with exception id
+// AIUCO1022E because the OIDC external-IdP Admin API does not exist there.
+// Network errors only warn — preflight must not hard-fail on a transient
+// cluster blip.
+func CheckOIDCEndpoint(ctx context.Context, httpClient *http.Client, masBaseURL string) Result {
+	const name = "mas-oidc-endpoint"
+	probeURL := masadmin.StripSCIMSuffix(masBaseURL) + "/config/oidc/default"
+	host := probeURL
+	if parsed, err := url.Parse(probeURL); err == nil && parsed.Hostname() != "" {
+		host = parsed.Hostname()
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, probeURL, nil)
+	if err != nil {
+		return Result{Name: name, Status: StatusWarn, Message: fmt.Sprintf("could not build OIDC endpoint probe for %s: %v", probeURL, err)}
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return Result{Name: name, Status: StatusWarn, Message: fmt.Sprintf("could not reach %s: %v; skipping OIDC endpoint check", probeURL, err)}
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
+
+	switch {
+	case resp.StatusCode == http.StatusNotFound:
+		code := ""
+		if strings.Contains(string(body), "AIUCO1022E") {
+			code = " AIUCO1022E"
+		}
+		return Result{
+			Name:    name,
+			Status:  StatusError,
+			Message: fmt.Sprintf("MAS at %s does not expose the OIDC external-IdP API (HTTP 404%s; requires MAS 9.1+). Re-run with --mas-auth-providers ldap,saml or upgrade MAS.", host, code),
+		}
+	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden ||
+		(resp.StatusCode >= 200 && resp.StatusCode < 300):
+		return Result{Name: name, Status: StatusOK, Message: fmt.Sprintf("MAS at %s exposes the OIDC external-IdP API", host)}
+	default:
+		return Result{Name: name, Status: StatusWarn, Message: fmt.Sprintf("unexpected HTTP %d from %s; cannot confirm the OIDC external-IdP API is available", resp.StatusCode, probeURL)}
+	}
+}
+
+// CheckAPIKey verifies the MAS API key in two steps: mint a JWT via GET
+// {root}/v1/authenticate with basic auth, then GET {base}/Profiles with that
+// JWT as a Bearer token ({base} keeps the /scim/v2 suffix). Authentication
+// succeeding proves nothing about SCIM access — a key minted with all-false
+// permission flags authenticates but gets 403 AIUCO1003E on SCIM endpoints;
+// the SCIM API requires userAdmin + systemAdmin. Network errors only warn.
+func CheckAPIKey(ctx context.Context, httpClient *http.Client, masBaseURL, tokenName, tokenValue string) Result {
+	const name = "mas-api-key"
+	authURL := masadmin.StripSCIMSuffix(masBaseURL) + "/v1/authenticate"
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, authURL, nil)
+	if err != nil {
+		return Result{Name: name, Status: StatusWarn, Message: fmt.Sprintf("could not build authenticate request for %s: %v", authURL, err)}
+	}
+	req.SetBasicAuth(tokenName, tokenValue)
+	req.Header.Set("Accept", "application/json")
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return Result{Name: name, Status: StatusWarn, Message: fmt.Sprintf("could not reach %s: %v; skipping API key check", authURL, err)}
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return Result{
+			Name:    name,
+			Status:  StatusError,
+			Message: fmt.Sprintf("MAS API key %s failed to authenticate (HTTP %d). Check %s / %s.", tokenName, resp.StatusCode, config.EnvMASAPITokenName, config.EnvMASAPITokenValue),
+		}
+	}
+	var payload struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil || payload.Token == "" {
+		return Result{Name: name, Status: StatusWarn, Message: fmt.Sprintf("authenticate response from %s contained no token; cannot verify SCIM authorization", authURL)}
+	}
+
+	profilesURL := strings.TrimRight(strings.TrimSpace(masBaseURL), "/") + "/Profiles"
+	req, err = http.NewRequestWithContext(ctx, http.MethodGet, profilesURL, nil)
+	if err != nil {
+		return Result{Name: name, Status: StatusWarn, Message: fmt.Sprintf("could not build SCIM probe for %s: %v", profilesURL, err)}
+	}
+	req.Header.Set("Authorization", "Bearer "+payload.Token)
+	req.Header.Set("Accept", "application/json")
+	resp, err = httpClient.Do(req)
+	if err != nil {
+		return Result{Name: name, Status: StatusWarn, Message: fmt.Sprintf("could not reach %s: %v; skipping SCIM authorization check", profilesURL, err)}
+	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 8192))
+	resp.Body.Close()
+
+	switch {
+	// 404 still proves authorization: an all-false-permissions key gets 403
+	// AIUCO1003E before any routing/resource lookup happens.
+	case (resp.StatusCode >= 200 && resp.StatusCode < 300) || resp.StatusCode == http.StatusNotFound:
+		return Result{Name: name, Status: StatusOK, Message: fmt.Sprintf("MAS API key %s authenticated and is authorized for the SCIM API", tokenName)}
+	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
+		return Result{
+			Name:    name,
+			Status:  StatusError,
+			Message: fmt.Sprintf("MAS API key %s authenticated but is not authorized for the SCIM API (HTTP %d AIUCO1003E). Recreate the key with userAdmin and systemAdmin permissions.", tokenName, resp.StatusCode),
+		}
+	default:
+		return Result{Name: name, Status: StatusWarn, Message: fmt.Sprintf("unexpected HTTP %d from %s; cannot confirm SCIM authorization", resp.StatusCode, profilesURL)}
+	}
 }
 
 func RankStorageClasses(classes []oc.StorageClass) StorageRanking {

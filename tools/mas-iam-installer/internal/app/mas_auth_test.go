@@ -62,11 +62,24 @@ func TestLinkSCIMUsersArgsTranslatesDefaultIDpIDToSuffixedKey(t *testing.T) {
 	opts := &masAuthApplyOptions{
 		masInstanceID:  "lfmas",
 		oidcProviderID: defaultMASAuthOIDCID, // "default"
+		samlProviderID: defaultMASAuthSAMLID,
 	}
-	args := opts.linkSCIMUsersArgs()
-	want := []string{"--instance", "lfmas", "--oidc-idp", "default-oidc"}
+	args := opts.linkSCIMUsersArgs("oidc")
+	want := []string{"--instance", "lfmas", "--idp", "default-oidc", "--idp-type", "oidc"}
 	if strings.Join(args, " ") != strings.Join(want, " ") {
-		t.Fatalf("linkSCIMUsersArgs() = %v, want %v", args, want)
+		t.Fatalf("linkSCIMUsersArgs(oidc) = %v, want %v", args, want)
+	}
+
+	// SAML-only installs link against the SAML provider key; the reserved-word
+	// suffix rule applies per-type ("default" → "default-saml").
+	opts = &masAuthApplyOptions{
+		masInstanceID:  "lfmas",
+		samlProviderID: "default",
+	}
+	args = opts.linkSCIMUsersArgs("saml")
+	want = []string{"--instance", "lfmas", "--idp", "default-saml", "--idp-type", "saml"}
+	if strings.Join(args, " ") != strings.Join(want, " ") {
+		t.Fatalf("linkSCIMUsersArgs(saml) = %v, want %v", args, want)
 	}
 
 	// Custom idpIds are still passed verbatim.
@@ -74,10 +87,20 @@ func TestLinkSCIMUsersArgsTranslatesDefaultIDpIDToSuffixedKey(t *testing.T) {
 		masInstanceID:  "lfmas",
 		oidcProviderID: "my-corp-oidc",
 	}
-	args = opts.linkSCIMUsersArgs()
-	want = []string{"--instance", "lfmas", "--oidc-idp", "my-corp-oidc"}
+	args = opts.linkSCIMUsersArgs("oidc")
+	want = []string{"--instance", "lfmas", "--idp", "my-corp-oidc", "--idp-type", "oidc"}
 	if strings.Join(args, " ") != strings.Join(want, " ") {
 		t.Fatalf("linkSCIMUsersArgs(my-corp-oidc) = %v, want %v", args, want)
+	}
+
+	opts = &masAuthApplyOptions{
+		masInstanceID:  "lfmas",
+		samlProviderID: "my-corp-saml",
+	}
+	args = opts.linkSCIMUsersArgs("saml")
+	want = []string{"--instance", "lfmas", "--idp", "my-corp-saml", "--idp-type", "saml"}
+	if strings.Join(args, " ") != strings.Join(want, " ") {
+		t.Fatalf("linkSCIMUsersArgs(my-corp-saml) = %v, want %v", args, want)
 	}
 }
 

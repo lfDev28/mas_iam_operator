@@ -15,16 +15,20 @@ import (
 )
 
 type preflightOptions struct {
-	namespace      string
-	masBaseURL     string
-	nonInteractive bool
+	namespace       string
+	masBaseURL      string
+	masAPITokenName string
+	masAPITokenVal  string
+	nonInteractive  bool
 }
 
 func newPreflightCommand() *cobra.Command {
 	defaults := config.LoadInstallConfigFromEnv()
 	opts := &preflightOptions{
-		namespace:  defaults.Namespace,
-		masBaseURL: defaults.MASBaseURL,
+		namespace:       defaults.Namespace,
+		masBaseURL:      defaults.MASBaseURL,
+		masAPITokenName: defaults.MASAPITokenName,
+		masAPITokenVal:  defaults.MASAPITokenValue,
 	}
 
 	command := &cobra.Command{
@@ -38,6 +42,8 @@ func newPreflightCommand() *cobra.Command {
 	flags := command.Flags()
 	flags.StringVar(&opts.namespace, "namespace", opts.namespace, "Target namespace")
 	flags.StringVar(&opts.masBaseURL, "mas-base-url", opts.masBaseURL, "MAS SCIM base URL, including /scim/v2")
+	flags.StringVar(&opts.masAPITokenName, "mas-api-token-name", opts.masAPITokenName, "MAS API token name")
+	flags.StringVar(&opts.masAPITokenVal, "mas-api-token-value", opts.masAPITokenVal, "MAS API token value")
 	flags.BoolVar(&opts.nonInteractive, "non-interactive", false, "Disable prompts and require flags/env vars")
 
 	return command
@@ -66,9 +72,14 @@ func (o *preflightOptions) run(ctx context.Context) error {
 		return err
 	}
 
+	// API token inputs are optional and env/flag-only — never prompted. Both
+	// must be present for the key check to run; a lone name or value is not
+	// enough to authenticate.
 	report := preflight.Run(ctx, client, preflight.Input{
-		Namespace:  o.namespace,
-		MASBaseURL: o.masBaseURL,
+		Namespace:     o.namespace,
+		MASBaseURL:    o.masBaseURL,
+		APITokenName:  o.masAPITokenName,
+		APITokenValue: o.masAPITokenVal,
 	})
 	preflight.Print(os.Stdout, report)
 

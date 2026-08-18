@@ -132,12 +132,26 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 	}
 
 	masBaseURLForPreflight := ""
+	apiTokenName := ""
+	apiTokenValue := ""
 	if cfg.HasComponent(config.InstallComponentSCIM) {
+		masBaseURLForPreflight = cfg.MASBaseURL
+		apiTokenName = cfg.MASAPITokenName
+		apiTokenValue = cfg.MASAPITokenValue
+	}
+	// HasMASAuthProvider treats an empty provider list as "all three", so a
+	// bare --configure-mas-auth counts as including oidc. The OIDC endpoint
+	// probe needs the MAS URL even when no SCIM-backed component is selected.
+	checkOIDCEndpoint := cfg.ConfigureMASAuth && cfg.HasMASAuthProvider(config.MASAuthProviderOIDC)
+	if checkOIDCEndpoint && masBaseURLForPreflight == "" {
 		masBaseURLForPreflight = cfg.MASBaseURL
 	}
 	report := preflight.Run(ctx, client, preflight.Input{
-		Namespace:  cfg.Namespace,
-		MASBaseURL: masBaseURLForPreflight,
+		Namespace:         cfg.Namespace,
+		MASBaseURL:        masBaseURLForPreflight,
+		CheckOIDCEndpoint: checkOIDCEndpoint,
+		APITokenName:      apiTokenName,
+		APITokenValue:     apiTokenValue,
 	})
 	preflight.Print(os.Stdout, report)
 	if report.HasFailures() {

@@ -170,6 +170,12 @@ func (o *masAuthApplyOptions) applyViaAdminAPI(ctx context.Context, client *oc.C
 		req := o.buildOIDCRequest(kc)
 		resp, err := mc.SetOIDC(ctx, o.oidcProviderID, req)
 		if err != nil {
+			// MAS 9.0 has no /config/oidc endpoint at all: the PUT 404s with
+			// AIUCO1022E. Preflight catches this before install; this is the
+			// belt-and-braces guard for direct mas-auth runs.
+			if isOIDCAdminAPIMissing(err) {
+				return fmt.Errorf("setOIDCConfig %s: %w; MAS does not expose the OIDC external-IdP API (requires MAS 9.1+); re-run with --mas-auth-providers ldap,saml", o.oidcProviderID, err)
+			}
 			return fmt.Errorf("setOIDCConfig %s: %w", o.oidcProviderID, err)
 		}
 		if err := o.maybeWait(ctx, mc, "oidc", o.oidcProviderID, resp); err != nil {
@@ -197,15 +203,38 @@ func (o *masAuthApplyOptions) applyViaAdminAPI(ctx context.Context, client *oc.C
 
 	// Cover the other half of the chicken-and-egg with SCIM bridge: users
 	// the bridge already created in MAS Core only have `_local` identity, so
-	// the self-reg path 409s on them. Inject the OIDC identity linkage for
-	// any SCIM-managed user that's missing it. Best-effort — log and
-	// continue on failure so we don't block the install.
-	if o.hasProvider(config.MASAuthProviderOIDC) {
-		if err := o.linkSCIMUsersToOIDC(ctx); err != nil {
+	// the self-reg path 409s on them. Inject the IDP identity linkage for
+	// any SCIM-managed user that's missing it. OIDC is preferred when both
+	// are configured; SAML is the fallback so SCIM users can still log in on
+	// SAML-only installs. LDAP alone gets no linking — SCIM users don't
+	// exist in OpenLDAP, so there's nothing for them to log in as.
+	// Best-effort — log and continue on failure so we don't block the
+	// install.
+	linkType := ""
+	switch {
+	case o.hasProvider(config.MASAuthProviderOIDC):
+		linkType = "oidc"
+	case o.hasProvider(config.MASAuthProviderSAML):
+		linkType = "saml"
+	}
+	if linkType != "" {
+		if err := o.linkSCIMUsersToIDP(ctx, linkType); err != nil {
 			fmt.Fprintf(os.Stderr, "[mas-auth] WARN: link-scim-users-oidc step failed (non-fatal): %v\n", err)
 		}
 	}
 	return nil
+}
+
+// isOIDCAdminAPIMissing reports whether err is the MAS 9.0 signature for a
+// missing OIDC external-IdP Admin API: a 404 from /config/oidc/{id}, whose
+// body carries exception id AIUCO1022E ("The requested URL could not be
+// found"). masadmin surfaces both — the status via *masadmin.APIError and the
+// body via the formatted error string.
+func isOIDCAdminAPIMissing(err error) bool {
+	if masadmin.IsNotFound(err) {
+		return true
+	}
+	return err != nil && strings.Contains(err.Error(), "AIUCO1022E")
 }
 
 // applySelfRegConfigMap creates/updates the {instance}-selfreg ConfigMap in
@@ -317,19 +346,19 @@ workspaces:
 `, workspaceID, mappings)
 }
 
-// linkSCIMUsersToOIDC shells out to scripts/link-scim-users-oidc.sh. We use a
+// linkSCIMUsersToIDP shells out to scripts/link-scim-users-oidc.sh. We use a
 // shell helper because the linkage requires direct MongoDB writes against the
 // MAS Mongo replica set — there is no SCIM/Admin API that exposes the
 // identities field. The script is idempotent (only touches users missing the
 // configured identity).
 //
-// The --oidc-idp arg must match the identity-key MAS Manage's MEA expects.
-// For the reserved-word "default" idpId, MAS internally registers the OIDC
-// IDP as "default-oidc" (same suffix applied to selfreg and redirect_uri),
-// so the SCIM-user identities map must key off "default-oidc" too — otherwise
-// Manage workspace sync fails with system#idpnotfound at MASUserIDP.appValidate.
-// See memory: scim-bridge-manage-sync-idpnotfound.
-func (o *masAuthApplyOptions) linkSCIMUsersToOIDC(ctx context.Context) error {
+// The --idp arg must match the identity-key MAS Manage's MEA expects.
+// For the reserved-word "default" idpId, MAS internally registers the IDP
+// as "default-{type}" (same suffix applied to selfreg and redirect_uri),
+// so the SCIM-user identities map must key off "default-oidc"/"default-saml"
+// too — otherwise Manage workspace sync fails with system#idpnotfound at
+// MASUserIDP.appValidate. See memory: scim-bridge-manage-sync-idpnotfound.
+func (o *masAuthApplyOptions) linkSCIMUsersToIDP(ctx context.Context, providerType string) error {
 	scriptPath, err := repoScriptPath("link-scim-users-oidc.sh")
 	if err != nil {
 		return err
@@ -337,7 +366,7 @@ func (o *masAuthApplyOptions) linkSCIMUsersToOIDC(ctx context.Context) error {
 	runner := executil.NewRunner()
 	out, err := runner.Output(ctx, executil.Options{
 		Name: scriptPath,
-		Args: o.linkSCIMUsersArgs(),
+		Args: o.linkSCIMUsersArgs(providerType),
 	})
 	if out != "" {
 		fmt.Fprint(os.Stdout, out)
@@ -348,10 +377,15 @@ func (o *masAuthApplyOptions) linkSCIMUsersToOIDC(ctx context.Context) error {
 // linkSCIMUsersArgs builds the argv for link-scim-users-oidc.sh. Extracted
 // so the IDPCfg-rename / reserved-word translation can be unit-tested without
 // shelling out.
-func (o *masAuthApplyOptions) linkSCIMUsersArgs() []string {
+func (o *masAuthApplyOptions) linkSCIMUsersArgs(providerType string) []string {
+	providerID := o.oidcProviderID
+	if providerType == "saml" {
+		providerID = o.samlProviderID
+	}
 	return []string{
 		"--instance", o.masInstanceID,
-		"--oidc-idp", providerKeyWithSuffix(o.oidcProviderID, "oidc"),
+		"--idp", providerKeyWithSuffix(providerID, providerType),
+		"--idp-type", providerType,
 	}
 }
 
