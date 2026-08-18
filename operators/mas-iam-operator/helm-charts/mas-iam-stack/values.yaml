@@ -101,11 +101,24 @@ postgresql:
     tag: "postgresql-17.6.0-debian-12-r4-multi"
     pullPolicy: IfNotPresent
   auth:
+    # The installer creates <release>-postgresql (keys: password, postgres-password)
+    # before the MasIamStack CR is applied. Rendered through tpl by the subchart, so
+    # a CR that omits the override still points at that Secret.
+    existingSecret: '{{ .Release.Name }}-postgresql'
     username: keycloak
     database: keycloak
-    existingSecret: ""
     secretKeys:
+      adminPasswordKey: postgres-password
       userPasswordKey: password
+    # Placeholder, never consumed: with existingSecret set the subchart renders no
+    # Secret and both PostgreSQL and Keycloak read the credentials from it. It exists
+    # only to satisfy the subchart's upgrade guard in
+    # charts/postgresql/templates/secrets.yaml:23, which resolves the current password
+    # with a cluster `lookup`. The helm-operator computes its candidate release as a
+    # client-side dry run where `lookup` returns nothing, so an empty value here fails
+    # every reconcile after the install with "PASSWORDS ERROR: You must provide your
+    # current passwords when upgrading the release".
+    password: unused-see-existingSecret
   primary:
     persistence:
       enabled: true

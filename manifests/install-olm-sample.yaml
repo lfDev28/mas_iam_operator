@@ -249,6 +249,9 @@ metadata:
   namespace: mas-est
 type: Opaque
 stringData:
+  # PostgreSQL only applies these when it initialises an empty data directory, so on
+  # a stack that already has a PVC they must match the password the PVC was created
+  # with — changing them here does not re-key an existing database.
   password: maxadmin
   postgres-password: maxadmin
   replication-password: maxadmin

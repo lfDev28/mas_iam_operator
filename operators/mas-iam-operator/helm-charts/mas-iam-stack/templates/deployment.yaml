@@ -15,7 +15,7 @@
 {{- $ldapTlsSecret := default (printf "%s-keycloak-openldap-tls" (include "mas-iam-stack.fullname" .)) $ldapTls.caSecret -}}
 {{- $ldapTlsCaKey := default "ca.crt" $ldapTls.caBundleKey -}}
 {{- $ldapTlsHostnamePolicy := default "ANY" $ldapTls.hostnameVerificationPolicy -}}
-{{- $pgSecretName := .Values.postgresql.auth.existingSecret | default "" -}}
+{{- $pgSecretName := tpl (.Values.postgresql.auth.existingSecret | default "") $ -}}
 {{- $keycloakServiceAccount := include "mas-iam-stack.keycloakServiceAccountName" . | trim -}}
 {{- $scim := .Values.keycloak.scim | default dict -}}
 {{- if not $bootstrapSecretName -}}

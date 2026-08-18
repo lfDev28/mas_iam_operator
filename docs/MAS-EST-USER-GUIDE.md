@@ -38,7 +38,7 @@ Everything runs inside the `mas-est` namespace on the same OpenShift cluster as 
 
 | Component            | Image / source                                                               | Role                                                                                            | Lab-grade?                        |
 | -------------------- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | --------------------------------- |
-| **MAS IAM operator** | `quay.io/lee_forster/mas-iam-operator:0.0.14` (via catalog `catalog-0.0.14`) | OLM operator that reconciles the `MasIamStack` CR — Keycloak, OpenLDAP, PostgreSQL, SCIM bridge | Yes — reused across installs      |
+| **MAS IAM operator** | `quay.io/lee_forster/mas-iam-operator:0.0.15` (via catalog `catalog-0.0.15`) | OLM operator that reconciles the `MasIamStack` CR — Keycloak, OpenLDAP, PostgreSQL, SCIM bridge | Yes — reused across installs      |
 | **Keycloak**         | bitnami chart, realm `maximo`                                                | OIDC + SAML IdP for MAS, with federation to OpenLDAP and demo user seeding                      | Yes                               |
 | **OpenLDAP**         | bitnami chart, base DN `dc=demo,dc=local`                                    | LDAP IdP for MAS, seeded with `ldap.user1` and `ldap.user2`                                     | Yes                               |
 | **PostgreSQL**       | bitnami chart                                                                | Keycloak persistence                                                                            | Yes                               |
