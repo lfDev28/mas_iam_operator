@@ -410,7 +410,7 @@ func PromptWipe(cfg config.WipeConfig) (config.WipeConfig, error) {
 	return cfg, nil
 }
 
-func PromptPreflight(namespace, masBaseURL string) (string, string, error) {
+func PromptPreflight(namespace, masBaseURL string, routes []oc.MASRoute) (string, string, error) {
 	var err error
 
 	if namespace, err = askRequiredInput(
@@ -420,11 +420,9 @@ func PromptPreflight(namespace, masBaseURL string) (string, string, error) {
 	); err != nil {
 		return "", "", err
 	}
-	if masBaseURL, err = askRequiredInput(
-		"MAS SCIM base URL",
-		masBaseURL,
-		"Must include /scim/v2 so route lookup and CA detection target the correct endpoint.",
-	); err != nil {
+	// Same route-discovery UX as install: pre-fill from a single detected MAS
+	// API route, offer a picker when there are several.
+	if masBaseURL, err = askMASBaseURL(masBaseURL, routes); err != nil {
 		return "", "", err
 	}
 

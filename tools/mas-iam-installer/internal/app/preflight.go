@@ -54,7 +54,9 @@ func (o *preflightOptions) run(ctx context.Context) error {
 			return err
 		}
 		ui.PrintClusterContext("Preflight", cluster.User, cluster.Server, o.namespace, "")
-		namespace, masBaseURL, err := ui.PromptPreflight(o.namespace, o.masBaseURL)
+		discovery := discoverInstallDiscovery(ctx, client)
+		ui.PrintInstallDiscovery(ui.InstallDiscoveryHints{MASRoutes: discovery.MASRoutes})
+		namespace, masBaseURL, err := ui.PromptPreflight(o.namespace, o.masBaseURL, discovery.MASRoutes)
 		if err != nil {
 			return err
 		}
