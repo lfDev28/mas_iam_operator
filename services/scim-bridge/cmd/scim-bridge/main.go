@@ -62,8 +62,10 @@ func run(ctx context.Context, args []string) error {
 
 	includeUsernames := strings.Join(cfg.Bridge.IncludeUsernames, ",")
 	includePrefix := cfg.Bridge.IncludeUsernamePrefix
+	includeGroups := strings.Join(cfg.Bridge.IncludeGroups, ",")
 	fs.StringVar(&includeUsernames, "include-usernames", includeUsernames, "Comma-separated usernames to include (optional)")
 	fs.StringVar(&includePrefix, "include-username-prefix", includePrefix, "Only include users whose username starts with this prefix (optional)")
+	fs.StringVar(&includeGroups, "include-groups", includeGroups, "Comma-separated Keycloak group names or paths; when set, users are sourced from group membership instead of the realm user list (optional)")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -71,6 +73,7 @@ func run(ctx context.Context, args []string) error {
 
 	cfg.Bridge.IncludeUsernames = config.ParseList(includeUsernames)
 	cfg.Bridge.IncludeUsernamePrefix = includePrefix
+	cfg.Bridge.IncludeGroups = config.ParseList(includeGroups)
 	if profileMap != "" {
 		mapping, err := config.ParseProfileMap(profileMap)
 		if err != nil {

@@ -47,6 +47,14 @@ func (f *fakeKC) ListUsers(ctx context.Context, params keycloak.ListUsersParams)
 	return f.users, f.err
 }
 
+func (f *fakeKC) ListGroups(ctx context.Context, search string) ([]keycloak.Group, error) {
+	return nil, nil
+}
+
+func (f *fakeKC) ListGroupMembers(ctx context.Context, groupID string, first, max int) ([]keycloak.User, int, error) {
+	return nil, 0, nil
+}
+
 func (f *fakeKC) Realm() string { return "maximo" }
 
 func TestBackfillMapsSingleUser(t *testing.T) {
@@ -54,7 +62,7 @@ func TestBackfillMapsSingleUser(t *testing.T) {
 	resolver := NewProfileResolver("p", map[string]string{"users": "p"}, false)
 	b := NewBackfill(&fakeKC{
 		users: []keycloak.User{{ID: "kc1", Username: "alice", MasProfile: "users"}},
-	}, resolver, store, nil, "", stubLogger{}).WithMASClient(&fakeSearchMAS{
+	}, resolver, store, nil, "", nil, stubLogger{}).WithMASClient(&fakeSearchMAS{
 		results: map[string]string{`externalId eq "kc1"`: "mas1"},
 	})
 	if err := b.Run(context.Background()); err != nil {
@@ -71,7 +79,7 @@ func TestBackfillMarksErrorWhenMissing(t *testing.T) {
 	resolver := NewProfileResolver("p", map[string]string{"users": "p"}, false)
 	b := NewBackfill(&fakeKC{
 		users: []keycloak.User{{ID: "kc1", Username: "alice", MasProfile: "users"}},
-	}, resolver, store, nil, "", stubLogger{}).WithMASClient(&fakeSearchMAS{})
+	}, resolver, store, nil, "", nil, stubLogger{}).WithMASClient(&fakeSearchMAS{})
 
 	_ = b.Run(context.Background())
 	entry, ok, _ := store.Lookup(context.Background(), "kc1")

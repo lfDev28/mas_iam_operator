@@ -81,6 +81,7 @@ oc process -f https://raw.githubusercontent.com/<org>/<repo>/main/manifests/scim
 | `--bridge-payload-logging` | `SCIM_BRIDGE_BRIDGE_PAYLOAD_LOGGING` | Logs redacted outbound MAS SCIM payloads for support debugging. Keep disabled by default. |
 | `--include-usernames` | `SCIM_BRIDGE_INCLUDE_USERNAMES` | Optional comma-separated allowlist of usernames to reconcile. |
 | `--include-username-prefix` | `SCIM_BRIDGE_INCLUDE_USERNAME_PREFIX` | Optional prefix filter applied to Keycloak usernames; combined with `--include-usernames` when both are set. |
+| `--include-groups` | `SCIM_BRIDGE_INCLUDE_GROUPS` | Optional comma-separated Keycloak group names or paths. When set, users are sourced from group membership (paged, no 50-user cap) instead of the realm user list; the username filters above still narrow the result. An unresolvable group name fails the cycle. |
 
 Filtering knobs are optional; omitting them keeps the current “all users” behavior.
 

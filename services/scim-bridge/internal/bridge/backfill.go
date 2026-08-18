@@ -3,42 +3,27 @@ package bridge
 import (
 	"context"
 	"fmt"
-	"strings"
 
-	"github.com/lfDev28/mas-iam/services/scim-bridge/internal/keycloak"
 	"github.com/lfDev28/mas-iam/services/scim-bridge/internal/state"
 )
 
-type keycloakLister interface {
-	ListUsers(ctx context.Context, params keycloak.ListUsersParams) ([]keycloak.User, error)
-	Realm() string
-}
-
 // Backfill seeds the state store with existing MAS IDs discovered via SCIM search.
 type Backfill struct {
-	kc       keycloakLister
 	resolver ProfileResolver
 	store    state.Store
 	logger   Logger
 
-	includeUsernames      map[string]struct{}
-	includeUsernamePrefix string
-	masClient             MASClient
+	scope     userScope
+	masClient MASClient
 }
 
 // NewBackfill constructs a state backfill worker.
-func NewBackfill(kc keycloakLister, resolver ProfileResolver, store state.Store, includeUsernames []string, includePrefix string, logger Logger) *Backfill {
-	includeSet := make(map[string]struct{}, len(includeUsernames))
-	for _, u := range includeUsernames {
-		includeSet[u] = struct{}{}
-	}
+func NewBackfill(kc keycloakSource, resolver ProfileResolver, store state.Store, includeUsernames []string, includePrefix string, includeGroups []string, logger Logger) *Backfill {
 	return &Backfill{
-		kc:                    kc,
-		resolver:              resolver,
-		store:                 store,
-		logger:                logger,
-		includeUsernames:      includeSet,
-		includeUsernamePrefix: includePrefix,
+		resolver: resolver,
+		store:    store,
+		logger:   logger,
+		scope:    newUserScope(kc, includeUsernames, includePrefix, includeGroups),
 	}
 }
 
@@ -53,11 +38,11 @@ func (b *Backfill) Run(ctx context.Context) error {
 	if b.masClient == nil {
 		return fmt.Errorf("mas client not configured for backfill")
 	}
-	users, err := b.kc.ListUsers(ctx, keycloak.ListUsersParams{Max: 50})
+	candidates, err := b.scope.candidates(ctx)
 	if err != nil {
-		return fmt.Errorf("list users: %w", err)
+		return err
 	}
-	users = b.filterUsers(users)
+	users := b.scope.filter(candidates)
 	for _, u := range users {
 		profileRes, ok := b.resolver.Resolve(u.MasProfile)
 		if !ok {
@@ -92,25 +77,6 @@ func (b *Backfill) Run(ctx context.Context) error {
 		}
 	}
 	return nil
-}
-
-func (b *Backfill) filterUsers(users []keycloak.User) []keycloak.User {
-	if len(b.includeUsernames) == 0 && b.includeUsernamePrefix == "" {
-		return users
-	}
-	filtered := make([]keycloak.User, 0, len(users))
-	for _, user := range users {
-		if len(b.includeUsernames) > 0 {
-			if _, ok := b.includeUsernames[user.Username]; !ok {
-				continue
-			}
-		}
-		if b.includeUsernamePrefix != "" && !strings.HasPrefix(user.Username, b.includeUsernamePrefix) {
-			continue
-		}
-		filtered = append(filtered, user)
-	}
-	return filtered
 }
 
 func (b *Backfill) searchMASUser(ctx context.Context, profileID, keycloakID, username string) (masID string, filterUsed string, err error) {

@@ -506,6 +506,7 @@ Common editable values in `scim-bridge-config`:
 | `SCIM_BRIDGE_BRIDGE_PAYLOAD_LOGGING` | redacted outbound MAS SCIM payload logging for support debugging | yes |
 | `SCIM_BRIDGE_INCLUDE_USERNAMES` | optional comma-separated allow list | yes |
 | `SCIM_BRIDGE_INCLUDE_USERNAME_PREFIX` | optional username prefix filter | yes |
+| `SCIM_BRIDGE_INCLUDE_GROUPS` | optional Keycloak group names/paths to source users from (installer default `mas-scim-users`) | yes |
 
 Common editable values in `scim-bridge-secret`:
 

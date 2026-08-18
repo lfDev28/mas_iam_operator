@@ -46,3 +46,15 @@ func TestParseProfileMapJSON(t *testing.T) {
 		t.Fatalf("unexpected mapping: %#v", mapping)
 	}
 }
+
+func TestApplyEnvOverridesParsesIncludeGroups(t *testing.T) {
+	t.Setenv("SCIM_BRIDGE_INCLUDE_GROUPS", "mas-scim-users, /parent/child ,")
+	cfg := DefaultSettings()
+	if err := ApplyEnvOverrides(&cfg); err != nil {
+		t.Fatalf("apply env overrides: %v", err)
+	}
+	got := cfg.Bridge.IncludeGroups
+	if len(got) != 2 || got[0] != "mas-scim-users" || got[1] != "/parent/child" {
+		t.Fatalf("unexpected IncludeGroups: %#v", got)
+	}
+}

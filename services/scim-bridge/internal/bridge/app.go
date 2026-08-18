@@ -77,14 +77,14 @@ func (a *App) Run(ctx context.Context) error {
 
 	planner := NewPlanner(store, resolver, a.logger)
 	executor := NewExecutor(masClient, store, a.cfg.Bridge.DryRun, a.cfg.Bridge.AllowUpdates, a.logger)
-	poller := NewPoller(kc, planner, executor, a.cfg.Bridge.IncludeUsernames, a.cfg.Bridge.IncludeUsernamePrefix, a.logger)
+	poller := NewPoller(kc, planner, executor, a.cfg.Bridge.IncludeUsernames, a.cfg.Bridge.IncludeUsernamePrefix, a.cfg.Bridge.IncludeGroups, a.logger)
 	switch a.cfg.Bridge.Mode {
 	case "poll", "hybrid":
 		return a.runPollingLoop(ctx, poller, executor)
 	case "run-once":
 		return a.runWithMASRefresh(ctx, executor, func() error { return poller.RunOnce(ctx) })
 	case "backfill":
-		backfill := NewBackfill(kc, resolver, store, a.cfg.Bridge.IncludeUsernames, a.cfg.Bridge.IncludeUsernamePrefix, a.logger).WithMASClient(masClient)
+		backfill := NewBackfill(kc, resolver, store, a.cfg.Bridge.IncludeUsernames, a.cfg.Bridge.IncludeUsernamePrefix, a.cfg.Bridge.IncludeGroups, a.logger).WithMASClient(masClient)
 		return a.runWithMASRefresh(ctx, executor, func() error {
 			backfill.WithMASClient(executor.mas)
 			return backfill.Run(ctx)

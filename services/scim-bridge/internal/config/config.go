@@ -55,6 +55,7 @@ type BridgeConfig struct {
 	AllowUpdates          bool
 	IncludeUsernames      []string
 	IncludeUsernamePrefix string
+	IncludeGroups         []string
 	LogLevel              string
 	PayloadLogging        bool
 }
@@ -79,6 +80,7 @@ func DefaultSettings() Settings {
 			AllowUpdates:          true,
 			IncludeUsernames:      nil,
 			IncludeUsernamePrefix: "",
+			IncludeGroups:         nil,
 			LogLevel:              "info",
 			PayloadLogging:        false,
 		},
@@ -167,6 +169,7 @@ func ApplyEnvOverrides(cfg *Settings) error {
 		}},
 		{envName("INCLUDE_USERNAMES"), func(v string) error { cfg.Bridge.IncludeUsernames = ParseList(v); return nil }},
 		{envName("INCLUDE_USERNAME_PREFIX"), func(v string) error { cfg.Bridge.IncludeUsernamePrefix = v; return nil }},
+		{envName("INCLUDE_GROUPS"), func(v string) error { cfg.Bridge.IncludeGroups = ParseList(v); return nil }},
 	}
 
 	for _, ov := range overrides {

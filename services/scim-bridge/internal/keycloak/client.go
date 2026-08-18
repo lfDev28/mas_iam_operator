@@ -91,6 +91,46 @@ type User struct {
 	FederationLink string
 }
 
+// userPayload is the wire shape shared by the users and group-members
+// endpoints; both map to User via mapUsers so the federated-user filter
+// applies uniformly.
+type userPayload struct {
+	ID             string              `json:"id"`
+	Username       string              `json:"username"`
+	Email          string              `json:"email"`
+	Enabled        bool                `json:"enabled"`
+	FirstName      string              `json:"firstName"`
+	LastName       string              `json:"lastName"`
+	Attributes     map[string][]string `json:"attributes"`
+	FederationLink string              `json:"federationLink"`
+}
+
+func (c *Client) mapUsers(payload []userPayload) []User {
+	users := make([]User, 0, len(payload))
+	for _, u := range payload {
+		// Skip users owned by a user-federation provider (e.g. LDAP) unless
+		// the operator has explicitly opted in. Without this filter the
+		// bridge re-syncs LDAP-imported users into MAS via SCIM, which
+		// double-creates them and breaks LDAP self-reg with a 409 conflict.
+		if !c.cfg.IncludeFederatedUsers && strings.TrimSpace(u.FederationLink) != "" {
+			continue
+		}
+		attrs := normalizeAttributes(u.Attributes)
+		users = append(users, User{
+			ID:             u.ID,
+			Username:       u.Username,
+			Email:          u.Email,
+			Enabled:        u.Enabled,
+			FirstName:      u.FirstName,
+			LastName:       u.LastName,
+			Attributes:     attrs,
+			MasProfile:     firstAttribute(attrs, "masProfile"),
+			FederationLink: u.FederationLink,
+		})
+	}
+	return users
+}
+
 // ListUsers fetches a single page of users from Keycloak.
 func (c *Client) ListUsers(ctx context.Context, params ListUsersParams) ([]User, error) {
 	token, err := c.clientCredentialsToken(ctx)
@@ -129,42 +169,114 @@ func (c *Client) ListUsers(ctx context.Context, params ListUsersParams) ([]User,
 		}
 		return nil, fmt.Errorf("keycloak list users: %s: %s", resp.Status, bodyText)
 	}
-	var payload []struct {
-		ID             string              `json:"id"`
-		Username       string              `json:"username"`
-		Email          string              `json:"email"`
-		Enabled        bool                `json:"enabled"`
-		FirstName      string              `json:"firstName"`
-		LastName       string              `json:"lastName"`
-		Attributes     map[string][]string `json:"attributes"`
-		FederationLink string              `json:"federationLink"`
-	}
+	var payload []userPayload
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
 		return nil, fmt.Errorf("decode users: %w", err)
 	}
-	users := make([]User, 0, len(payload))
-	for _, u := range payload {
-		// Skip users owned by a user-federation provider (e.g. LDAP) unless
-		// the operator has explicitly opted in. Without this filter the
-		// bridge re-syncs LDAP-imported users into MAS via SCIM, which
-		// double-creates them and breaks LDAP self-reg with a 409 conflict.
-		if !c.cfg.IncludeFederatedUsers && strings.TrimSpace(u.FederationLink) != "" {
-			continue
-		}
-		attrs := normalizeAttributes(u.Attributes)
-		users = append(users, User{
-			ID:             u.ID,
-			Username:       u.Username,
-			Email:          u.Email,
-			Enabled:        u.Enabled,
-			FirstName:      u.FirstName,
-			LastName:       u.LastName,
-			Attributes:     attrs,
-			MasProfile:     firstAttribute(attrs, "masProfile"),
-			FederationLink: u.FederationLink,
-		})
+	return c.mapUsers(payload), nil
+}
+
+// Group identifies a Keycloak group for membership-based scoping.
+type Group struct {
+	ID   string
+	Name string
+	Path string
+}
+
+type groupPayload struct {
+	ID        string         `json:"id"`
+	Name      string         `json:"name"`
+	Path      string         `json:"path"`
+	SubGroups []groupPayload `json:"subGroups"`
+}
+
+// ListGroups searches groups by name. Keycloak nests matching subgroups
+// under their (non-matching) parents, so the tree is flattened to let
+// callers exact-match on either a bare name or a full path.
+func (c *Client) ListGroups(ctx context.Context, search string) ([]Group, error) {
+	token, err := c.clientCredentialsToken(ctx)
+	if err != nil {
+		return nil, err
 	}
-	return users, nil
+	endpoint, err := url.JoinPath(c.base, "admin", "realms", c.cfg.Realm, "groups")
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	if search != "" {
+		q := req.URL.Query()
+		q.Set("search", search)
+		req.URL.RawQuery = q.Encode()
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return nil, fmt.Errorf("keycloak list groups: %s: %s", resp.Status, strings.TrimSpace(string(body)))
+	}
+	var payload []groupPayload
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, fmt.Errorf("decode groups: %w", err)
+	}
+	return flattenGroups(payload, nil), nil
+}
+
+func flattenGroups(payload []groupPayload, out []Group) []Group {
+	for _, g := range payload {
+		out = append(out, Group{ID: g.ID, Name: g.Name, Path: g.Path})
+		out = flattenGroups(g.SubGroups, out)
+	}
+	return out
+}
+
+// ListGroupMembers fetches a single page of a group's direct members
+// (Keycloak does not flatten subgroups here, and neither do we).
+// Federated users are filtered exactly as in ListUsers; rawCount reports
+// the pre-filter page size so callers can paginate without a
+// filter-thinned page ending the loop early.
+func (c *Client) ListGroupMembers(ctx context.Context, groupID string, first, max int) ([]User, int, error) {
+	token, err := c.clientCredentialsToken(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	endpoint, err := url.JoinPath(c.base, "admin", "realms", c.cfg.Realm, "groups", groupID, "members")
+	if err != nil {
+		return nil, 0, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	q := req.URL.Query()
+	if first > 0 {
+		q.Set("first", strconv.Itoa(first))
+	}
+	if max > 0 {
+		q.Set("max", strconv.Itoa(max))
+	}
+	req.URL.RawQuery = q.Encode()
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return nil, 0, fmt.Errorf("keycloak list group members: %s: %s", resp.Status, strings.TrimSpace(string(body)))
+	}
+	var payload []userPayload
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, 0, fmt.Errorf("decode group members: %w", err)
+	}
+	return c.mapUsers(payload), len(payload), nil
 }
 
 func (c *Client) clientCredentialsToken(ctx context.Context) (string, error) {

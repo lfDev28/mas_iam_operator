@@ -45,16 +45,26 @@ on the existing client (same token/TLS plumbing). Members payload matches the
 users payload, so `keycloak.User` mapping is reused; the federated-user filter
 (`TestListUsersFiltersFederatedUsersByDefault`) must apply to members too.
 
-### Explicit non-goals (v1)
+### Phasing
 
-- **No deprovisioning.** The planner only has Create/Update; a user removed from
-  the group is simply no longer reconciled (left as-is in MAS), matching today's
-  behavior when a user stops matching the prefix. Deactivate-on-removal is a
-  separate, riskier feature (needs MAS-side deactivation semantics + tombstone
-  state) — document it as out of scope rather than half-building it.
-- **No nested-group flattening.** Keycloak's members endpoint already returns
-  direct members only; document that subgroups need their own entry in
-  `SCIM_BRIDGE_INCLUDE_GROUPS`.
+- **Phase 1 (this design): scoping only.** The planner only has Create/Update;
+  a user removed from the group is no longer reconciled (left as-is in MAS),
+  matching today's behavior when a user stops matching the prefix. Phase 1 must
+  make the resolved scoped set an explicit value in the poller so phase 2 can
+  diff it against the bridge's state store.
+- **Phase 2 (committed, after phase 1 validates): deactivate-on-removal.**
+  A user present in the bridge state store but absent from the scoped set gets
+  deactivated in MAS (SCIM PATCH `active: false` — not delete) and tombstoned
+  in state so the deactivation fires once. Needs care around transient Keycloak
+  errors (an empty member list due to an API failure must not mass-deactivate —
+  hard-fail the cycle instead) and re-add semantics (rejoining the group clears
+  the tombstone and reactivates).
+
+### Explicit non-goals
+
+- **No nested-group flattening.** Keycloak's members endpoint returns direct
+  members only; subgroups need their own entry in `SCIM_BRIDGE_INCLUDE_GROUPS`.
+- **No hard deletes in MAS** — deactivation only, in phase 2.
 
 ## Interactions
 
