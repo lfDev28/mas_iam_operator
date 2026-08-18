@@ -260,7 +260,11 @@ func askInstallComponents(current []string) ([]string, error) {
 	}
 
 	for {
-		selectedLabels := defaultLabels
+		// The response slice must start empty: survey's WriteAnswer APPENDS
+		// answers to an existing slice, so pre-seeding it with the defaults
+		// makes deselection impossible (result = union of defaults + picks).
+		// Default: below is what pre-checks the options in the prompt.
+		var selectedLabels []string
 		if err := askOne(&survey.MultiSelect{
 			Message: "Products to install",
 			Options: options,
@@ -320,7 +324,9 @@ func askMASAuthProviders(current []string, cfg config.InstallConfig) ([]string, 
 	}
 
 	for {
-		selectedLabels := defaultLabels
+		// Must start empty — survey's WriteAnswer appends to an existing
+		// slice, so seeding with defaults would make deselection a no-op.
+		var selectedLabels []string
 		if err := askOne(&survey.MultiSelect{
 			Message: "MAS auth providers to create",
 			Options: options,

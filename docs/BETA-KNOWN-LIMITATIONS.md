@@ -115,6 +115,10 @@ See `OBJECT-STORAGE-POC.md` and `INSTALL-ALL-IN-ONE.md` for the documented Mailp
 
 ## What Is Supported
 
+**v0.1.1 release notes:**
+- Fixed: deselecting options in the interactive multi-select prompts ("Products to install", "MAS auth providers to create") was silently ignored — the resolved config always kept the full default set (e.g. OIDC stayed enabled after being unchecked, which breaks installs on MAS 9.0 where the OIDC Admin API does not exist). Cause: the survey library appends multi-select answers to a pre-seeded response slice, so the result was the union of defaults and picks. Workaround on v0.1.0: pass the selection as flags (`--components ...`, `--mas-auth-providers ...`).
+- Known (unchanged in v0.1.1): the OIDC auth provider requires MAS 9.1+ (`PUT /config/oidc/{id}` returns 404 AIUCO1022E on 9.0). Select only `ldap,saml` on MAS 9.0. A preflight guard is planned.
+
 **v0.1.0 release notes:**
 - v0.1.0 is the release build of beta.24 — identical code, release version strings. The beta.22–24 notes below describe the fixes that landed since the last widely-tested beta (beta.21): SCIM-user Manage sync (identity key + forced re-sync) and the MinIO RWO Recreate strategy.
 
