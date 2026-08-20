@@ -115,6 +115,7 @@ for arch in amd64 arm64; do
 done
 podman push $IMG:vX.Y.Z-amd64
 podman push $IMG:vX.Y.Z-arm64
+podman rmi -f $IMG:vX.Y.Z 2>/dev/null || true      # see note below
 podman manifest rm $IMG:vX.Y.Z 2>/dev/null || true
 podman manifest create $IMG:vX.Y.Z
 podman manifest add $IMG:vX.Y.Z docker://$IMG:vX.Y.Z-amd64
@@ -122,6 +123,14 @@ podman manifest add $IMG:vX.Y.Z docker://$IMG:vX.Y.Z-arm64
 podman manifest push --all $IMG:vX.Y.Z docker://$IMG:vX.Y.Z
 ```
 Run from the repo root — the Containerfile's build context is the whole repo (it copies `scripts/`, `manifests/`, `env/`).
+
+**Republishing an existing tag (dev-tag iteration): `podman rmi` the tag first.**
+Anything that pulled or ran that tag locally — including your own post-publish
+verification — leaves a plain local *image* under the same name. `manifest
+create`/`push` then fails with `image is not a manifest list`, the per-arch tags
+push fine, and **the multi-arch tag silently keeps pointing at the previous
+build**. Worse, a `set -e` build script can still print its success line, so the
+push looks like it worked. Never trust the script's own output — always run §7.
 
 Note: the CLI Containerfile's runtime stage is `FROM` a *previous published mas-est image* (self-referencing base, pinned to `v0.1.0-beta.9`). It only supplies OS layers plus the bootstrap layout; everything else is rebuilt. Dropping this self-reference for a small OS base is a tracked roadmap item.
 
@@ -226,6 +235,7 @@ operator released.
 - **Publish the operator before a CLI release that bundles bumped manifests** — otherwise installs fail at the CatalogSource wait against a catalog tag that does not exist.
 - **Force `--platform` on every operator/bridge build** on an arm64 host; only the CLI build loop sets it already.
 - **`podman manifest inspect` on a single-arch image reports failure, not absence** — use the pull-then-inspect check in §7.
+- **Verify every publish by pulling the tag back down.** A failed manifest push does not reliably stop the build script, so "PUBLISHED" in the log proves nothing.
 - **Bridge code without a rebuilt image is a no-op.** New env/ConfigMap keys are ignored by old images with no error.
 - **Don't bump the Keycloak image tag** while bumping the bridge (§2).
 - **A published tag is immutable in practice** — people have pulled it. Cut a new patch version instead of re-pushing over one.
