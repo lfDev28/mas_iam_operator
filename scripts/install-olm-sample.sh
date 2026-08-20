@@ -10,7 +10,8 @@ usage() {
   cat <<'EOF'
 Usage: install-olm-sample.sh [--namespace <ns>] [--components <ldap,keycloak,scim>] [--manifest <path>] [--storage-class <name>]
 
-Applies manifests/install-olm-sample.yaml with an explicit PostgreSQL storageClass.
+Applies manifests/install-olm-sample.yaml with an explicit storageClass for the
+PostgreSQL and OpenLDAP volumes.
 Selection order:
 1) --storage-class / POSTGRES_STORAGE_CLASS
 2) Preferred block/RBD names
@@ -148,11 +149,23 @@ awk -v sc="${SELECTED_STORAGE_CLASS}" -v keycloak_enabled="${keycloak_enabled}" 
     print "        storageClass: " sc
     storage_injected=1
   }
+  # OpenLDAP has no persistence block in the sample, so inject the whole thing.
+  # Without an explicit class the PVC is created with no storageClassName, which
+  # never binds on a cluster that has no default StorageClass (the chart
+  # supports openldap.persistence.storageClass; it was simply never set).
+  sc != "" && !ldap_storage_injected && /^  openldap:[[:space:]]*$/ {
+    print "    persistence:"
+    print "      storageClass: " sc
+    ldap_storage_injected=1
+  }
   END {
     if (!keycloak_injected || !postgresql_injected) {
       exit 2
     }
     if (postgresql_enabled == "true" && !storage_injected) {
+      exit 2
+    }
+    if (sc != "" && !ldap_storage_injected) {
       exit 2
     }
   }

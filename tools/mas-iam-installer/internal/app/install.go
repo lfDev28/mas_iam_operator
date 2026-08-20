@@ -61,7 +61,7 @@ func newInstallCommand(root *RootOptions) *cobra.Command {
 	flags.StringVar(&opts.config.MASAuthInstanceID, "mas-auth-instance-id", opts.config.MASAuthInstanceID, "MAS instance ID for MAS auth auto-configuration")
 	flags.StringVar(&opts.config.MASAuthCoreNamespace, "mas-auth-core-namespace", opts.config.MASAuthCoreNamespace, "MAS core namespace for MAS auth auto-configuration")
 	flags.BoolVar(&opts.config.MASAuthUseCRApply, "mas-auth-use-cr-apply", opts.config.MASAuthUseCRApply, "Fall back to applying IDPCfg CRs directly instead of using the MAS Admin API")
-	flags.StringVar(&opts.config.StorageClass, "storage-class", opts.config.StorageClass, "PostgreSQL storage class override")
+	flags.StringVar(&opts.config.StorageClass, "storage-class", opts.config.StorageClass, "Storage class for the PostgreSQL and OpenLDAP volumes")
 	flags.StringVar(&opts.config.ScimBridgeStorageClass, "scim-bridge-storage-class", opts.config.ScimBridgeStorageClass, "SCIM bridge PVC storage class override")
 	flags.StringVar(&opts.config.KeycloakBootstrapMethod, "keycloak-bootstrap", opts.config.KeycloakBootstrapMethod, "Keycloak bootstrap mode passed to install-all-in-one.sh")
 	flags.BoolVar(&opts.config.SkipS3MASConfig, "skip-s3-mas-config", opts.config.SkipS3MASConfig, "Install S3 storage without creating MAS ObjectStorageCfg")
