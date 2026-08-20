@@ -272,8 +272,14 @@ func installerClusterRoleManifest() map[string]any {
 	rules := []map[string]any{
 		// Target namespace creation, and the MasIamStack CRD that
 		// manifests/install-olm.yaml applies ahead of the OLM Subscription.
-		rbacRule([]string{""}, []string{"namespaces"}, []string{"get", "list", "create"}),
-		rbacRule([]string{"apiextensions.k8s.io"}, []string{"customresourcedefinitions"}, []string{"get", "create"}),
+		// update/patch as well as create throughout: the scripts use `oc apply`,
+		// which patches an existing object and writes the
+		// kubectl.kubernetes.io/last-applied-configuration annotation. Any
+		// resource that survives a previous install (the CRD and the SCC both
+		// do — neither is namespaced) is a patch, not a create.
+		rbacRule([]string{""}, []string{"namespaces"}, []string{"get", "list", "create", "update", "patch"}),
+		rbacRule([]string{"apiextensions.k8s.io"}, []string{"customresourcedefinitions"},
+			[]string{"get", "list", "create", "update", "patch"}),
 		rbacRule([]string{"storage.k8s.io"}, []string{"storageclasses"}, []string{"get", "list"}),
 		// Node architecture drives the operator/catalog image variant chosen by
 		// scripts/_all_in_one_common.sh.
@@ -289,6 +295,11 @@ func installerClusterRoleManifest() map[string]any {
 			"resourceNames": []string{"anyuid"},
 			"verbs":         []string{"use"},
 		},
+		// manifests/install-olm-sample.yaml applies its own SCC
+		// (mas-est-iam-openldap-tls-generator), which is cluster-scoped and so
+		// outlives the namespace — every reinstall re-applies it.
+		rbacRule([]string{"security.openshift.io"}, []string{"securitycontextconstraints"},
+			[]string{"get", "list", "create", "update", "patch"}),
 		// `bind` is the narrow escape hatch from RBAC escalation prevention:
 		// it lets the installer create the two bindings in install-olm.yaml
 		// without holding every permission those roles carry.
@@ -316,7 +327,9 @@ func installerClusterRoleManifest() map[string]any {
 			[]string{"get", "list", "create", "update", "patch"}),
 		rbacRule([]string{"core.mas.ibm.com"}, []string{"suites"}, []string{"get", "list", "patch"}),
 		rbacRule([]string{"apps.mas.ibm.com"}, []string{"manageworkspaces"}, []string{"get", "list"}),
-		rbacRule([]string{""}, []string{"secrets"}, []string{"get", "list", "create"}),
+		// update/patch too: the IDPCfg credential secrets in the MAS core
+		// namespace are re-applied on every mas-auth run.
+		rbacRule([]string{""}, []string{"secrets"}, []string{"get", "list", "create", "update", "patch"}),
 		rbacRule([]string{""}, []string{"configmaps"}, []string{"get", "list", "create", "update", "patch", "delete"}),
 		// Route reads are cluster-wide: MAS API/auth route discovery runs
 		// `oc get route -A`.
