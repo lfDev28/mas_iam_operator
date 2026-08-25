@@ -565,6 +565,10 @@ func TestInstallerClusterRoleGrantsExecAndCrossNamespaceMASVerbs(t *testing.T) {
 		{"apiextensions.k8s.io", "customresourcedefinitions", "create"},
 		{"storage.k8s.io", "storageclasses", "list"},
 		{"security.openshift.io", "securitycontextconstraints", "use"},
+		// The S3 and SMTP phases read the default IngressController for the
+		// cluster route domain; without it both fail at the very end of an
+		// otherwise successful install.
+		{"operator.openshift.io", "ingresscontrollers", "get"},
 		{"operators.coreos.com", "subscriptions", "create"},
 		{"packages.operators.coreos.com", "packagemanifests", "get"},
 		{"config.mas.ibm.com", "idpcfgs", "create"},

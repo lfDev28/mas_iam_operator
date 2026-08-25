@@ -284,6 +284,12 @@ func installerClusterRoleManifest() map[string]any {
 		// Node architecture drives the operator/catalog image variant chosen by
 		// scripts/_all_in_one_common.sh.
 		rbacRule([]string{""}, []string{"nodes"}, []string{"get", "list"}),
+		// The S3 and SMTP components derive their route hosts from the default
+		// IngressController's domain (defaultObjectStorageRouteHost, used by
+		// both object_storage.go and smtp.go) whenever --route-host is not
+		// given. It lives in openshift-ingress-operator, so it needs a
+		// cluster-scoped read.
+		rbacRule([]string{"operator.openshift.io"}, []string{"ingresscontrollers"}, []string{"get", "list"}),
 
 		// anyuid for the OpenLDAP TLS generator job. Held by the installer SA
 		// itself so the RBAC escalation check lets it apply the anyuid
