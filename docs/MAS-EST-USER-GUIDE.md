@@ -45,7 +45,7 @@ Everything runs inside the `mas-est` namespace on the same OpenShift cluster as 
 | **SCIM bridge**      | `quay.io/lee_forster/mas-scim-bridge:v0.1.0`                         | Polls Keycloak every 5 min, provisions users with prefix `scim.` into MAS                       | Yes                               |
 | **MinIO**            | `quay.io/minio/minio:latest`                                                 | S3-compatible object storage; pre-creates `mas-s3-demo` + `*backup`/`*recovery` siblings        | Yes                               |
 | **Mailpit**          | `ghcr.io/axllent/mailpit:v1.30.1`                                            | Capture-only SMTP server with web UI                                                            | **Capture-only**, see Limitations |
-| **mas-est CLI**      | `quay.io/lee_forster/mas-external-services-tool:v0.1.4`              | Local installer, preflight, status, support-bundle, uninstall                                   | Yes                               |
+| **mas-est CLI**      | `quay.io/lee_forster/mas-external-services-tool:v0.1.5`              | Local installer, preflight, status, support-bundle, uninstall                                   | Yes                               |
 
 # Install
 
@@ -60,7 +60,7 @@ MAS inputs: SCIM base URL (`https://api.<mas-host>/scim/v2`), an API token name 
 ## Bootstrap the local command
 
 ```bash
-export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.4'
+export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.5'
 mkdir -p "$HOME/mas-est"
 podman run -ti --rm -v "$HOME/mas-est:/tmp" --pull always "$MAS_EST_IMAGE"
 export PATH="$HOME/mas-est:$PATH"

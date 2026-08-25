@@ -29,7 +29,7 @@ https://api.<mas-host>/scim/v2
 Set the beta image:
 
 ```bash
-export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.4'
+export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.5'
 ```
 
 Install the local `mas-est` command:

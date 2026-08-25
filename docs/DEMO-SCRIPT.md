@@ -10,7 +10,7 @@ Run the install ahead of time; the demo shows the *result* and one live flow.
 On a cluster with a running MAS instance:
 
 ```bash
-export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.4'
+export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.5'
 mkdir -p "$HOME/mas-est"
 podman run -ti --rm -v "$HOME/mas-est:/tmp" --pull always $MAS_EST_IMAGE
 export PATH="$HOME/mas-est:$PATH"

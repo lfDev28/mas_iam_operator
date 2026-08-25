@@ -115,6 +115,9 @@ See `OBJECT-STORAGE-POC.md` and `INSTALL-ALL-IN-ONE.md` for the documented Mailp
 
 ## What Is Supported
 
+**v0.1.5 release notes** (CLI `v0.1.5`; operator `0.0.15`/`catalog-0.0.15` and SCIM bridge `scim-bridge-v0.1.2` unchanged):
+- Fixed: with the S3 or SMTP component selected, the in-cluster install failed at the very end — after LDAP, Keycloak and the SCIM bridge had all installed successfully — with `ingresscontrollers.operator.openshift.io "default" is forbidden`. Both components derive their route host from the cluster's route domain by reading the default IngressController, and the installer Job's ClusterRole did not grant it. Everything installed before that point was fine; re-running completes the remaining components. **Supersedes v0.1.4, which is unusable with `--components ...,s3` or `...,smtp`** unless you pass `--route-host` explicitly or run with `--local`.
+
 **v0.1.4 release notes** (CLI `v0.1.4` + operator `0.0.15`/`catalog-0.0.15`; SCIM bridge unchanged at `scim-bridge-v0.1.2`):
 - **Behaviour change: `mas-est install` now runs the install as a Kubernetes Job inside the cluster by default.** Prompts and preflight still run on your machine, then the work is handed to the Job and its logs are streamed back — so Ctrl-C, a dropped VPN, or a sleeping laptop no longer kills a 20-minute install. Reattach with `mas-est logs --component install-job --follow`, cancel with `oc delete job mas-est-install -n mas-est`. Pass `--local` for the old behaviour (development and debugging; that run dies with your terminal). Two installs were lost to laptop sleep before this existed.
 - The streamed Job output looks identical to a local run, because it is the same log — if you are unsure which mode you are in, `oc get job mas-est-install -n mas-est`.
