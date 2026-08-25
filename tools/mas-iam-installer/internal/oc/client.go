@@ -36,6 +36,11 @@ type MASRoute struct {
 	Host       string
 }
 
+type IDPCfgSummary struct {
+	Name        string
+	DisplayName string
+}
+
 type ManageWorkspace struct {
 	Name        string
 	Namespace   string
@@ -288,6 +293,45 @@ func (c *Client) ManageWorkspaces(ctx context.Context) ([]ManageWorkspace, error
 	})
 
 	return workspaces, nil
+}
+
+// IDPCfgs lists the IDPCfg objects in a MAS core namespace. Used by the
+// preflight overwrite check: mas-est names its IDPCfgs
+// {instance}-{type}-{providerID}-system, which collides exactly with a
+// pre-existing config that happens to use the same provider id, and
+// `oc apply` then rewrites that object's spec in place.
+func (c *Client) IDPCfgs(ctx context.Context, namespace string) ([]IDPCfgSummary, error) {
+	output, err := c.runner.Output(ctx, executil.Options{
+		Name: "oc",
+		Args: []string{"get", "idpcfgs.config.mas.ibm.com", "-n", namespace, "-o", "json"},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var payload struct {
+		Items []struct {
+			Metadata struct {
+				Name string `json:"name"`
+			} `json:"metadata"`
+			Spec struct {
+				DisplayName string `json:"displayName"`
+			} `json:"spec"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(output), &payload); err != nil {
+		return nil, fmt.Errorf("decode idpcfgs in namespace %s: %w", namespace, err)
+	}
+
+	summaries := make([]IDPCfgSummary, 0, len(payload.Items))
+	for _, item := range payload.Items {
+		summaries = append(summaries, IDPCfgSummary{
+			Name:        item.Metadata.Name,
+			DisplayName: item.Spec.DisplayName,
+		})
+	}
+	sort.Slice(summaries, func(i, j int) bool { return summaries[i].Name < summaries[j].Name })
+	return summaries, nil
 }
 
 func (c *Client) IDPCfgSupportsOIDC(ctx context.Context) (bool, error) {

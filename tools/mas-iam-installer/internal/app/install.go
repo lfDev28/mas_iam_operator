@@ -23,6 +23,7 @@ type installOptions struct {
 	nonInteractive bool
 	yes            bool
 	inCluster      bool
+	local          bool
 	jobName        string
 	installerImage string
 }
@@ -76,13 +77,21 @@ func newInstallCommand(root *RootOptions) *cobra.Command {
 	flags.StringVar(&opts.config.IDPCfgMemoryLimit, "idpcfg-memory-limit", opts.config.IDPCfgMemoryLimit, "Memory limit applied to {instance}-entitymgr-idpcfg via Suite CR podTemplates (default 2Gi). The MAS default 512Mi OOMKills the finalizer playbook during MAS auth configuration; set to 'off' to skip the bump.")
 	flags.BoolVar(&opts.config.WipeFirst, "uninstall-first", opts.config.WipeFirst, "Uninstall the namespace before install")
 	flags.BoolVar(&opts.config.WipeFirst, "wipe-first", opts.config.WipeFirst, "Deprecated alias for --uninstall-first")
-	flags.BoolVar(&opts.inCluster, "in-cluster", false, "Run the install as a Kubernetes Job inside the cluster instead of from this machine, so it survives sleep, VPN drops, and closed terminals")
-	flags.StringVar(&opts.jobName, "job-name", installerJobDefaultName, "Name of the in-cluster installer Job created by --in-cluster")
-	flags.StringVar(&opts.installerImage, "installer-image", defaultInstallerImage(), "Image the --in-cluster Job runs; defaults to this CLI's own version")
+	flags.BoolVar(&opts.inCluster, "in-cluster", true, "Default. Run the install as a Kubernetes Job inside the cluster, so it survives sleep, VPN drops, and closed terminals. Prompts and preflight still run on this machine. Pass --local to opt out")
+	flags.BoolVar(&opts.local, "local", false, "Run the install from this machine instead of as an in-cluster Job. Overrides --in-cluster. Intended for development and debugging: the run dies with the terminal, the VPN, or a sleeping laptop")
+	flags.StringVar(&opts.jobName, "job-name", installerJobDefaultName, "Name of the in-cluster installer Job")
+	flags.StringVar(&opts.installerImage, "installer-image", defaultInstallerImage(), "Image the in-cluster installer Job runs; defaults to this CLI's own version")
 	flags.BoolVar(&opts.nonInteractive, "non-interactive", false, "Disable prompts and require flags/env vars")
 	flags.BoolVarP(&opts.yes, "yes", "y", false, "Skip destructive confirmation checks for non-interactive uninstall flows")
 
 	return command
+}
+
+// runsInCluster decides which execution mode this invocation uses.
+// --in-cluster defaults to true, so --local is the only way to get the
+// on-this-machine path and always wins over --in-cluster.
+func (o *installOptions) runsInCluster() bool {
+	return o.inCluster && !o.local
 }
 
 func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
@@ -137,9 +146,13 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 		return err
 	}
 	// The installer Job lives in the namespace the uninstall would delete, so
-	// combining the two would have the Job delete itself mid-run.
-	if o.inCluster && cfg.WipeFirst {
-		return fmt.Errorf("--in-cluster cannot be combined with --uninstall-first; run 'mas-est uninstall --namespace %s' first, then rerun with --in-cluster", cfg.Namespace)
+	// combining the two would have the Job delete itself mid-run. In-cluster is
+	// the default now, so the message must not blame a flag the user never
+	// typed — it names the two ways out instead.
+	if o.runsInCluster() && cfg.WipeFirst {
+		return fmt.Errorf("--uninstall-first cannot run in the cluster: the installer Job lives in namespace %s, which the uninstall deletes, so the Job would remove itself mid-run.\n"+
+			"  Either: run 'mas-est uninstall --namespace %s' first, then 'mas-est install' without --uninstall-first,\n"+
+			"  or:     rerun with --local to do both from this machine.", cfg.Namespace, cfg.Namespace)
 	}
 
 	masBaseURLForPreflight := ""
@@ -157,12 +170,25 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 	if checkOIDCEndpoint && masBaseURLForPreflight == "" {
 		masBaseURLForPreflight = cfg.MASBaseURL
 	}
+	// The IDPCfg names are only knowable once --configure-mas-auth is on and
+	// DefaultMASAuthTarget has resolved the instance id / core namespace above.
+	// The provider ids are the fixed defaults the install path passes to
+	// masAuthApplyOptions below; install exposes no flag to override them.
 	report := preflight.Run(ctx, client, preflight.Input{
-		Namespace:         cfg.Namespace,
-		MASBaseURL:        masBaseURLForPreflight,
-		CheckOIDCEndpoint: checkOIDCEndpoint,
-		APITokenName:      apiTokenName,
-		APITokenValue:     apiTokenValue,
+		Namespace:            cfg.Namespace,
+		MASBaseURL:           masBaseURLForPreflight,
+		CheckOIDCEndpoint:    checkOIDCEndpoint,
+		APITokenName:         apiTokenName,
+		APITokenValue:        apiTokenValue,
+		CheckIDPCfgOverwrite: cfg.ConfigureMASAuth,
+		IDPCfgPlan: preflight.IDPCfgPlan{
+			CoreNamespace:  cfg.MASAuthCoreNamespace,
+			InstanceID:     cfg.MASAuthInstanceID,
+			Providers:      cfg.MASAuthProviders,
+			LDAPProviderID: defaultMASAuthLDAPID,
+			OIDCProviderID: defaultMASAuthOIDCID,
+			SAMLProviderID: defaultMASAuthSAMLID,
+		},
 	})
 	preflight.Print(os.Stdout, report)
 	if report.HasFailures() {
@@ -189,7 +215,7 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 		return fmt.Errorf("--yes is required with --uninstall-first in non-interactive mode")
 	}
 
-	if o.inCluster {
+	if o.runsInCluster() {
 		inCluster := &inClusterInstallOptions{
 			cfg:         cfg,
 			jobName:     o.jobName,

@@ -48,6 +48,48 @@ func TestInstallLogComponentPrefersSelectedRuntime(t *testing.T) {
 	}
 }
 
+// TestInstallDefaultsToInCluster pins the execution-mode decision: in-cluster
+// is the default, and --local is the only opt-out (it wins even if the user
+// also passes --in-cluster explicitly).
+func TestInstallDefaultsToInCluster(t *testing.T) {
+	command := newInstallCommand(&RootOptions{})
+	if err := command.Flags().Parse(nil); err != nil {
+		t.Fatalf("parse empty flags: %v", err)
+	}
+	inCluster, err := command.Flags().GetBool("in-cluster")
+	if err != nil {
+		t.Fatalf("in-cluster flag: %v", err)
+	}
+	if !inCluster {
+		t.Fatal("--in-cluster must default to true")
+	}
+	local, err := command.Flags().GetBool("local")
+	if err != nil {
+		t.Fatalf("local flag: %v", err)
+	}
+	if local {
+		t.Fatal("--local must default to false")
+	}
+
+	tests := []struct {
+		name      string
+		opts      installOptions
+		inCluster bool
+	}{
+		{name: "defaults", opts: installOptions{inCluster: true}, inCluster: true},
+		{name: "--local", opts: installOptions{inCluster: true, local: true}, inCluster: false},
+		{name: "--in-cluster --local", opts: installOptions{inCluster: true, local: true}, inCluster: false},
+		{name: "--in-cluster=false", opts: installOptions{inCluster: false}, inCluster: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.opts.runsInCluster(); got != tt.inCluster {
+				t.Fatalf("runsInCluster() = %v, want %v", got, tt.inCluster)
+			}
+		})
+	}
+}
+
 func TestPhaseTrackerRecordsSuccessAndFailureEntries(t *testing.T) {
 	buf := &bytes.Buffer{}
 	tracker := newPhaseTracker(buf)

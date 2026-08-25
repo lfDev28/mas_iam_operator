@@ -155,7 +155,11 @@ substitute their own.
 
 - Two engineers installing against one cluster: namespace-scope the Job name, or
   refuse when one is already running?
-- Should `--in-cluster` become the default once proven, with the local path kept
-  as `--local` for development?
+- ~~Should `--in-cluster` become the default once proven, with the local path kept
+  as `--local` for development?~~ **Resolved: yes.** After an end-to-end
+  validated cluster run, `--in-cluster` defaults to true and `--local` forces
+  the on-this-machine path (and wins over `--in-cluster`). The Job's inner
+  `est install` is emitted with `--local`; without it the in-cluster default
+  would make each Job spawn another one without bound.
 - Support bundle on failure: auto-collect into a ConfigMap/PVC, or leave to the
   existing `mas-est support-bundle` command run from the laptop?

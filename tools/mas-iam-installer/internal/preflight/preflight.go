@@ -40,7 +40,32 @@ type Input struct {
 	// silent 13-minute timeout in the scim profile-bootstrap Job.
 	APITokenName  string
 	APITokenValue string
+	// CheckIDPCfgOverwrite lists the IDPCfgs already present in the MAS core
+	// namespace and warns about the ones this install would rewrite in place.
+	// Only meaningful when --configure-mas-auth is set, which is also the only
+	// time IDPCfgPlan is populated.
+	CheckIDPCfgOverwrite bool
+	IDPCfgPlan           IDPCfgPlan
 }
+
+// IDPCfgPlan is everything needed to compute the IDPCfg object names a
+// --configure-mas-auth install will apply. The object name is built from the
+// RAW provider id ({instance}-{type}-{providerID}-system), not the
+// reserved-word-suffixed key mas-est uses for OIDC redirect URIs and selfreg
+// lookups — see ldapIDPCfgName/oidcIDPCfgName/samlIDPCfgName in
+// internal/app/mas_auth.go.
+type IDPCfgPlan struct {
+	CoreNamespace  string
+	InstanceID     string
+	Providers      []string
+	LDAPProviderID string
+	OIDCProviderID string
+	SAMLProviderID string
+}
+
+// IDPCfgLookup lists the IDPCfgs in a namespace. Declared as a func type
+// rather than taking *oc.Client so the check is testable without a cluster.
+type IDPCfgLookup func(ctx context.Context, namespace string) ([]oc.IDPCfgSummary, error)
 
 type Result struct {
 	Name    string
@@ -157,6 +182,13 @@ func Run(ctx context.Context, client *oc.Client, input Input) Report {
 		}
 	}
 
+	// Ahead of the MASBaseURL gate below: --configure-mas-auth with
+	// --mas-auth-use-cr-apply never needs a MAS base URL, and the IDPCfg
+	// overwrite warning must still fire in that mode.
+	if input.CheckIDPCfgOverwrite {
+		report.Results = append(report.Results, CheckIDPCfgOverwrite(ctx, client.IDPCfgs, input.IDPCfgPlan))
+	}
+
 	if strings.TrimSpace(input.MASBaseURL) == "" {
 		report.Results = append(report.Results, Result{
 			Name:    "mas-base-url",
@@ -227,6 +259,112 @@ func Run(ctx context.Context, client *oc.Client, input Input) Report {
 	}
 
 	return report
+}
+
+// defaultIDPProviderID mirrors defaultMASAuthLDAPID/OIDCID/SAMLID in
+// internal/app/mas_auth.go. It cannot be imported from there: internal/app
+// depends on this package, not the other way round.
+const defaultIDPProviderID = "default"
+
+// Names returns the IDPCfg object names a --configure-mas-auth install will
+// apply, in ldap/oidc/saml order. An empty provider list means all three,
+// matching config.InstallConfig.HasMASAuthProvider and
+// masAuthApplyOptions.defaultAndValidate.
+func (p IDPCfgPlan) Names() []string {
+	instance := strings.TrimSpace(p.InstanceID)
+	if instance == "" {
+		return nil
+	}
+	providers, err := config.NormalizeMASAuthProviders(p.Providers)
+	if err != nil {
+		return nil
+	}
+	if len(providers) == 0 {
+		providers = config.DefaultMASAuthProviders()
+	}
+
+	ids := map[string]string{
+		config.MASAuthProviderLDAP: p.LDAPProviderID,
+		config.MASAuthProviderOIDC: p.OIDCProviderID,
+		config.MASAuthProviderSAML: p.SAMLProviderID,
+	}
+	names := make([]string, 0, len(providers))
+	for _, provider := range providers {
+		id := strings.TrimSpace(ids[provider])
+		if id == "" {
+			id = defaultIDPProviderID
+		}
+		names = append(names, fmt.Sprintf("%s-%s-%s-system", instance, provider, id))
+	}
+	return names
+}
+
+// CheckIDPCfgOverwrite warns — never fails — when an IDPCfg this install is
+// about to create already exists in the MAS core namespace. mas-est applies
+// its IDPCfgs by name ({instance}-{type}-{providerID}-system) with
+// `oc apply --server-side --force-conflicts`, so a pre-existing config that
+// happens to use the same provider id is rewritten in place: the object keeps
+// its original creationTimestamp while its whole spec becomes mas-est's.
+// Observed for real against a customer-created `{instance}-saml-default-system`.
+// This must not block an install, so every failure mode is a warn.
+func CheckIDPCfgOverwrite(ctx context.Context, lookup IDPCfgLookup, plan IDPCfgPlan) Result {
+	const name = "mas-idpcfg-overwrite"
+
+	namespace := strings.TrimSpace(plan.CoreNamespace)
+	planned := plan.Names()
+	if namespace == "" || len(planned) == 0 {
+		return Result{Name: name, Status: StatusWarn, Message: "skipped: MAS core namespace or instance id could not be resolved"}
+	}
+	if lookup == nil {
+		return Result{Name: name, Status: StatusWarn, Message: "skipped: no IDPCfg lookup available"}
+	}
+
+	existing, err := lookup(ctx, namespace)
+	if err != nil {
+		return Result{
+			Name:    name,
+			Status:  StatusWarn,
+			Message: fmt.Sprintf("could not list IDPCfgs in namespace %s: %v; cannot check whether this install would overwrite an existing config", namespace, err),
+		}
+	}
+
+	byName := map[string]oc.IDPCfgSummary{}
+	for _, item := range existing {
+		byName[item.Name] = item
+	}
+
+	collisions := []string{}
+	for _, want := range planned {
+		item, ok := byName[want]
+		if !ok {
+			continue
+		}
+		display := strings.TrimSpace(item.DisplayName)
+		if display == "" {
+			display = "<no displayName>"
+		}
+		collisions = append(collisions, fmt.Sprintf("%s (displayName %q)", want, display))
+	}
+
+	if len(collisions) == 0 {
+		return Result{
+			Name:    name,
+			Status:  StatusOK,
+			Message: fmt.Sprintf("none of the %d IDPCfg(s) this install creates already exist in namespace %s", len(planned), namespace),
+		}
+	}
+
+	return Result{
+		Name:   name,
+		Status: StatusWarn,
+		Message: fmt.Sprintf(
+			"%d existing IDPCfg(s) in namespace %s will be OVERWRITTEN in place by this install: %s. "+
+				"Back them up first: oc get idpcfg -n %s -o yaml. "+
+				"mas-est install always uses provider id %q and has no flag to change it; "+
+				"to keep the existing configs, run the install with --mas-auth-providers limited to the other providers "+
+				"(or without --configure-mas-auth) and then 'mas-est mas-auth apply --ldap-provider-id/--oidc-provider-id/--saml-provider-id <id>' with a different id.",
+			len(collisions), namespace, strings.Join(collisions, ", "), namespace, defaultIDPProviderID),
+	}
 }
 
 // masHTTPClient returns the client used for direct MAS probes. TLS

@@ -86,6 +86,8 @@ Run the interactive install:
 mas-est install
 ```
 
+`mas-est install` runs the install **inside the cluster** as a Kubernetes Job (see [In-Cluster Install](#in-cluster-install-default)). Prompts and preflight still run on this machine; only the execution moves. Pass `--local` to run the whole thing on this machine instead — that path dies with the terminal, the VPN, or a sleeping laptop, and is intended for development and debugging.
+
 The installer prompts for:
 
 - namespace
@@ -222,20 +224,24 @@ mas-est install \
 
 MAS's own SMTP config doesn't change — it still talks plain SMTP to `mas-mailpit.mas-est.svc.cluster.local:1025`. Captured messages appear in the Mailpit UI as before AND get forwarded upstream. See [docs/CONNECTION-DETAILS.md](CONNECTION-DETAILS.md#smtp-relay-optional) for the full flag set + provider walkthroughs (Gmail, SendGrid, AWS SES, Outlook/365).
 
-## In-Cluster Install (`--in-cluster`)
+## In-Cluster Install (default)
 
-A normal `mas-est install` drives the cluster from your laptop for 15–30 minutes, which makes the laptop a single point of failure: sleeping the lid, dropping VPN, or closing the terminal kills the run mid-phase.
+Driving the cluster from a laptop for 15–30 minutes makes the laptop a single point of failure: sleeping the lid, dropping VPN, or closing the terminal kills the run mid-phase.
 
-`--in-cluster` moves the execution into the cluster. The CLI still prompts you locally and still runs preflight locally, then hands the resolved settings to a Kubernetes Job that does the actual work:
+So the install runs **in the cluster by default**. The CLI still prompts you locally and still runs preflight locally, then hands the resolved settings to a Kubernetes Job that does the actual work:
 
 ```bash
-mas-est install --in-cluster
+mas-est install               # in-cluster (default)
+mas-est install --in-cluster  # same thing, explicit
+mas-est install --local       # opt out: run on this machine (development/debugging)
 ```
+
+`--local` always wins over `--in-cluster`. The Job's own inner `est install` is issued with `--local`, which is what stops it launching a further Job.
 
 It works with `--non-interactive` and every other install flag too:
 
 ```bash
-mas-est install --in-cluster --non-interactive \
+mas-est install --non-interactive \
   --components ldap,keycloak,scim \
   --mas-base-url 'https://api.<mas-host>/scim/v2' \
   --mas-api-token-name '<mas-api-token-name>' \
@@ -292,7 +298,7 @@ oc delete clusterrolebinding mas-est-installer-mas-est --ignore-not-found
 oc delete clusterrole mas-est-installer --ignore-not-found
 ```
 
-Rerunning `mas-est install --in-cluster` when a Job of the same name already exists prompts to delete and recreate it in interactive mode, and fails with instructions in `--non-interactive` mode. It never silently replaces one — it may be somebody else's install.
+Rerunning `mas-est install` when a Job of the same name already exists prompts to delete and recreate it in interactive mode, and fails with instructions in `--non-interactive` mode. It never silently replaces one — it may be somebody else's install.
 
 ### RBAC note: the ClusterRole is broad
 
@@ -310,11 +316,11 @@ The install genuinely touches a lot of the cluster, and the MAS core and MAS Mon
 
 Destructive verbs are deliberately kept out of the ClusterRole: deleting and rewriting workloads (`secrets`, `configmaps`, `deployments`, `statefulsets`, `jobs`, `services`, `routes`, `persistentvolumeclaims`, `serviceaccounts`, `pods`, `masiamstacks`) is granted only by the namespaced `Role/mas-est-installer` inside the target namespace.
 
-If your cluster's security posture rules this out, apply your own ServiceAccount and role bindings under the same names before running `--in-cluster`, or keep using the local install path.
+If your cluster's security posture rules this out, apply your own ServiceAccount and role bindings under the same names before installing, or use `--local`.
 
 ### Limitations
 
-- `--in-cluster` cannot be combined with `--uninstall-first`: the Job lives in the namespace the uninstall would delete, so it would remove itself mid-run. Run `mas-est uninstall` first, then rerun with `--in-cluster`.
+- `--uninstall-first` cannot run in the cluster: the Job lives in the namespace the uninstall would delete, so it would remove itself mid-run. Run `mas-est uninstall` first and then `mas-est install`, or pass `--local` to do both from this machine.
 - The Job writes no run-log file — `/opt/mas-est` is not writable in the container. Stdout is the log, captured by `oc logs`.
 
 ## Connection Details
@@ -371,6 +377,18 @@ The MAS resources are created in the MAS core namespace, usually:
 ```text
 mas-<instance-id>-core
 ```
+
+### Preflight warns about IDPCfgs it would overwrite
+
+MAS-EST names its IDPCfgs `<instance-id>-<type>-<provider-id>-system`, and `install` always uses the provider id `default`. If MAS already has an IDPCfg under one of those names — for example a hand-made `<instance-id>-saml-default-system` — the install rewrites that object's spec **in place**: the object keeps its original `creationTimestamp` but its whole spec becomes MAS-EST's.
+
+Preflight now checks for this and prints a `[warn] mas-idpcfg-overwrite: …` line naming each colliding IDPCfg and its current `spec.displayName`. It is only a warning; it never blocks the install. Back up anything you want to keep first:
+
+```bash
+oc get idpcfg -n mas-<instance-id>-core -o yaml > idpcfgs-backup.yaml
+```
+
+`install` has no flag to change the provider id. To keep an existing config, install without that provider (`--mas-auth-providers` limited to the others, or no `--configure-mas-auth` at all) and then run `mas-est mas-auth apply --saml-provider-id <other-id>` (likewise `--ldap-provider-id` / `--oidc-provider-id`).
 
 This path uses the same `IDPCfg` resources created by the MAS Admin API underneath. If a cluster's MAS version rejects one provider shape, rerun with `mas-est support-bundle --namespace mas-est` and collect the MAS core `IDPCfg` status/events for review.
 

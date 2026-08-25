@@ -519,8 +519,15 @@ func installerJobManifest(o *inClusterInstallOptions) map[string]any {
 // flags, so `oc get job -o yaml` documents exactly what was requested. The MAS
 // API token and the SMTP relay password are deliberately absent — they arrive
 // through secretKeyRef env vars instead.
+//
+// --local is MANDATORY and must never be removed. The container runs this same
+// CLI, where --in-cluster now DEFAULTS TO TRUE. Without --local the Job's own
+// `est install` would create a second installer Job, which would create a
+// third, and so on without bound — the cluster would fill with installer Jobs
+// and no install would ever run. Guarded by
+// TestInstallerJobArgsAlwaysPassesLocal.
 func installerJobArgs(cfg config.InstallConfig) []string {
-	args := []string{"install", "--non-interactive"}
+	args := []string{"install", "--non-interactive", "--local"}
 	add := func(flag, value string) {
 		if strings.TrimSpace(value) != "" {
 			args = append(args, flag, value)

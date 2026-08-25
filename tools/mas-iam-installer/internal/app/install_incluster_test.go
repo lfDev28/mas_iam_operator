@@ -238,6 +238,9 @@ func TestInstallerJobArgs(t *testing.T) {
 			if args[0] != "install" || args[1] != "--non-interactive" {
 				t.Fatalf("args must start with install --non-interactive, got %v", args[:2])
 			}
+			if !containsString(args, "--local") {
+				t.Fatalf("args must contain --local (see TestInstallerJobArgsAlwaysPassesLocal), got %v", args)
+			}
 			joined := strings.Join(args, " ")
 			for i := 0; i+1 < len(tt.want); i += 2 {
 				if !strings.Contains(joined, tt.want[i]+" "+tt.want[i+1]) {
@@ -257,6 +260,70 @@ func TestInstallerJobArgs(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestInstallerJobArgsAlwaysPassesLocal guards the single most important
+// invariant of the in-cluster path. The Job's container runs this same CLI,
+// and `install --in-cluster` DEFAULTS TO TRUE, so an inner `est install`
+// without --local would launch another installer Job, which would launch
+// another, forever: unbounded Job recursion that fills the cluster and never
+// installs anything. --local forces the on-this-machine execution path inside
+// the pod, terminating the chain at depth 1.
+func TestInstallerJobArgsAlwaysPassesLocal(t *testing.T) {
+	configs := map[string]config.InstallConfig{
+		"scim":     scimInstallConfig(),
+		"defaults": config.DefaultInstallConfig(),
+		"mas auth": func() config.InstallConfig {
+			cfg := scimInstallConfig()
+			cfg.ConfigureMASAuth = true
+			cfg.MASAuthInstanceID = "lfmas"
+			cfg.MASAuthCoreNamespace = "mas-lfmas-core"
+			return cfg
+		}(),
+	}
+
+	for name, cfg := range configs {
+		t.Run(name, func(t *testing.T) {
+			if !containsString(installerJobArgs(cfg), "--local") {
+				t.Fatalf("installerJobArgs() omitted --local; the in-cluster install would recurse without bound\n%v", installerJobArgs(cfg))
+			}
+		})
+	}
+
+	// The rendered Job spec is what the pod actually executes, so assert on it
+	// too rather than only on the args builder.
+	_, container := jobSpec(t, installerJobManifest(newTestInClusterOptions(scimInstallConfig())))
+	args, ok := container["args"].([]string)
+	if !ok {
+		t.Fatalf("container args are not []string: %#v", container["args"])
+	}
+	if !containsString(args, "--local") {
+		t.Fatalf("job container args omitted --local: %v", args)
+	}
+	if containsString(args, "--in-cluster") {
+		t.Fatalf("job container args must not re-enable the in-cluster path: %v", args)
+	}
+
+	// End-to-end on the flag parser: feed the Job's own argv back through the
+	// install command exactly as the pod's `est` binary would, and assert the
+	// resulting options resolve to the LOCAL path. This is what actually stops
+	// the recursion — a --local that the parser rejected or ignored would not.
+	command := newInstallCommand(&RootOptions{})
+	if err := command.Flags().Parse(args[1:]); err != nil {
+		t.Fatalf("the Job's own args do not parse: %v\n%v", err, args)
+	}
+	local, err := command.Flags().GetBool("local")
+	if err != nil {
+		t.Fatalf("local flag: %v", err)
+	}
+	inCluster, err := command.Flags().GetBool("in-cluster")
+	if err != nil {
+		t.Fatalf("in-cluster flag: %v", err)
+	}
+	inner := installOptions{inCluster: inCluster, local: local}
+	if inner.runsInCluster() {
+		t.Fatalf("re-parsing the Job's args yields an in-cluster install; the Job would spawn another Job forever\n%v", args)
 	}
 }
 

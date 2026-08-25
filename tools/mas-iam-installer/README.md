@@ -72,7 +72,7 @@ mas-est logs --namespace mas-est --component bridge
 mas-est uninstall --namespace mas-est --profile-id demo
 ```
 
-To run the install inside the cluster instead of from your laptop, add `--in-cluster` (see [In-Cluster Install](#in-cluster-install)).
+`mas-est install` runs the install inside the cluster by default (see [In-Cluster Install](#in-cluster-install)). Add `--local` to run it from your laptop instead.
 
 ## Interactive Prompts
 
@@ -141,7 +141,17 @@ mas-est install \
 
 ## In-Cluster Install
 
-`mas-est install --in-cluster` resolves the config the same way (prompts and preflight still run locally), then runs the install as a Kubernetes Job inside the cluster instead of from this machine, so it survives sleep, VPN drops, and closed terminals.
+`mas-est install` resolves the config the same way (prompts and preflight still run locally), then runs the install as a Kubernetes Job **inside the cluster**, so it survives sleep, VPN drops, and closed terminals. This is the default.
+
+`--local` opts out and runs everything on this machine — the old behaviour, kept for development and debugging. It overrides `--in-cluster`, which now defaults to true. The Job's own inner `est install` is issued with `--local`; that is what stops it launching another Job.
+
+`--uninstall-first` cannot run in the cluster (the Job lives in the namespace the uninstall deletes). Run `mas-est uninstall` first, or pass `--local`.
+
+## Preflight: IDPCfg Overwrite Warning
+
+With `--configure-mas-auth`, preflight lists the IDPCfgs already in the MAS core namespace and warns (`[warn] mas-idpcfg-overwrite: …`) when one of them shares a name with an IDPCfg this install will apply — `<instance-id>-<type>-<provider-id>-system`, with `install` always using the provider id `default`. `oc apply` would rewrite that object's spec in place while keeping its original `creationTimestamp`.
+
+It is only a warning and never blocks the install. Back up first with `oc get idpcfg -n mas-<instance-id>-core -o yaml`. `install` exposes no provider-id flag; to keep an existing config, install without that provider and then use `mas-est mas-auth apply --ldap-provider-id/--oidc-provider-id/--saml-provider-id <id>`.
 
 It creates `ServiceAccount/mas-est-installer`, a ClusterRole + namespaced Role and their bindings, `Secret/mas-est-install-credentials` for the MAS API token, and `Job/mas-est-install`, then streams the Job's logs.
 
@@ -153,7 +163,7 @@ mas-est logs --namespace mas-est --component install-job --follow
 
 Cancel with `oc delete job mas-est-install -n mas-est`. `--installer-image` overrides the image (default: this CLI's own version), `--job-name` the Job name.
 
-The ClusterRole is broad — it includes `pods/exec` (required by the SCIM identity linker's `oc exec … mongosh`) and cross-namespace secret reads. Security-conscious operators can substitute their own. See [docs/INSTALL-ALL-IN-ONE.md](../../docs/INSTALL-ALL-IN-ONE.md#in-cluster-install---in-cluster) for the full verb list, cleanup commands, and limitations.
+The ClusterRole is broad — it includes `pods/exec` (required by the SCIM identity linker's `oc exec … mongosh`) and cross-namespace secret reads. Security-conscious operators can substitute their own. See [docs/INSTALL-ALL-IN-ONE.md](../../docs/INSTALL-ALL-IN-ONE.md#in-cluster-install-default) for the full verb list, cleanup commands, and limitations.
 
 Env vars:
 

@@ -75,6 +75,13 @@ func (o *preflightOptions) run(ctx context.Context) error {
 	// API token inputs are optional and env/flag-only — never prompted. Both
 	// must be present for the key check to run; a lone name or value is not
 	// enough to authenticate.
+	//
+	// CheckIDPCfgOverwrite is deliberately left off: the IDPCfg names depend on
+	// the MAS instance id and the resolved auth provider list, and this command
+	// has neither (it takes no --configure-mas-auth / --mas-auth-* inputs).
+	// Adding them would mean inventing new required inputs for a command whose
+	// job is a quick cluster/MAS reachability check, so the warning fires only
+	// from `mas-est install`, where the values are already resolved.
 	report := preflight.Run(ctx, client, preflight.Input{
 		Namespace:     o.namespace,
 		MASBaseURL:    o.masBaseURL,
