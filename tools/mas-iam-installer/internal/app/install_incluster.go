@@ -403,6 +403,14 @@ func installerRoleManifest(namespace string) map[string]any {
 			rbacRule([]string{"apps"}, []string{"deployments", "statefulsets"}, crud),
 			rbacRule([]string{"batch"}, []string{"jobs"}, crud),
 			rbacRule([]string{"route.openshift.io"}, []string{"routes"}, crud),
+			// OpenShift gates spec.host on a Route behind the routes/custom-host
+			// subresource; without it every Route the installer creates with an
+			// explicit host (MinIO api/console, Mailpit UI, Keycloak) is rejected
+			// with "you do not have permission to set the host field of the
+			// route". update as well as create, because re-applying an existing
+			// Route with a host is checked the same way.
+			rbacRule([]string{"route.openshift.io"}, []string{"routes/custom-host"},
+				[]string{"create", "update"}),
 			rbacRule([]string{"iam.mas.ibm.com"}, []string{"masiamstacks"}, crud),
 			// manifests/install-olm.yaml binds the operator service account to
 			// the admin ClusterRole in this namespace.

@@ -605,6 +605,21 @@ func TestInstallerRoleCoversTargetNamespaceWorkloads(t *testing.T) {
 			t.Fatalf("namespaced Role is missing full CRUD on %s", resource)
 		}
 	}
+
+	// OpenShift rejects a Route carrying spec.host unless the caller holds the
+	// routes/custom-host subresource. The MinIO api/console and Mailpit routes
+	// all set an explicit host, so losing this rule fails the S3 and SMTP
+	// phases with "you do not have permission to set the host field".
+	customHost := false
+	for _, rule := range rules {
+		if containsString(rule["resources"].([]string), "routes/custom-host") &&
+			containsString(rule["verbs"].([]string), "create") {
+			customHost = true
+		}
+	}
+	if !customHost {
+		t.Fatal("namespaced Role is missing create on routes/custom-host")
+	}
 }
 
 func containsString(values []string, want string) bool {
