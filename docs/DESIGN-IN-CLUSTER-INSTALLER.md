@@ -139,6 +139,31 @@ substitute their own.
 - `ttlSecondsAfterFinished` unset initially: the Job and its logs are the
   post-mortem artifact. Cleanup happens on the next `--in-cluster` run or via
   `mas-est uninstall`.
+- **Capability probe for image/CLI skew.** The container's `command` overrides the
+  image's `ENTRYPOINT ["est"]` with a `/bin/sh -ec` preamble that runs before the
+  install: it checks that the image's `est install --help` advertises `--local`,
+  and if not prints what the image reports (`est version`), what the launching CLI
+  expected, and the fix, then exits 1. Otherwise it `exec est "$@"` and the install
+  proceeds with the args unchanged.
+
+  Why it exists: the Job's args always carry `--local` (the recursion guard). An
+  image whose `est` predates that flag dies instantly with a bare
+  `unknown flag: --local` and nothing else, which reads as a broken install rather
+  than as version skew.
+
+  Why capability, not version: a dev tag such as `v0.1.4-dev` gets rebuilt and
+  re-pushed in place, so a stale image reports the *same* version string as the CLI
+  that launched it. Comparing versions cannot detect this; asking the binary what
+  flags it supports can. The failure message therefore says the image is an older
+  *build*, never that the versions differ.
+
+  argv note: the manifest sets
+  `command: ["/bin/sh", "-ec", <script>, "mas-est-install"]` and leaves `args`
+  alone. The kubelet concatenates command+args, and `sh -c` binds the first operand
+  after the script to `$0`, so the `mas-est-install` placeholder is what keeps
+  `"$@"` equal to the whole args list — without it `install` would be swallowed as
+  `$0`. Covered by `TestInstallerJobCommandArgvHandling`, which runs a real shell
+  with the same argv shape.
 
 ### Phasing
 

@@ -504,16 +504,81 @@ func installerJobManifest(o *inClusterInstallOptions) map[string]any {
 					"restartPolicy":      "Never",
 					"serviceAccountName": installerServiceAccountName,
 					"containers": []map[string]any{{
-						"name":  "installer",
-						"image": o.image,
-						"args":  installerJobArgs(o.cfg),
-						"env":   env,
+						"name":    "installer",
+						"image":   o.image,
+						"command": installerJobCommand(),
+						"args":    installerJobArgs(o.cfg),
+						"env":     env,
 					}},
 				},
 			},
 		},
 	}
 }
+
+// installerJobPreamble is the /bin/sh wrapper the Job container runs before the
+// real install. Its whole job is to turn one specific, baffling failure into a
+// readable one.
+//
+// The Job's args always carry --local (see installerJobArgs). An installer image
+// whose `est` predates that flag dies instantly with a bare
+// `unknown flag: --local` and nothing else, which reads as a broken install
+// rather than as version skew. Worse, the versions cannot be compared: a dev tag
+// like v0.1.4-dev gets rebuilt and re-pushed in place, so a stale image reports
+// the exact same version string as the CLI that launched it. So the probe tests
+// the image's CAPABILITY — does its `est install --help` advertise --local — not
+// its version.
+//
+// %s is version.Version, substituted at Job-build time so the message can name
+// what the launching CLI was. The script contains no other %-verbs.
+const installerJobPreamble = `# Capability probe: does this image's est understand --local? Version strings
+# cannot answer that (a dev tag is rebuilt in place), so ask the binary.
+if ! est install --help 2>/dev/null | grep -q -- '--local'; then
+cat >&2 <<EOF
+[mas-est] FATAL: installer image / CLI skew - refusing to run.
+
+  This image's 'est install' does not understand --local, so the image is an
+  OLDER BUILD than the mas-est CLI that created this Job. Version strings do not
+  settle this: a dev tag can be rebuilt and re-pushed in place, so the same tag
+  and the same reported version can be two different builds.
+
+    image reports: $(est version 2>&1 || echo unknown)
+    CLI expected:  %s
+
+  Without --local the in-cluster install would spawn installer Jobs without
+  bound, so this container stops here instead.
+
+  Fix: delete this Job, then re-run 'mas-est install' either with
+  --installer-image pointing at an image built from this CLI, or after
+  rebuilding and re-pushing the tag above (use a fresh tag, or force the node to
+  re-pull, so the stale layer is not reused).
+EOF
+exit 1
+fi
+exec est "$@"
+`
+
+// installerJobCommand overrides the image's ENTRYPOINT ["est"] with the shell
+// preamble above, so `est` must be invoked explicitly.
+//
+// argv: Kubernetes concatenates command + args, giving
+// `/bin/sh -ec <script> mas-est-install install --non-interactive --local …`.
+// `sh -c` assigns the first operand after the script to $0 and the rest to
+// $1…$n, so the "mas-est-install" placeholder is what keeps "$@" equal to the
+// full args list. Drop it and `install` would be swallowed as $0. Guarded by
+// TestInstallerJobCommandArgvHandling.
+func installerJobCommand() []string {
+	return []string{
+		"/bin/sh",
+		"-ec",
+		fmt.Sprintf(installerJobPreamble, version.Version),
+		installerJobArgv0,
+	}
+}
+
+// installerJobArgv0 is the $0 placeholder for `sh -c`; it must not look like a
+// flag, and it shows up as the program name in any shell diagnostic.
+const installerJobArgv0 = "mas-est-install"
 
 // installerJobArgs renders the already-resolved config as explicit `est install`
 // flags, so `oc get job -o yaml` documents exactly what was requested. The MAS

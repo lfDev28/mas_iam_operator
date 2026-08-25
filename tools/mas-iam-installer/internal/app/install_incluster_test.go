@@ -2,6 +2,11 @@ package app
 
 import (
 	"encoding/json"
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -325,6 +330,185 @@ func TestInstallerJobArgsAlwaysPassesLocal(t *testing.T) {
 	if inner.runsInCluster() {
 		t.Fatalf("re-parsing the Job's args yields an in-cluster install; the Job would spawn another Job forever\n%v", args)
 	}
+}
+
+// containerCommand pulls the /bin/sh wrapper out of the rendered Job.
+func containerCommand(t *testing.T, container map[string]any) []string {
+	t.Helper()
+	command, ok := container["command"].([]string)
+	if !ok {
+		t.Fatalf("container command is not []string: %#v", container["command"])
+	}
+	return command
+}
+
+// TestInstallerJobCommandProbesForLocalSupport covers the image/CLI skew guard.
+// A published dev tag gets rebuilt in place, so an image can report the same
+// version as the CLI that launched it and still lack --local; the container
+// then dies with a bare "unknown flag: --local". The preamble must therefore
+// probe the binary's advertised flags, not its version string.
+func TestInstallerJobCommandProbesForLocalSupport(t *testing.T) {
+	_, container := jobSpec(t, installerJobManifest(newTestInClusterOptions(scimInstallConfig())))
+	command := containerCommand(t, container)
+
+	if len(command) != 4 {
+		t.Fatalf("command = %v, want [/bin/sh -ec <script> <argv0>]", command)
+	}
+	if command[0] != "/bin/sh" || command[1] != "-ec" {
+		t.Fatalf("command must be a /bin/sh -ec wrapper, got %v", command[:2])
+	}
+
+	script := command[2]
+	for _, want := range []string{
+		"est install --help", // capability probe, not a version comparison
+		"--local",
+		`exec est "$@"`,
+		version.Version, // the version the launching CLI reports
+		"est version",   // the version the image reports
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("preamble script is missing %q:\n%s", want, script)
+		}
+	}
+	// The message must not claim the versions differ — in the real skew case they
+	// are the identical string.
+	if !strings.Contains(script, "OLDER BUILD") {
+		t.Fatalf("preamble must describe the image as an older BUILD, not a different version:\n%s", script)
+	}
+
+	// The args are unchanged by the wrapper: still the recursion-safe invocation.
+	args := container["args"].([]string)
+	if len(args) < 3 || args[0] != "install" || args[1] != "--non-interactive" || args[2] != "--local" {
+		t.Fatalf("args must still start with install --non-interactive --local, got %v", args)
+	}
+}
+
+// TestInstallerJobCommandArgvHandling pins the subtlest part of the wrapper.
+// Kubernetes runs command+args concatenated, and `sh -c <script>` takes the
+// first operand after the script as $0. Without the placeholder in command[3],
+// "install" would become $0 and vanish from "$@" — the install would run as
+// `est --non-interactive --local …` and fail obscurely.
+func TestInstallerJobCommandArgvHandling(t *testing.T) {
+	_, container := jobSpec(t, installerJobManifest(newTestInClusterOptions(scimInstallConfig())))
+	command := containerCommand(t, container)
+	args := container["args"].([]string)
+
+	argv0 := command[3]
+	if strings.HasPrefix(argv0, "-") {
+		t.Fatalf("the $0 placeholder %q looks like a flag; sh would treat it as an option", argv0)
+	}
+	if argv0 == "" || argv0 == args[0] {
+		t.Fatalf("the $0 placeholder must be a distinct non-empty token, got %q", argv0)
+	}
+
+	// Prove it against a real shell rather than by reasoning: run the same argv
+	// shape the kubelet builds, with a script that just reports "$@".
+	if runtime.GOOS == "windows" {
+		t.Skip("no /bin/sh")
+	}
+	shellArgs := append([]string{"-ec", `printf '%s\n' "$@"`, argv0}, args...)
+	out, err := exec.Command("/bin/sh", shellArgs...).Output()
+	if err != nil {
+		t.Fatalf("probing argv handling: %v", err)
+	}
+	got := strings.Split(strings.TrimSuffix(string(out), "\n"), "\n")
+	if len(got) != len(args) {
+		t.Fatalf(`"$@" expanded to %d words, want %d (args = %v, got = %v)`, len(got), len(args), args, got)
+	}
+	for i := range args {
+		if got[i] != args[i] {
+			t.Fatalf(`"$@"[%d] = %q, want %q`, i, got[i], args[i])
+		}
+	}
+}
+
+// TestInstallerJobPreambleRunsUnderSh executes the real preamble against stub
+// `est` binaries: one that advertises --local, one that does not. A syntax error
+// or a broken probe here only shows up as a dead pod on a customer cluster.
+func TestInstallerJobPreambleRunsUnderSh(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no /bin/sh")
+	}
+	_, container := jobSpec(t, installerJobManifest(newTestInClusterOptions(scimInstallConfig())))
+	command := containerCommand(t, container)
+	script, argv0 := command[2], command[3]
+	args := container["args"].([]string)
+
+	// `sh -n` first: parse-only, so a syntax error is reported as such.
+	scriptPath := filepath.Join(t.TempDir(), "preamble.sh")
+	if err := os.WriteFile(scriptPath, []byte(script), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("/bin/sh", "-n", scriptPath).CombinedOutput(); err != nil {
+		t.Fatalf("sh -n rejected the preamble: %v\n%s\n---\n%s", err, out, script)
+	}
+
+	// stubEst writes a fake `est` whose behaviour follows from its own --help:
+	// an install carrying a flag the help does not advertise fails the way cobra
+	// fails, with a bare "unknown flag". That is the failure this preamble exists
+	// to pre-empt, so the stub reproduces it rather than asserting around it.
+	stubEst := func(t *testing.T, help string) string {
+		t.Helper()
+		dir := t.TempDir()
+		body := "#!/bin/sh\n" +
+			"HELP='" + help + "'\n" +
+			`if [ "$1" = "install" ] && [ "$2" = "--help" ]; then printf '%s\n' "$HELP"; exit 0; fi` + "\n" +
+			`if [ "$1" = "version" ]; then echo "0.1.4-dev (commit stale, built 2026-07-01)"; exit 0; fi` + "\n" +
+			`if [ "$1" != "install" ]; then echo "unknown command: $1" >&2; exit 1; fi` + "\n" +
+			`for flag in "$@"; do` + "\n" +
+			`  if [ "$flag" = "--local" ] && ! printf '%s' "$HELP" | grep -q -- '--local'; then` + "\n" +
+			`    echo "unknown flag: --local" >&2; exit 1` + "\n" +
+			`  fi` + "\n" +
+			`done` + "\n" +
+			`echo "INSTALL RAN: $*"` + "\n"
+		if err := os.WriteFile(filepath.Join(dir, "est"), []byte(body), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+
+	run := func(t *testing.T, binDir string) (string, string, error) {
+		t.Helper()
+		cmd := exec.Command("/bin/sh", append([]string{"-ec", script, argv0}, args...)...)
+		cmd.Env = append(os.Environ(), "PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+		var stdout, stderr strings.Builder
+		cmd.Stdout, cmd.Stderr = &stdout, &stderr
+		err := cmd.Run()
+		return stdout.String(), stderr.String(), err
+	}
+
+	t.Run("capable image runs the install", func(t *testing.T) {
+		// The stub's fallback branch echoes the real-world failure, so if the probe
+		// wrongly rejected a good image we would see "unknown flag" here.
+		stdout, stderr, err := run(t, stubEst(t, `      --local   force the on-this-machine path`))
+		if err != nil {
+			t.Fatalf("preamble refused an image that supports --local: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
+		}
+		if strings.Contains(stderr, "FATAL") {
+			t.Fatalf("preamble printed the skew error for a capable image:\n%s", stderr)
+		}
+	})
+
+	t.Run("stale image fails with a diagnosis", func(t *testing.T) {
+		_, stderr, err := run(t, stubEst(t, `      --non-interactive   no prompts`))
+		if err == nil {
+			t.Fatalf("preamble accepted an image with no --local; the pod would die on 'unknown flag'\n%s", stderr)
+		}
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
+			t.Fatalf("want exit status 1, got %v", err)
+		}
+		for _, want := range []string{
+			"OLDER BUILD",
+			"0.1.4-dev (commit stale, built 2026-07-01)", // what the image reports
+			version.Version,     // what the CLI expected
+			"--installer-image", // the fix
+		} {
+			if !strings.Contains(stderr, want) {
+				t.Fatalf("skew error is missing %q:\n%s", want, stderr)
+			}
+		}
+	})
 }
 
 func TestInstallerRBACManifests(t *testing.T) {

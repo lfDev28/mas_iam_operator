@@ -264,6 +264,8 @@ Every non-secret setting is passed to the Job as explicit CLI flags, so `oc get 
 
 The Job runs `quay.io/lee_forster/mas-external-services-tool:v<cli-version>`, matching the CLI that launched it. Override with `--installer-image` when mirroring into a private registry. Override the Job name with `--job-name` when two engineers share a cluster.
 
+**Image/CLI skew.** The Job's inner `est install` always carries `--local` (the recursion guard). An installer image older than that flag would die with a bare `unknown flag: --local`, so the container first runs a short `/bin/sh` preamble that checks whether the image's `est install --help` advertises `--local`; if not it prints what the image reports, what the CLI expected, and how to fix it, then exits 1. The check is on capability, not version: a dev tag such as `v0.1.4-dev` gets rebuilt and re-pushed in place, so a stale image reports the same version string as the CLI that launched it. If you hit this, delete the Job and re-run with `--installer-image` pointing at an image built from the same CLI, or rebuild/re-push the tag (a fresh tag is the surest way to defeat a cached layer on the node).
+
 The Job uses `restartPolicy: Never` and `backoffLimit: 0` — the install is idempotent, but a blind restart silently repeats 20+ minutes of work, so re-running is a human decision. `activeDeadlineSeconds` is 5400 (90 minutes).
 
 ### Ctrl-C is safe
