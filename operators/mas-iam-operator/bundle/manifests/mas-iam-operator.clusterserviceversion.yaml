@@ -898,7 +898,7 @@ metadata:
         }
       ]
     capabilities: Basic Install
-    createdAt: "2026-06-29T06:18:39Z"
+    createdAt: "2026-08-20T00:47:41Z"
     operators.operatorframework.io/builder: operator-sdk-v1.33.0
     operators.operatorframework.io/project_layout: helm.sdk.operatorframework.io/v1
   name: mas-iam-operator.v0.0.15

@@ -72,7 +72,7 @@ Start here:
 Short version:
 
 ```bash
-export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.3'
+export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.4'
 
 mkdir -p "$HOME/mas-est"
 podman run -ti --rm -v "$HOME/mas-est:/tmp" --pull always "$MAS_EST_IMAGE"

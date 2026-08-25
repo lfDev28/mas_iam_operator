@@ -3,10 +3,9 @@ package version
 import "fmt"
 
 var (
-	// Dev builds between releases. The in-cluster installer derives its default
-	// Job image from this string ("v" + Version), so the published dev tag must
-	// match it exactly. Docs stay pinned to the last stable release.
-	Version   = "0.1.4-dev"
+	// The in-cluster installer derives its default Job image from this string
+	// ("v" + Version), so the published tag must match it exactly.
+	Version   = "0.1.4"
 	Commit    = "unknown"
 	BuildDate = "unknown"
 )
