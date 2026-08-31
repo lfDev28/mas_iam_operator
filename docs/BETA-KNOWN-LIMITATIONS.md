@@ -115,6 +115,10 @@ See `OBJECT-STORAGE-POC.md` and `INSTALL-ALL-IN-ONE.md` for the documented Mailp
 
 ## What Is Supported
 
+**v0.1.6 release notes** (CLI `v0.1.6`; operator `0.0.15`/`catalog-0.0.15` and SCIM bridge `scim-bridge-v0.1.2` unchanged):
+- Fixed: with the S3 or SMTP component selected, the in-cluster install failed with `The Route "mas-minio-api" is invalid: spec.host: Forbidden: you do not have permission to set the host field of the route`. OpenShift gates `spec.host` on a Route behind the `routes/custom-host` subresource, which the installer Job's Role did not grant — so the MinIO api/console routes and the Mailpit UI route were all rejected. This surfaced *after* the MinIO PVC, Service and Deployment had applied cleanly, so the pod is left `Running` with no route to reach it. **Supersedes v0.1.5, which is unusable with `--components ...,s3` or `...,smtp`** unless you run with `--local`. Re-running completes the remaining components; no wipe needed.
+- Note for anyone re-testing this: the grant lives in the Role that the **launching** CLI applies, not in the Job image. Upgrading means using the v0.1.6 CLI to start the install — pointing an older CLI at the v0.1.6 image reapplies the old Role and fails identically.
+
 **v0.1.5 release notes** (CLI `v0.1.5`; operator `0.0.15`/`catalog-0.0.15` and SCIM bridge `scim-bridge-v0.1.2` unchanged):
 - Fixed: with the S3 or SMTP component selected, the in-cluster install failed at the very end — after LDAP, Keycloak and the SCIM bridge had all installed successfully — with `ingresscontrollers.operator.openshift.io "default" is forbidden`. Both components derive their route host from the cluster's route domain by reading the default IngressController, and the installer Job's ClusterRole did not grant it. Everything installed before that point was fine; re-running completes the remaining components. **Supersedes v0.1.4, which is unusable with `--components ...,s3` or `...,smtp`** unless you pass `--route-host` explicitly or run with `--local`.
 
