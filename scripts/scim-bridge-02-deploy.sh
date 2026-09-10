@@ -621,8 +621,39 @@ provision_keycloak_route_cert
 provision_keycloak
 log_install "applying manifest to ${SCIM_BRIDGE_NAMESPACE} namespace"
 prime_last_applied_annotations "$MANIFEST_RENDERED"
-oc apply -n "$SCIM_BRIDGE_NAMESPACE" -f "$MANIFEST_RENDERED"
-provision_mas_profile
+
+# Ordering matters here. The MAS SCIM profile carries the entitlement and
+# workspace that every synced user inherits, and the bootstrap Job that creates
+# it reads scim-bridge-config and scim-bridge-secret out of THIS manifest - so
+# the profile cannot simply be provisioned first.
+#
+# Applying the whole file in one go started the bridge Deployment before the
+# profile existed. On a fresh cluster the bridge's first poll then raced the
+# Job, and any user synced inside that window was created against a profile
+# with no entitlement: it landed with entitlement.application=NONE and no
+# workspace, so it never reached Manage - while MAS still reported sync
+# SUCCESS at every level. Observed 2026-09-10 on a virgin cluster, where
+# scim.user1 (synced 280ms before the profile was created) never appeared in
+# Manage and scim.user2 (207ms after) did. A reinstall hides the bug entirely,
+# because the profile already exists and the Job is then a no-op.
+#
+# So: apply the Deployment's prerequisites, create the profile and wait for it,
+# then start the bridge.
+BRIDGE_DEPLOYMENT_MANIFEST="$WORK_DIR/scim-bridge-deployment-rendered.yaml"
+BRIDGE_PREREQ_MANIFEST="$WORK_DIR/scim-bridge-prereq-rendered.yaml"
+if split_manifest_by_kind "$MANIFEST_RENDERED" "Deployment" \
+     "$BRIDGE_DEPLOYMENT_MANIFEST" "$BRIDGE_PREREQ_MANIFEST" \
+   && grep -q '[^[:space:]#-]' "$BRIDGE_DEPLOYMENT_MANIFEST"; then
+  oc apply -n "$SCIM_BRIDGE_NAMESPACE" -f "$BRIDGE_PREREQ_MANIFEST"
+  provision_mas_profile
+  oc apply -n "$SCIM_BRIDGE_NAMESPACE" -f "$BRIDGE_DEPLOYMENT_MANIFEST"
+else
+  # Split failed, or the manifest carried no Deployment. Fall back to the
+  # original single apply rather than silently skipping resources.
+  log_install "manifest split unavailable; applying in a single pass"
+  oc apply -n "$SCIM_BRIDGE_NAMESPACE" -f "$MANIFEST_RENDERED"
+  provision_mas_profile
+fi
 
 log_result "deployed_image=${SCIM_BRIDGE_IMAGE}"
 log_result "mas_base_url=${SCIM_BRIDGE_MAS_BASE_URL} profile_id=${SCIM_BRIDGE_MAS_PROFILE_ID}"

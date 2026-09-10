@@ -176,6 +176,61 @@ prime_last_applied_annotations() {
   rm -rf "${temp_dir}"
 }
 
+# split_manifest_by_kind splits a multi-document manifest in two: documents
+# whose top-level kind equals ${kind} are written to ${match_path}, everything
+# else to ${rest_path}. Lets a caller apply a workload separately from the
+# ConfigMaps/Secrets it consumes, so an ordering step can run in between.
+# Pure awk on purpose - the published installer image has no python3.
+split_manifest_by_kind() {
+  local manifest_path="$1"
+  local kind="$2"
+  local match_path="$3"
+  local rest_path="$4"
+
+  if [[ -z "${manifest_path}" || ! -f "${manifest_path}" ]]; then
+    return 1
+  fi
+
+  : > "${match_path}"
+  : > "${rest_path}"
+
+  awk -v want_kind="${kind}" -v match_path="${match_path}" -v rest_path="${rest_path}" '
+    function flush_doc() {
+      if (doc == "") {
+        return
+      }
+      if (doc_kind == want_kind) {
+        printf "---\n%s", doc >> match_path
+      } else {
+        printf "---\n%s", doc >> rest_path
+      }
+      doc = ""
+      doc_kind = ""
+    }
+
+    /^[[:space:]]*---[[:space:]]*$/ {
+      flush_doc()
+      next
+    }
+
+    # Only a column-0 "kind:" is the document kind; anything indented belongs to
+    # a nested object (a pod template, a subject list) and must not win.
+    /^kind:[[:space:]]*[^[:space:]]/ {
+      if (doc_kind == "") {
+        doc_kind = $2
+      }
+    }
+
+    {
+      doc = doc $0 "\n"
+    }
+
+    END {
+      flush_doc()
+    }
+  ' "${manifest_path}"
+}
+
 wait_for_namespaced_resource() {
   local kind="$1"
   local name="$2"
