@@ -83,6 +83,13 @@ func (o *bootstrapOptions) run(output io.Writer) error {
 		return err
 	}
 
+	// Record what this extraction was, so a later run can report the age of the
+	// runtime rather than only its version string. Non-fatal: a missing
+	// runtime-info file degrades to "unknown", it must not break bootstrap.
+	if err := writeRuntimeInfo(stagingDir); err != nil {
+		fmt.Fprintf(output, "[warn] unable to record runtime info: %v\n", err)
+	}
+
 	wrapperTempPath := wrapperPath + ".tmp"
 	if err := os.WriteFile(wrapperTempPath, []byte(renderLocalLauncher(runtimeDirName)), 0o755); err != nil {
 		return fmt.Errorf("write launcher %s: %w", wrapperTempPath, err)

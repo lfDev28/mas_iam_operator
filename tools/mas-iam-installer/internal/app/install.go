@@ -24,8 +24,11 @@ type installOptions struct {
 	yes            bool
 	inCluster      bool
 	local          bool
-	jobName        string
-	installerImage string
+	// skipVersionCheck bypasses the stale-runtime guard. Intended for
+	// deliberately running a locally built binary against a published image.
+	skipVersionCheck bool
+	jobName          string
+	installerImage   string
 }
 
 type installDiscovery struct {
@@ -81,6 +84,7 @@ func newInstallCommand(root *RootOptions) *cobra.Command {
 	flags.BoolVar(&opts.local, "local", false, "Run the install from this machine instead of as an in-cluster Job. Overrides --in-cluster. Intended for development and debugging: the run dies with the terminal, the VPN, or a sleeping laptop")
 	flags.StringVar(&opts.jobName, "job-name", installerJobDefaultName, "Name of the in-cluster installer Job")
 	flags.StringVar(&opts.installerImage, "installer-image", defaultInstallerImage(), "Image the in-cluster installer Job runs; defaults to this CLI's own version")
+	flags.BoolVar(&opts.skipVersionCheck, "skip-version-check", false, "Run even when MAS_EST_IMAGE names a different version than this binary")
 	flags.BoolVar(&opts.nonInteractive, "non-interactive", false, "Disable prompts and require flags/env vars")
 	flags.BoolVarP(&opts.yes, "yes", "y", false, "Skip destructive confirmation checks for non-interactive uninstall flows")
 
@@ -95,6 +99,15 @@ func (o *installOptions) runsInCluster() bool {
 }
 
 func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
+	// Before anything touches the cluster: state the version, and refuse to run
+	// a binary that disagrees with the image the user asked for. The in-cluster
+	// installer's RBAC comes from this binary, so a stale launcher silently
+	// reapplies stale permissions.
+	printVersionBanner(os.Stdout)
+	if err := checkRuntimeVersion(o.skipVersionCheck); err != nil {
+		return err
+	}
+
 	runner := executil.NewRunner()
 	client := oc.NewClient(runner)
 

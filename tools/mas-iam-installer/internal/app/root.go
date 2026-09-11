@@ -47,7 +47,7 @@ func NewRootCommand() *cobra.Command {
 		newDetailsCommand(),
 		newLogsCommand(),
 		newLDAPInfoCommand(),
-		newVersionCommand(),
+		newVersionCommand(rootOptions),
 		newRenderTemplateCommand(),
 	)
 
