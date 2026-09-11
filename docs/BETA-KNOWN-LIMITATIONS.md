@@ -115,6 +115,18 @@ See `OBJECT-STORAGE-POC.md` and `INSTALL-ALL-IN-ONE.md` for the documented Mailp
 
 ## What Is Supported
 
+**v0.1.8 release notes** (CLI `v0.1.8`; operator `0.0.15`/`catalog-0.0.15` and SCIM bridge `scim-bridge-v0.1.2` unchanged):
+- `mas-est install` now prints `[version] mas-est vX.Y.Z` as its first line, and that line goes into the execution log. If you are sending an install log to support, it now states which version produced it.
+- **New guard against running a stale local runtime.** `mas-est` is a wrapper that runs a binary extracted into `~/mas-est/.mas-est-runtime` when you bootstrapped — and `export MAS_EST_IMAGE=...` does **not** refresh it. Previously, upgrading by exporting the new image and re-running `mas-est install` silently ran the old binary. That is worse than it sounds: the in-cluster installer's RBAC is applied by the binary on your machine, not by the Job image, so an old launcher grants old permissions and a fix published minutes earlier appears not to work. `install` now fails immediately when `MAS_EST_IMAGE` names a different version than the running binary, and tells you to re-run bootstrap. Pass `--skip-version-check` to override (for deliberately running a local build).
+- `mas-est version` now also reports when the local runtime was extracted, and warns if `MAS_EST_IMAGE` disagrees with it.
+- **To upgrade, always re-run the bootstrap container** — exporting the variable alone is not enough:
+  ```
+  export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.8'
+  podman run -ti --rm -v "$HOME/mas-est:/tmp" --pull always "$MAS_EST_IMAGE"
+  mas-est version   # confirm 0.1.8 before installing
+  ```
+- The check is entirely local — no registry lookup — so it works in airgapped and proxied environments. Digest-pinned or untagged `MAS_EST_IMAGE` values are ignored rather than blocking the run.
+
 **v0.1.7 release notes** (CLI `v0.1.7`; operator `0.0.15`/`catalog-0.0.15` and SCIM bridge `scim-bridge-v0.1.2` unchanged):
 - Fixed: on a MAS instance where the `demo` SCIM profile did not already exist, SCIM-provisioned users could be created **before** the profile was, and silently inherited `entitlement.application: NONE` with no workspace. Those users never appear in Manage — no MAXUSER, PERSON or GROUPUSER row — while MAS reports `sync.status: SUCCESS` at every level, including `applications.manage.sync`. There is no error anywhere to point at; the user is simply missing. The installer applied the bridge Deployment and the profile bootstrap Job together, so the bridge's first poll raced the Job; the Deployment is now applied only after the profile Job completes.
 - **Who was affected:** only installs onto a MAS instance whose SCIM profile had never been created. Any reinstall was immune, because the profile lives in MAS's own database and survives `mas-est uninstall` — the bootstrap Job then finds it and no-ops. This is why the bug went unnoticed through five releases.
