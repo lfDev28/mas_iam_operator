@@ -80,7 +80,10 @@ func TestCheckRuntimeVersionSkipBypassesMismatch(t *testing.T) {
 	}
 	// The message has to name the fix, not just the problem - this fires on a
 	// user who already believes they are on the right version.
-	for _, want := range []string{"v9.9.9", "bootstrap", "--skip-version-check"} {
+	// "bootstrap --force" specifically: this error only fires when a runtime
+	// already exists, and bare bootstrap refuses to overwrite one - so a remedy
+	// without --force fails for exactly the user it is addressed to.
+	for _, want := range []string{"v9.9.9", "bootstrap --force", "--skip-version-check"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("error message missing %q: %v", want, err)
 		}

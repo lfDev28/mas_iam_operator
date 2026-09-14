@@ -52,7 +52,7 @@ Bootstrap the local command:
 
 ```bash
 mkdir -p "$HOME/mas-est"
-podman run -ti --rm -v "$HOME/mas-est:/tmp" --pull always "$MAS_EST_IMAGE"
+podman run -ti --rm -v "$HOME/mas-est:/tmp" --pull always "$MAS_EST_IMAGE" bootstrap --force
 export PATH="$HOME/mas-est:$PATH"
 ```
 

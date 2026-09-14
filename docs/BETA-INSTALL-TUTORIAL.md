@@ -14,9 +14,9 @@ Use this checklist only when preparing release notes, screenshots, or a walkthro
 Commands:
 
 ```bash
-export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.8'
+export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.9'
 mkdir -p "$HOME/mas-est"
-podman run -ti --rm -v "$HOME/mas-est:/tmp" --pull always "$MAS_EST_IMAGE"
+podman run -ti --rm -v "$HOME/mas-est:/tmp" --pull always "$MAS_EST_IMAGE" bootstrap --force
 export PATH="$HOME/mas-est:$PATH"
 mas-est version
 mas-est --help

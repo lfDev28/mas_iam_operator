@@ -29,14 +29,14 @@ https://api.<mas-host>/scim/v2
 Set the beta image:
 
 ```bash
-export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.8'
+export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.9'
 ```
 
 Install the local `mas-est` command:
 
 ```bash
 mkdir -p "$HOME/mas-est"
-podman run -ti --rm -v "$HOME/mas-est:/tmp" --pull always "$MAS_EST_IMAGE"
+podman run -ti --rm -v "$HOME/mas-est:/tmp" --pull always "$MAS_EST_IMAGE" bootstrap --force
 export PATH="$HOME/mas-est:$PATH"
 ```
 

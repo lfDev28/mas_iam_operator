@@ -9,7 +9,7 @@ The supported delivery model is:
 
 Current published image:
 
-- `quay.io/lee_forster/mas-external-services-tool:v0.1.8`
+- `quay.io/lee_forster/mas-external-services-tool:v0.1.9`
 
 The CLI wraps the repo's hardened shell install engine. It does not replace it.
 
@@ -39,14 +39,14 @@ The CLI wraps the repo's hardened shell install engine. It does not replace it.
 Set the image once:
 
 ```bash
-export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.8'
+export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.9'
 ```
 
 Bootstrap the host command:
 
 ```bash
 mkdir -p "$HOME/mas-est"
-podman run -ti --rm -v "$HOME/mas-est:/tmp" --pull always $MAS_EST_IMAGE
+podman run -ti --rm -v "$HOME/mas-est:/tmp" --pull always $MAS_EST_IMAGE bootstrap --force
 export PATH="$HOME/mas-est:$PATH"
 ```
 
