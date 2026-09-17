@@ -14,13 +14,13 @@ Most identity and integration cases need the customer's Entra, Okta or cloud sto
 
 # What you get
 
-| Component | Connected to MAS as |
-|---|---|
-| OpenLDAP with users `ldap.user1` and `ldap.user2` | LDAP login provider |
-| Keycloak (realm `maximo`) with `oidc.user1/2`, `saml.user1/2` and `scim.user1/2` | OIDC and SAML login providers, with self-registration on first login |
-| SCIM bridge | SCIM profile `demo`. Creates the `scim.*` users in MAS and syncs them every 5 minutes |
-| MinIO (S3) with bucket `mas-s3-demo` | `ObjectStorageCfg` for MAS Suite |
-| Mailpit, an SMTP capture server with a web inbox | Not connected automatically. Settings are in the Guide |
+| Component                                                                        | Connected to MAS as                                                                   |
+| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| OpenLDAP with users `ldap.user1` and `ldap.user2`                                | LDAP login provider                                                                   |
+| Keycloak (realm `maximo`) with `oidc.user1/2`, `saml.user1/2` and `scim.user1/2` | OIDC and SAML login providers, with self-registration on first login                  |
+| SCIM bridge                                                                      | SCIM profile `demo`. Creates the `scim.*` users in MAS and syncs them every 5 minutes |
+| MinIO (S3) with bucket `mas-s3-demo`                                             | `ObjectStorageCfg` for MAS Suite                                                      |
+| Mailpit, an SMTP capture server with a web inbox                                 | Not connected automatically. Settings are in the Guide                                |
 
 Everything runs in the `mas-est` namespace. The MAS configuration goes into `mas-<instance>-core`, where `<instance>` is your MAS instance ID.
 
@@ -53,7 +53,7 @@ The full list, with workarounds, is in [KNOWN-LIMITATIONS.md](KNOWN-LIMITATIONS.
 
 # Getting help
 
-Run `mas-est support-bundle` and attach the directory it creates. It contains status, events, logs and configuration with secret values removed. Contact Lee Forster. `TODO(Lee): channel or email`
+Run `mas-est support-bundle` and attach the directory it creates. It contains status, events, logs and configuration with secret values removed. Ping me on slack or email lee.forster@ibm.com
 
 # Documentation
 

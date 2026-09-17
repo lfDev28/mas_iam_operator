@@ -139,7 +139,7 @@ oc get idpcfg -n mas-<instance>-core -o yaml > idpcfg-backup.yaml
 
 The install also raises the memory limit of `<instance>-entitymgr-idpcfg` to 2 Gi through the Suite CR, because the MAS default of 512 Mi runs out while the providers are applied. `--idpcfg-memory-limit off` skips this.
 
-![MAS administration showing the LDAP, OIDC and SAML providers as configured](images/mas-admin-providers-configured.png)
+![MAS administration, Users and identity, with LDAP, OIDC and SAML authentication all Ready](images/mas-auth-providers.png)
 
 ## Log in with the demo users
 
@@ -154,7 +154,9 @@ LDAP, OIDC and SAML users are created in MAS on their first login. SCIM users ar
 
 Use a private browser window for every login. Keycloak keeps you signed in after you log out of MAS, so the next login in the same window returns the previous user.
 
-![MAS login page with the LDAP, OIDC and SAML options](images/mas-login-providers.png)
+![MAS login page with the Log in with MAS EST LDAP, OIDC and SAML options](images/login-screen.png)
+
+![MAS Users after every demo user has logged in once: SCIM users Active, the others Newly self-registered](images/mas-users-screen.png)
 
 ### Add a SCIM user
 
@@ -169,9 +171,7 @@ Use a private browser window for every login. Keycloak keeps you signed in after
 
    On MAS 9.0 add `--providers ldap,saml`.
 
-![Keycloak realm maximo user list, and the members of group mas-scim-users](images/keycloak-scim-users-group.png)
-
-![scim.user1 in MAS Users and in Manage](images/scim-user-in-mas-and-manage.png)
+![Keycloak admin console, realm maximo, showing the demo users](images/keycloak-users.png)
 
 ## Connection details
 
@@ -238,7 +238,7 @@ Use the endpoint above, not the MinIO route. Manage addresses buckets as `<bucke
 
 Browse the buckets at the `mas-minio-console` route as user `minioadmin`, with the `MINIO_ROOT_PASSWORD` key of secret `mas-minio-root`.
 
-![MinIO console showing the mas-s3-demo, mas-s3-demobackup and mas-s3-demorecovery buckets](images/minio-buckets.png)
+![MinIO console showing bucket mas-s3-demo with its backup and recovery folders, and the sibling buckets in the sidebar](images/mini-io-console.png)
 
 ## Connect SMTP
 
@@ -251,7 +251,7 @@ Mailpit captures every message and shows it at the `mas-mailpit` route. It deliv
 | TLS | Off |
 | Authentication | None |
 
-![Mailpit inbox showing a captured MAS email](images/mailpit-inbox.png)
+![Mailpit inbox at the mas-mailpit route](images/mailpit-ui.png)
 
 To forward captured mail to real inboxes, install with relay flags. They also work with `mas-est smtp install-mailpit`.
 
