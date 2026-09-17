@@ -1,6 +1,6 @@
 # Design: Group-Based SCIM Bridge Scoping
 
-Status: phase 1 and phase 2 implemented (target v0.2.0). Owner: mas-est. Origin: field feedback 2026-08-18 —
+Status: phase 1 and phase 2 implemented (shipped in v0.1.3; deactivation not yet cluster-validated). Owner: mas-est. Origin: field feedback 2026-08-18 —
 a support engineer added a user to the `mas-scim-users` Keycloak group and expected
 the bridge to sync it; nothing happened because scoping is username-prefix-based.
 

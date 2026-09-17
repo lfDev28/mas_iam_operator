@@ -315,7 +315,7 @@ func TestMinIOS3ConnectionSecretDataUsesInternalURL(t *testing.T) {
 	}
 
 	data := opts.s3ConnectionSecretDataMinIO(details)
-	// in-cluster endpoint, NOT the OpenShift route — see docs/OBJECT-STORAGE-POC.md
+	// in-cluster endpoint, NOT the OpenShift route — see docs/GUIDE.md "Using S3 with Manage"
 	if data["endpoint"] != "http://mas-minio.mas-est.svc.cluster.local:9000" {
 		t.Fatalf("endpoint = %q", data["endpoint"])
 	}

@@ -1,22 +1,15 @@
-# OpenLDAP TLS generator image
+# openldap-tls-generator image
 
-This container image is used by the `mas-est-iam-generate-openldap-tls`
-Kubernetes job in `manifests/install-olm.yaml`. It contains only the tooling
-required by the bootstrap script (`bash`, `openssl`, `kubectl`) and runs as an
-unprivileged user by default.
+A minimal UBI 9 image with `bash`, `openssl`, and `kubectl` (`oc` is a symlink to it). It runs as uid 10001 with `/bin/bash` as the entrypoint. The `mas-est-iam-generate-openldap-tls` Job in `manifests/install-olm-sample.yaml` uses it to create the self-signed `mas-est-iam-keycloak-openldap-tls` secret. The Job script lives inline in that manifest, not in this image.
+
+The Dockerfile downloads the linux/amd64 `kubectl` binary, so the image is amd64-only.
 
 ## Build and push
 
+From the repo root:
+
 ```bash
-TLS_BOOTSTRAP_IMG=quay.io/<org>/openldap-tls-generator:0.1.0
-CONTAINER_ENGINE=${CONTAINER_ENGINE:-podman}
-${CONTAINER_ENGINE} build \
-  -t "${TLS_BOOTSTRAP_IMG}" \
-  -f images/openldap-tls-generator/Dockerfile \
-  images/openldap-tls-generator
-${CONTAINER_ENGINE} push "${TLS_BOOTSTRAP_IMG}"
+TLS_IMG=<registry>/openldap-tls-generator:<tag> make tls-push
 ```
 
-Update the job in `manifests/install-olm.yaml` (or your own overlay) to point at
-the published image. Whenever you bump the base OS or `kubectl` version, rebuild
-and repush the image, then update the manifest accordingly.
+The build uses `--platform linux/amd64` (`TLS_PLATFORM`) and podman (`CONTAINER_ENGINE`). If you publish a new tag, update the image reference in `manifests/install-olm-sample.yaml`.

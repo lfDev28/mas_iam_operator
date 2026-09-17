@@ -844,7 +844,7 @@ func (o *objectStorageInstallOptions) rookDetails(details s3BucketDetails, endpo
 // for the MinIO path. The endpoint is the in-cluster service URL because the
 // AWS SDK in Maximo Manage defaults to virtual-hosted-style addressing and
 // the OpenShift route does not support that without a wildcard cert (see
-// docs/OBJECT-STORAGE-POC.md "CRITICAL — use the in-cluster URL").
+// docs/GUIDE.md "Using S3 with Manage").
 func (o *minioInstallOptions) s3ConnectionSecretDataMinIO(details s3BucketDetails) map[string]string {
 	return map[string]string{
 		"provider":         "minio",

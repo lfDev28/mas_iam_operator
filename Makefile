@@ -74,8 +74,8 @@ scim-bridge-build:
 #   mkdir -p ~/.local/share/pandoc/templates
 #   curl -fsSL https://raw.githubusercontent.com/Wandmalfarbe/pandoc-latex-template/master/eisvogel.latex \
 #     > ~/.local/share/pandoc/templates/eisvogel.latex
-USER_GUIDE_MD ?= docs/MAS-EST-USER-GUIDE.md
-USER_GUIDE_PDF ?= docs/MAS-EST-USER-GUIDE.pdf
+USER_GUIDE_MD ?= docs/GUIDE.md
+USER_GUIDE_PDF ?= docs/GUIDE.pdf
 
 user-guide-pdf:
 	pandoc $(USER_GUIDE_MD) \

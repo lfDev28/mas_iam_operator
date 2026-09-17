@@ -273,7 +273,7 @@ func (o *masAuthApplyOptions) applySelfRegConfigMap(ctx context.Context, client 
 		// LDAP login goes through MAS's customUserRegistry Liberty feature
 		// (NOT a JIT IDP flow), but MAS still consults the {instance}-selfreg
 		// ConfigMap when a successfully-bound LDAP user has no MongoDB record
-		// — without an mas-est-ldap entry, login fails with CWIML4537E
+		// — without a default-ldap entry, login fails with CWIML4537E
 		// "principal not found in the back-end repository". Mappings use
 		// LDAP attribute names (uid/mail/cn/givenName/sn) not OIDC claims.
 		data[providerKeyWithSuffix(o.ldapProviderID, "ldap")] = o.selfRegConfigYAML(ldapSelfRegMappings)

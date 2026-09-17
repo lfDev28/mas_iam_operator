@@ -266,7 +266,7 @@ func rbacRule(apiGroups, resources, verbs []string) map[string]any {
 // own namespace. Cluster-scoped because the MAS core namespace and the MAS
 // Mongo namespace are not known until the config is resolved and vary per MAS
 // instance. pods/exec plus cross-namespace secret reads make this close to
-// cluster-admin in practice — documented in docs/INSTALL-ALL-IN-ONE.md so
+// cluster-admin in practice — documented in docs/GUIDE.md so
 // operators can substitute a narrower role.
 func installerClusterRoleManifest() map[string]any {
 	rules := []map[string]any{

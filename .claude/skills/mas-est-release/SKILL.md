@@ -57,13 +57,11 @@ CLI version string:
 
 CLI image pins in docs (all `mas-external-services-tool:vX.Y.Z`):
 ```bash
-for f in README.md tools/mas-iam-installer/README.md docs/BETA-ANNOUNCEMENT.md \
-         docs/BETA-INSTALL-TUTORIAL.md docs/MAS-EST-USER-GUIDE.md \
-         docs/DEMO-SCRIPT.md docs/BETA-QUICKSTART.md; do
+for f in README.md docs/GUIDE.md; do
   sed -i '' 's|mas-external-services-tool:vOLD|mas-external-services-tool:vNEW|g' "$f"
 done
 ```
-(`docs/INITIAL-RELEASE-PLAN.md` is a historical record — leave it pinned.)
+Confirm nothing else pins the old tag: `grep -rn 'mas-external-services-tool:v' README.md docs tools/mas-iam-installer/README.md` should show only the new one.
 
 Bridge image pins (only when the bridge ships):
 ```bash
@@ -76,14 +74,17 @@ done
 
 ### 3. Release notes
 
-Prepend a block to the `## What Is Supported` section of `docs/BETA-KNOWN-LIMITATIONS.md`, newest first, naming both artifact versions when both ship:
+Add a section to the top of `docs/RELEASE-NOTES.md` (below the intro), newest first, with a version line naming all three artifacts:
 
 ```markdown
-**v0.1.3 release notes** (CLI `v0.1.3` + SCIM bridge image `scim-bridge-v0.1.2`):
-- <user-visible change, why it mattered, and any behavior change to expect>
+## v0.1.10
+
+CLI `v0.1.10` · bridge `scim-bridge-v0.1.2` · operator `0.0.15`
+
+- **Fixed:** <symptom the user saw>. <one-line cause or change>.
 ```
 
-Write for a support engineer hitting the bug, not a changelog robot: name the symptom and the workaround where relevant.
+Keep each bullet to one or two sentences: name the symptom and any action the user must take. If a fix changes a user-facing workflow, a troubleshooting row, or a known limitation, update `docs/GUIDE.md` in the same release.
 
 ### 4. Test both modules
 
@@ -182,11 +183,11 @@ Only when something under `operators/` changed. Three images, all `linux/amd64`.
 Version lives in `operators/mas-iam-operator/Makefile` (`VERSION ?= 0.0.N`) and
 must also be bumped in `config/manager/kustomization.yaml`, the bundle CSV
 (`name`, `image`, `version`), `manifests/install-olm.yaml`,
-`scripts/install-operator-from-catalog.sh`, and `docs/MAS-EST-USER-GUIDE.md`.
+and `scripts/install-operator-from-catalog.sh`.
 
-`operators/mas-iam-operator/README.md` documents a one-liner using
-`make docker-build docker-push bundle bundle-build bundle-push catalog-build catalog-push`.
-**Do not use it as-is on an arm64 Mac.** `docker-build` and `bundle-build` both
+The operator Makefile can do all of this in one line
+(`make docker-build docker-push bundle bundle-build bundle-push catalog-build catalog-push`).
+**Do not use that as-is on an arm64 Mac.** `docker-build` and `bundle-build` both
 run `$(CONTAINER_ENGINE) build` with no `--platform`, and `opm index add` builds
 the catalog through podman the same way — so on Apple Silicon all three images
 publish as arm64. The cluster is amd64, and the failure surfaces later as the

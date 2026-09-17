@@ -1,6 +1,6 @@
 # Design: In-Cluster Installer ("mas-est-inst" Job)
 
-Status: proposed. Owner: mas-est. Origin: Lee's maxinst-style installer idea, plus
+Status: implemented (default install mode since v0.1.4). Owner: mas-est. Origin: Lee's maxinst-style installer idea, plus
 two install failures this week caused by the engineer's laptop losing the session
 mid-run (sleep / network drop) — not by anything wrong with the install itself.
 
