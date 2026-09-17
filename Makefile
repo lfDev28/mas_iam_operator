@@ -72,8 +72,10 @@ scim-bridge-build:
 #   brew install --cask basictex
 #   sudo tlmgr update --self && sudo tlmgr install adjustbox titling enumitem soul background
 #   mkdir -p ~/.local/share/pandoc/templates
-#   curl -fsSL https://raw.githubusercontent.com/Wandmalfarbe/pandoc-latex-template/master/eisvogel.latex \
-#     > ~/.local/share/pandoc/templates/eisvogel.latex
+#   curl -fsSL https://github.com/Wandmalfarbe/pandoc-latex-template/releases/latest/download/Eisvogel.tar.gz \
+#     | tar -xz -C ~/.local/share/pandoc/templates --include='*/eisvogel.latex' --strip-components=1
+#   test -s ~/.local/share/pandoc/templates/eisvogel.latex   # must be non-empty
+# (eisvogel.latex is no longer on the repo's master branch; the old raw URL returns an empty file.)
 #
 # Render any Markdown doc:  make doc-pdf DOC=docs/ANNOUNCEMENT.md
 # Long docs read better as chapters:  make doc-pdf DOC=docs/GUIDE.md DOC_TOP_LEVEL=chapter DOC_PANDOC_FLAGS='-V book -V documentclass=report'
