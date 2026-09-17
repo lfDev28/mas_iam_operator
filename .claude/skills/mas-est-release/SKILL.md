@@ -55,13 +55,14 @@ git log --oneline $(git describe --tags --abbrev=0)..HEAD
 CLI version string:
 - `tools/mas-iam-installer/internal/version/version.go` → `Version = "0.1.3"` (no `v` prefix here).
 
-CLI image pins in docs (all `mas-external-services-tool:vX.Y.Z`):
+CLI image pins in docs (all `mas-external-services-tool:vX.Y.Z`), plus the `subtitle:` line of the announcement:
 ```bash
-for f in README.md docs/GUIDE.md; do
+for f in README.md docs/GUIDE.md docs/ANNOUNCEMENT.md; do
   sed -i '' 's|mas-external-services-tool:vOLD|mas-external-services-tool:vNEW|g' "$f"
 done
+sed -i '' 's|^subtitle: "vOLD"|subtitle: "vNEW"|' docs/ANNOUNCEMENT.md
 ```
-Confirm nothing else pins the old tag: `grep -rn 'mas-external-services-tool:v' README.md docs tools/mas-iam-installer/README.md` should show only the new one.
+Confirm nothing else pins the old tag: `grep -rn 'mas-external-services-tool:v' README.md docs tools/mas-iam-installer/README.md` should show only the new one. (`docs/design/IN-CLUSTER-INSTALLER.md` is a maintainer record and keeps its historical pin.) Then re-render the PDF: `make doc-pdf DOC=docs/ANNOUNCEMENT.md`.
 
 Bridge image pins (only when the bridge ships):
 ```bash
@@ -84,7 +85,12 @@ CLI `v0.1.10` · bridge `scim-bridge-v0.1.2` · operator `0.0.15`
 - **Fixed:** <symptom the user saw>. <one-line cause or change>.
 ```
 
-Keep each bullet to one or two sentences: name the symptom and any action the user must take. If a fix changes a user-facing workflow, a troubleshooting row, or a known limitation, update `docs/GUIDE.md` in the same release.
+Keep each bullet to one or two sentences: name the symptom and any action the user must take.
+
+**Update the user docs in the same release.** For every fix or change, check:
+- `docs/TROUBLESHOOTING.md`: remove or reword rows whose error text, cause or fix changed; add a row for any new error string.
+- `docs/KNOWN-LIMITATIONS.md`: delete the entry for anything the release fixes; add one for any new gap.
+- `docs/GUIDE.md`: any changed command, flag, prompt or resource name.
 
 ### 4. Test both modules
 
