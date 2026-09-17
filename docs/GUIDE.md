@@ -184,9 +184,9 @@ Both print what MAS is configured with. The raw values are in these resources in
 
 | Resource | Keys |
 |---|---|
-| `secret/mas-est-ldap-connection` | `url`, `baseDN`, `bindDN`, `bindPassword`, `userIdMap`, `ca.crt` |
+| `secret/mas-est-ldap-connection` | `url`, `baseDN`, `bindDN`, `bindPassword`, `userIdMap`, and `ca.crt` when the LDAP CA was found |
 | `secret/mas-est-oidc-connection` | `issuerUrl`, `discoveryUrl`, `authorizationEndpoint`, `tokenEndpoint`, `jwksEndpoint`, `clientId`, `clientSecret`, `realm`, `redirectUri` |
-| `secret/mas-est-saml-connection` | `entityId`, `acsUrl`, `sloUrl`, `idpMetadataUrl`, `idpMetadata`, `nameIdFormat` |
+| `secret/mas-est-saml-connection` | `entityId`, `acsUrl`, `sloUrl`, `idpMetadataUrl`, `nameIdFormat`, and `idpMetadata` when the metadata fetch succeeded |
 | `secret/mas-est-s3-connection` | `provider`, `endpoint`, `manageEndpoint`, `externalEndpoint`, `consoleUrl`, `accessKey`, `secretKey`, `region`, `bucket`, `siblingBuckets` |
 | `configmap/mas-est-smtp-connection` | `host`, `port`, `from`, `webUI`, `tls`, `authentication`, `relayEnabled` |
 
