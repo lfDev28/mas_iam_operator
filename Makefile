@@ -17,7 +17,7 @@ TLS_CONTEXT   ?= images/openldap-tls-generator
 
 VALUES_FLAGS := -f $(CHART)/values.yaml
 
-.PHONY: lint deps deploy status health teardown redeploy tls-image tls-push scim-keycloak-image scim-keycloak-push scim-bridge-build doc-pdf doc-pdf-clean user-guide-pdf user-guide-clean
+.PHONY: lint deps deploy status health teardown redeploy tls-image tls-push scim-keycloak-image scim-keycloak-push scim-bridge-build doc-pdf docs-pdf doc-pdf-clean docs-pdf-clean user-guide-pdf user-guide-clean
 
 lint:
 	./scripts/verify-helm-chart.sh
@@ -79,16 +79,21 @@ scim-bridge-build:
 #
 # Render any Markdown doc:  make doc-pdf DOC=docs/ANNOUNCEMENT.md
 # Long docs read better as chapters:  make doc-pdf DOC=docs/GUIDE.md DOC_TOP_LEVEL=chapter DOC_PANDOC_FLAGS='-V book -V documentclass=report'
+# `make docs-pdf` renders the whole user-facing set (DOCS_PDF_SET). Links between
+# the Markdown files are rewritten to point at the sibling PDFs.
 DOC              ?= docs/GUIDE.md
 DOC_PDF          ?= $(DOC:.md=.pdf)
 DOC_TOP_LEVEL    ?= section
 DOC_PANDOC_FLAGS ?=
+DOC_LUA_FILTER   ?= docs/pandoc/md-links-to-pdf.lua
+DOCS_PDF_SET     ?= docs/ANNOUNCEMENT.md docs/GUIDE.md docs/TROUBLESHOOTING.md docs/KNOWN-LIMITATIONS.md docs/RELEASE-NOTES.md
 
 doc-pdf:
 	pandoc $(DOC) \
 		--from markdown \
 		--template eisvogel \
-		--listings \
+		--lua-filter=$(DOC_LUA_FILTER) \
+		--resource-path=$(dir $(DOC)) \
 		--top-level-division=$(DOC_TOP_LEVEL) \
 		--pdf-engine=xelatex \
 		-V geometry:margin=0.75in \
@@ -97,8 +102,14 @@ doc-pdf:
 		-o $(DOC_PDF)
 	@echo "Wrote $(DOC_PDF)"
 
+docs-pdf:
+	@for d in $(DOCS_PDF_SET); do $(MAKE) --no-print-directory doc-pdf DOC=$$d || exit 1; done
+
 doc-pdf-clean:
 	rm -f $(DOC_PDF)
+
+docs-pdf-clean:
+	rm -f $(DOCS_PDF_SET:.md=.pdf)
 
 user-guide-pdf:
 	$(MAKE) doc-pdf DOC=docs/GUIDE.md DOC_TOP_LEVEL=chapter DOC_PANDOC_FLAGS='-V book -V documentclass=report'

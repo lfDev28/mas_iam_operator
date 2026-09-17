@@ -214,17 +214,23 @@ The install connects MinIO to MAS Suite through the `ObjectStorageCfg`. Manage a
 1. In Manage, open **System Properties** and set:
 
    | Property | Value |
-   |---|---|
+   |------------------------|--------------------------|
    | `mxe.cosendpointuri` | `http://mas-est.svc.cluster.local:9000` |
    | `mxe.cosbucketname` | `mas-s3-demo` |
    | `mxe.cosregion` | `us-east-1`. Add it with **New Row** if it doesn't exist. |
    | `mxe.cosaccesskey` | `minioadmin` |
    | `mxe.cossecretkey` | Secret `mas-minio-root`, key `MINIO_ROOT_PASSWORD` |
-   | `mxe.attachmentstorage` | `com.ibm.tivoli.maximo.oslc.provider.COSAttachmentStorage` |
+   | `mxe.attachmentstorage` | The class name in the block below |
    | `mxe.doclink.doctypes.defpath` | `cos:doclinks` |
    | `mxe.doclink.doctypes.topLevelPaths` | `cos:doclinks` |
    | `mxe.doclink.path01` | `cos:doclinks=<manage-ui-base-url>` |
    | `mxe.doclink.securedAttachment` | `True` |
+
+   Value for `mxe.attachmentstorage`:
+
+   ```
+   com.ibm.tivoli.maximo.oslc.provider.COSAttachmentStorage
+   ```
 
 2. Click **Live Refresh**.
 3. In **Document Types**, set each document type's default path to `cos:doclinks/<name>`, for example `cos:doclinks/attachment`.

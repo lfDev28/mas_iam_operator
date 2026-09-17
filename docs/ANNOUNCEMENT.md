@@ -49,7 +49,7 @@ MAS 9.0.x and 9.1.x. MAS 9.0 has no OIDC API, so use LDAP and SAML there. MAS 9.
 - **MAS 9.1.20: the first SAML login after the `<instance>-coreidp` pod starts fails once.** Log in again. This is a MAS bug, not a toolkit bug. Don't restart the pod, because that brings the failure back.
 - **SCIM users you add after the install can't log in until you run `mas-est mas-auth apply` again.**
 
-The full list, with workarounds, is in [KNOWN-LIMITATIONS.md](KNOWN-LIMITATIONS.md).
+The full list, with workarounds, is in [Known limitations](KNOWN-LIMITATIONS.md).
 
 # Getting help
 
@@ -57,8 +57,8 @@ Run `mas-est support-bundle` and attach the directory it creates. It contains st
 
 # Documentation
 
-- [README.md](../README.md): overview and command list
-- [GUIDE.md](GUIDE.md): install, log in, connect S3 and SMTP, day-2 operations, uninstall
-- [TROUBLESHOOTING.md](TROUBLESHOOTING.md): error text, cause and fix
-- [KNOWN-LIMITATIONS.md](KNOWN-LIMITATIONS.md)
-- [RELEASE-NOTES.md](RELEASE-NOTES.md)
+- [README](../README.md): overview and command list
+- [Guide](GUIDE.md): install, log in, connect S3 and SMTP, day-2 operations, uninstall
+- [Troubleshooting](TROUBLESHOOTING.md): error text, cause and fix
+- [Known limitations](KNOWN-LIMITATIONS.md)
+- [Release notes](RELEASE-NOTES.md)

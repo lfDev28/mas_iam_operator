@@ -62,7 +62,7 @@ for f in README.md docs/GUIDE.md docs/ANNOUNCEMENT.md; do
 done
 sed -i '' 's|^subtitle: "vOLD"|subtitle: "vNEW"|' docs/ANNOUNCEMENT.md
 ```
-Confirm nothing else pins the old tag: `grep -rn 'mas-external-services-tool:v' README.md docs tools/mas-iam-installer/README.md` should show only the new one. (`docs/design/IN-CLUSTER-INSTALLER.md` is a maintainer record and keeps its historical pin.) Then re-render the PDF: `make doc-pdf DOC=docs/ANNOUNCEMENT.md`.
+Confirm nothing else pins the old tag: `grep -rn 'mas-external-services-tool:v' README.md docs tools/mas-iam-installer/README.md` should show only the new one. (`docs/design/IN-CLUSTER-INSTALLER.md` is a maintainer record and keeps its historical pin.) Then re-render every PDF and commit them: `make docs-pdf` (renders ANNOUNCEMENT, GUIDE, TROUBLESHOOTING, KNOWN-LIMITATIONS and RELEASE-NOTES next to their Markdown; needs pandoc, xelatex and the eisvogel template, see the Makefile comment).
 
 Bridge image pins (only when the bridge ships):
 ```bash

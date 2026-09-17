@@ -42,11 +42,11 @@ The install is interactive, takes about 20 minutes, and runs as a Job inside the
 
 ## Documentation
 
-- [Announcement](docs/ANNOUNCEMENT.md): what it is and who it's for
-- [Guide](docs/GUIDE.md): install, log in, connect S3 and SMTP, day-2 operations, uninstall
-- [Troubleshooting](docs/TROUBLESHOOTING.md): error text, cause and fix
-- [Known limitations](docs/KNOWN-LIMITATIONS.md)
-- [Release notes](docs/RELEASE-NOTES.md)
+- [Announcement](docs/ANNOUNCEMENT.md) ([PDF](docs/ANNOUNCEMENT.pdf)): what it is and who it's for
+- [Guide](docs/GUIDE.md) ([PDF](docs/GUIDE.pdf)): install, log in, connect S3 and SMTP, day-2 operations, uninstall
+- [Troubleshooting](docs/TROUBLESHOOTING.md) ([PDF](docs/TROUBLESHOOTING.pdf)): error text, cause and fix
+- [Known limitations](docs/KNOWN-LIMITATIONS.md) ([PDF](docs/KNOWN-LIMITATIONS.pdf))
+- [Release notes](docs/RELEASE-NOTES.md) ([PDF](docs/RELEASE-NOTES.pdf))
 - Design records: [in-cluster installer](docs/design/IN-CLUSTER-INSTALLER.md), [SCIM group scoping](docs/design/SCIM-GROUP-SCOPING.md)
 
 ## Repository layout
