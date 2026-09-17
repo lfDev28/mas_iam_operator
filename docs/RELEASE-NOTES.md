@@ -18,14 +18,14 @@ CLI `v0.1.9` · bridge `scim-bridge-v0.1.2` · operator `0.0.15`
 
 CLI `v0.1.8` · bridge `scim-bridge-v0.1.2` · operator `0.0.15`
 
-- `install` prints `[version] mas-est vX.Y.Z` first, and writes it to the install log.
-- `install` fails if `MAS_EST_IMAGE` names a different version than the extracted CLI. Exporting a new image doesn't replace the binary, and running an old one applies old installer permissions. Use `--skip-version-check` to bypass. `mas-est version` now shows when the runtime was extracted.
+- `install` prints `[version] mas-est vX.Y.Z` first.
+- `install` fails if `MAS_EST_IMAGE` names a different version than the extracted CLI, because exporting a new image doesn't replace the binary and an old binary applies old installer permissions. `--skip-version-check` bypasses it. `mas-est version` now shows when the runtime was extracted.
 
 ## v0.1.7
 
 CLI `v0.1.7` · bridge `scim-bridge-v0.1.2` · operator `0.0.15`
 
-- **Fixed:** on a MAS instance with no SCIM profile yet, some SCIM users were created before the profile existed. They got no entitlement, never appeared in Manage, and MAS still reported sync `SUCCESS`. The SCIM bridge now starts only after the profile exists. Reinstalls were never affected.
+- **Fixed:** on a MAS instance with no SCIM profile yet, some SCIM users were created before the profile existed. They got no entitlement, never appeared in Manage, and MAS still reported sync `SUCCESS`. The install now creates the profile before it starts the SCIM bridge. Reinstalls were never affected.
 
 ## v0.1.6
 
