@@ -237,6 +237,12 @@ func (c InstallConfig) Validate() error {
 		if strings.TrimSpace(c.MASAuthInstanceID) == "" && strings.TrimSpace(c.MASAuthCoreNamespace) == "" && strings.TrimSpace(c.MASInstanceID) == "" && strings.TrimSpace(c.MASCoreNamespace) == "" {
 			missing = append(missing, "--mas-auth-instance-id / "+EnvMASAuthInstanceID)
 		}
+		// Self-registration puts every first-time LDAP/OIDC/SAML user into this
+		// workspace. Without it the selfreg ConfigMap silently falls back to a
+		// workspace named "workspace", and users log in but never reach Manage.
+		if strings.TrimSpace(c.WorkspaceID) == "" && !hasComponent(normalized, InstallComponentSCIM) {
+			missing = append(missing, "--workspace-id / "+EnvWorkspaceID)
+		}
 	}
 	if len(missing) == 0 {
 		return nil

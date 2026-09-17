@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestLoadInstallConfigPrefersMASESTNamespace(t *testing.T) {
 	t.Setenv(EnvNamespace, "mas-est")
@@ -126,8 +129,13 @@ func TestValidateConfigureMASAuthRequiresIAMAndMASTarget(t *testing.T) {
 
 	cfg.Components = []string{InstallComponentLDAP, InstallComponentKeycloak}
 	cfg.MASAuthInstanceID = "demo"
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "--workspace-id") {
+		t.Fatalf("Validate() without SCIM error = %v, want missing --workspace-id (selfreg would fall back to workspace \"workspace\")", err)
+	}
+
+	cfg.WorkspaceID = "masdev"
 	if err := cfg.Validate(); err != nil {
-		t.Fatalf("Validate() with MAS auth target error = %v", err)
+		t.Fatalf("Validate() with MAS auth target and workspace error = %v", err)
 	}
 }
 

@@ -55,7 +55,7 @@ func newInstallCommand(root *RootOptions) *cobra.Command {
 	flags.StringVar(&opts.config.MASBaseURL, "mas-base-url", opts.config.MASBaseURL, "MAS SCIM base URL, including /scim/v2")
 	flags.StringVar(&opts.config.MASAPITokenName, "mas-api-token-name", opts.config.MASAPITokenName, "MAS API token name")
 	flags.StringVar(&opts.config.MASAPITokenValue, "mas-api-token-value", opts.config.MASAPITokenValue, "MAS API token value")
-	flags.StringVar(&opts.config.WorkspaceID, "workspace-id", opts.config.WorkspaceID, "MAS workspace ID for profile bootstrap")
+	flags.StringVar(&opts.config.WorkspaceID, "workspace-id", opts.config.WorkspaceID, "MAS workspace ID given to SCIM-synced and self-registered users")
 	flags.StringVar(&opts.config.ProfileID, "profile-id", opts.config.ProfileID, "MAS profile ID")
 	flags.StringVar(&opts.config.MASInstanceID, "mas-instance-id", opts.config.MASInstanceID, "MAS instance ID for S3 ObjectStorageCfg")
 	flags.StringVar(&opts.config.MASCoreNamespace, "mas-core-namespace", opts.config.MASCoreNamespace, "MAS core namespace for S3 ObjectStorageCfg")

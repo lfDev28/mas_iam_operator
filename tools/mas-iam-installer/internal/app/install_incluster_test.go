@@ -235,6 +235,26 @@ func TestInstallerJobArgs(t *testing.T) {
 			want:   []string{"--configure-mas-auth", "--mas-auth-providers", "ldap,oidc", "--mas-auth-host", "auth.mas.example.com"},
 			absent: []string{"--mas-auth-use-cr-apply"},
 		},
+		{
+			// Regression: the workspace id used to be emitted only inside the
+			// scim block, so an auth-only in-cluster install wrote the selfreg
+			// ConfigMap with the literal fallback workspace "workspace".
+			name: "mas auth without scim still passes the workspace id",
+			cfg: func() config.InstallConfig {
+				c := config.DefaultInstallConfig()
+				c.Namespace = "mas-est"
+				c.Components = []string{config.InstallComponentLDAP, config.InstallComponentKeycloak}
+				c.WorkspaceID = "ws1"
+				c.ConfigureMASAuth = true
+				c.MASAuthProviders = []string{config.MASAuthProviderLDAP, config.MASAuthProviderSAML}
+				c.MASAuthHost = "auth.mas.example.com"
+				c.MASAuthInstanceID = "lfmas"
+				c.MASAuthCoreNamespace = "mas-lfmas-core"
+				return c
+			}(),
+			want:   []string{"--workspace-id", "ws1", "--configure-mas-auth", "--mas-auth-providers", "ldap,saml"},
+			absent: []string{"--mas-base-url", "--profile-id", "--scim-bridge-storage-class"},
+		},
 	}
 
 	for _, tt := range tests {
