@@ -14,7 +14,7 @@ Placeholders: `<instance>` is your MAS instance ID, `<cluster-domain>` the clust
 | Cluster access | `oc` logged in as cluster-admin. The install creates namespaces, ClusterRoles and OLM resources. |
 | MAS API key | Name and value, with the **userAdmin** and **systemAdmin** permissions. Preflight rejects a key without them. |
 | Storage | A block (RBD) storage class. Preflight recommends one. |
-| MAS version | 9.1.4, 9.1.18, 9.1.19 or 9.1.20. On MAS 9.0, leave out OIDC. |
+| MAS version | 9.0.x or 9.1.x. On MAS 9.0, leave out OIDC. MAS 9.2 has not been tested yet. |
 
 ## Install
 

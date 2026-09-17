@@ -1,7 +1,6 @@
 ---
 title: "MAS External Services Toolkit (mas-est)"
 subtitle: "v0.1.10"
-author: "MAS Support Engineering"
 date: "2026-09-17"
 ---
 
@@ -40,9 +39,9 @@ mas-est install
 
 `install` asks for the MAS SCIM URL, the API key and the workspace, then runs as a Job inside the cluster, so a closed laptop doesn't interrupt it. On the reference cluster a full install took 17 minutes. When it finishes, open MAS in a private browser window and log in as `oidc.user1` with password `maxadmin`.
 
-# Tested on
+# Supported MAS versions
 
-MAS 9.1.4, 9.1.18, 9.1.19 and 9.1.20. MAS 9.0 has no OIDC API, so use LDAP and SAML there.
+MAS 9.0.x and 9.1.x. MAS 9.0 has no OIDC API, so use LDAP and SAML there. MAS 9.2 has not been tested yet.
 
 # Limitations to know up front
 
@@ -63,5 +62,3 @@ Run `mas-est support-bundle` and attach the directory it creates. It contains st
 - [TROUBLESHOOTING.md](TROUBLESHOOTING.md): error text, cause and fix
 - [KNOWN-LIMITATIONS.md](KNOWN-LIMITATIONS.md)
 - [RELEASE-NOTES.md](RELEASE-NOTES.md)
-
-Source and issues: <https://github.com/lfDev28/mas_iam_operator>
