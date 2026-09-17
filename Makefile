@@ -17,7 +17,7 @@ TLS_CONTEXT   ?= images/openldap-tls-generator
 
 VALUES_FLAGS := -f $(CHART)/values.yaml
 
-.PHONY: lint deps deploy status health teardown redeploy tls-image tls-push scim-keycloak-image scim-keycloak-push scim-bridge-build user-guide-pdf user-guide-clean
+.PHONY: lint deps deploy status health teardown redeploy tls-image tls-push scim-keycloak-image scim-keycloak-push scim-bridge-build doc-pdf doc-pdf-clean user-guide-pdf user-guide-clean
 
 lint:
 	./scripts/verify-helm-chart.sh
@@ -66,7 +66,7 @@ scim-keycloak-push: scim-keycloak-image
 scim-bridge-build:
 	cd $(SCIM_BRIDGE_DIR) && go build ./...
 
-# ---- User-facing PDF guide --------------------------------------------------
+# ---- Documentation PDFs ------------------------------------------------------
 # One-time setup (macOS):
 #   brew install pandoc
 #   brew install --cask basictex
@@ -74,22 +74,32 @@ scim-bridge-build:
 #   mkdir -p ~/.local/share/pandoc/templates
 #   curl -fsSL https://raw.githubusercontent.com/Wandmalfarbe/pandoc-latex-template/master/eisvogel.latex \
 #     > ~/.local/share/pandoc/templates/eisvogel.latex
-USER_GUIDE_MD ?= docs/GUIDE.md
-USER_GUIDE_PDF ?= docs/GUIDE.pdf
+#
+# Render any Markdown doc:  make doc-pdf DOC=docs/ANNOUNCEMENT.md
+# Long docs read better as chapters:  make doc-pdf DOC=docs/GUIDE.md DOC_TOP_LEVEL=chapter DOC_PANDOC_FLAGS='-V book -V documentclass=report'
+DOC              ?= docs/GUIDE.md
+DOC_PDF          ?= $(DOC:.md=.pdf)
+DOC_TOP_LEVEL    ?= section
+DOC_PANDOC_FLAGS ?=
 
-user-guide-pdf:
-	pandoc $(USER_GUIDE_MD) \
+doc-pdf:
+	pandoc $(DOC) \
 		--from markdown \
 		--template eisvogel \
 		--listings \
-		--top-level-division=chapter \
+		--top-level-division=$(DOC_TOP_LEVEL) \
 		--pdf-engine=xelatex \
-		-V book \
-		-V documentclass=report \
 		-V geometry:margin=0.75in \
 		-V fontsize=10pt \
-		-o $(USER_GUIDE_PDF)
-	@echo "Wrote $(USER_GUIDE_PDF)"
+		$(DOC_PANDOC_FLAGS) \
+		-o $(DOC_PDF)
+	@echo "Wrote $(DOC_PDF)"
+
+doc-pdf-clean:
+	rm -f $(DOC_PDF)
+
+user-guide-pdf:
+	$(MAKE) doc-pdf DOC=docs/GUIDE.md DOC_TOP_LEVEL=chapter DOC_PANDOC_FLAGS='-V book -V documentclass=report'
 
 user-guide-clean:
-	rm -f $(USER_GUIDE_PDF)
+	$(MAKE) doc-pdf-clean DOC=docs/GUIDE.md
