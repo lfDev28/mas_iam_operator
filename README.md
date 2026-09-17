@@ -57,6 +57,4 @@ The install is interactive, takes about 20 minutes, and runs as a Job inside the
 | `services/scim-bridge/` | The SCIM bridge (Go) |
 | `operators/mas-iam-operator/` | Helm-based operator for Keycloak, OpenLDAP and PostgreSQL |
 | `scripts/`, `manifests/`, `env/` | Install engine and manifests bundled into the CLI image |
-| `images/` | Helper container images |
-
-Releases are published with the `/mas-est-release` Claude Code skill in `.claude/skills/mas-est-release/`.
+| `images/` | Helper container images. Releases: the `/mas-est-release` skill in `.claude/skills/` |
