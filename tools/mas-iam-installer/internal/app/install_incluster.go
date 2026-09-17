@@ -620,10 +620,13 @@ func installerJobArgs(cfg config.InstallConfig) []string {
 	add("--storage-class", cfg.StorageClass)
 	add("--keycloak-bootstrap", cfg.KeycloakBootstrapMethod)
 	add("--idpcfg-memory-limit", cfg.IDPCfgMemoryLimit)
+	// The workspace id feeds the SCIM profile bootstrap AND the self-registration
+	// ConfigMap written by --configure-mas-auth, so it must travel to the Job
+	// whenever it is set, not only when the scim component is selected.
+	add("--workspace-id", cfg.WorkspaceID)
 
 	if cfg.HasComponent(config.InstallComponentSCIM) {
 		add("--mas-base-url", cfg.MASBaseURL)
-		add("--workspace-id", cfg.WorkspaceID)
 		add("--profile-id", cfg.ProfileID)
 		add("--scim-bridge-storage-class", cfg.ScimBridgeStorageClass)
 	}

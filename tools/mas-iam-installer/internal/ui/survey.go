@@ -179,6 +179,14 @@ func PromptInstall(cfg config.InstallConfig, hints InstallDiscoveryHints, storag
 				return cfg, err
 			}
 		}
+		// Without SCIM the workspace was never asked for above, but the selfreg
+		// ConfigMap still needs it; otherwise MAS puts first-time users into a
+		// workspace literally named "workspace".
+		if !cfg.HasComponent(config.InstallComponentSCIM) {
+			if cfg.WorkspaceID, err = askWorkspaceID(cfg.WorkspaceID, cfg.MASAuthInstanceID, hints.Workspaces); err != nil {
+				return cfg, err
+			}
+		}
 	}
 
 	if len(storageChoices) > 0 && (cfg.HasComponent(config.InstallComponentKeycloak) || cfg.HasComponent(config.InstallComponentS3)) {
@@ -540,7 +548,7 @@ func askWorkspaceID(current, instanceID string, workspaces []oc.ManageWorkspace)
 		}
 	}
 
-	help := "Workspace used by the MAS profile bootstrap job."
+	help := "Workspace given to SCIM-synced and self-registered users (the SCIM profile bootstrap and the selfreg ConfigMap)."
 	if len(candidates) > 1 && instanceID != "" {
 		help = fmt.Sprintf("Detected multiple workspaces for MAS instance %s. A workspace was suggested above; edit it if needed.", instanceID)
 	} else if len(candidates) > 1 {
