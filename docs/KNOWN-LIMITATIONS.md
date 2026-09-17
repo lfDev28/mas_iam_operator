@@ -21,7 +21,3 @@ One entry per limitation, with the workaround. `<instance>` is your MAS instance
 **`uninstall` leaves MAS-side state behind:** the login providers, the self-registration ConfigMap, user records in MongoDB and Manage, the installer's cluster-scoped RBAC, the operator CRD and the CatalogSource. The list and the cleanup commands are in the [Guide](GUIDE.md#uninstall).
 
 **The install Job needs permissions close to cluster-admin,** including reading secrets in the MAS namespaces and `pods/exec` on MongoDB. If your cluster's policy forbids this, install with `--local`.
-
-**In-cluster install with MAS auth but without SCIM ignores the workspace.** The Job doesn't receive `--workspace-id` unless the `scim` component is selected, so self-registered users get a workspace named `workspace` and can't open Manage. Install with `--local`, which passes the value through, or re-run `mas-est mas-auth apply --mas-instance-id <instance> --self-reg-workspace <workspace>` afterwards.
-
-**`mas-est ldap-info` lists four users that don't exist.** `alex.manager`, `jane.doe`, `joe.bloggs` and `sysadmin` are stale keys in the passwords Secret. Only `ldap.user1` and `ldap.user2` are in LDAP.

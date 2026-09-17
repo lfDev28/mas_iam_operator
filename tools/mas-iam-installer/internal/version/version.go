@@ -5,7 +5,7 @@ import "fmt"
 var (
 	// The in-cluster installer derives its default Job image from this string
 	// ("v" + Version), so the published tag must match it exactly.
-	Version   = "0.1.9"
+	Version   = "0.1.10"
 	Commit    = "unknown"
 	BuildDate = "unknown"
 )

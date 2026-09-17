@@ -8,6 +8,14 @@ Three artifacts are versioned separately:
 
 Each entry lists which versions it ships with.
 
+## v0.1.10
+
+CLI `v0.1.10` · bridge `scim-bridge-v0.1.2` · operator `0.0.15`
+
+- **Fixed:** an in-cluster install with MAS auth but without the SCIM component ignored `--workspace-id`, so self-registered users landed in a workspace named `workspace` and couldn't open Manage. The Job now receives the workspace, interactive installs ask for it when auth is chosen without SCIM, and non-interactive installs require it.
+- **Fixed:** `mas-est ldap-info` listed four LDAP users that don't exist (`alex.manager`, `jane.doe`, `joe.bloggs`, `sysadmin`). Only `ldap.user1` and `ldap.user2` are seeded. Existing installs keep the stale names until the next `mas-est install`.
+- New docs: `docs/ANNOUNCEMENT.md`, `docs/TROUBLESHOOTING.md` and `docs/KNOWN-LIMITATIONS.md`; `docs/GUIDE.md` is now task-only.
+
 ## v0.1.9
 
 CLI `v0.1.9` · bridge `scim-bridge-v0.1.2` · operator `0.0.15`

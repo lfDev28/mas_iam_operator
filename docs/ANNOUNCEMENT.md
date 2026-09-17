@@ -1,6 +1,6 @@
 ---
 title: "MAS External Services Toolkit (mas-est)"
-subtitle: "v0.1.9"
+subtitle: "v0.1.10"
 author: "MAS Support Engineering"
 date: "2026-09-17"
 ---
@@ -30,7 +30,7 @@ Everything runs in the `mas-est` namespace. The MAS configuration goes into `mas
 You need `podman`, `oc` logged in as cluster-admin, and a MAS API key with the **userAdmin** and **systemAdmin** permissions.
 
 ```bash
-export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.9'
+export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.10'
 mkdir -p "$HOME/mas-est"
 podman run -ti --rm -v "$HOME/mas-est:/tmp" --pull always "$MAS_EST_IMAGE" bootstrap --force
 export PATH="$HOME/mas-est:$PATH"

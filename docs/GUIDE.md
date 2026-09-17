@@ -21,14 +21,14 @@ Placeholders: `<instance>` is your MAS instance ID, `<cluster-domain>` the clust
 ### 1. Bootstrap the CLI
 
 ```bash
-export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.9'
+export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.10'
 mkdir -p "$HOME/mas-est"
 podman run -ti --rm -v "$HOME/mas-est:/tmp" --pull always "$MAS_EST_IMAGE" bootstrap --force
 export PATH="$HOME/mas-est:$PATH"
 mas-est version
 ```
 
-`version` must print `0.1.9`. `--force` overwrites an earlier runtime and is safe on a first install.
+`version` must print `0.1.10`. `--force` overwrites an earlier runtime and is safe on a first install.
 
 ### 2. Preflight
 
