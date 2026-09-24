@@ -19,8 +19,18 @@ type Client struct {
 }
 
 type StorageClass struct {
-	Name      string
-	IsDefault bool
+	Name        string
+	IsDefault   bool
+	Provisioner string
+}
+
+// StaticProvisioner is the provisioner of classes such as `localblock` whose
+// PersistentVolumes are pre-created (typically ODF's own backing disks). A new
+// PVC against such a class never binds, so the installer must not pick one.
+const StaticProvisioner = "kubernetes.io/no-provisioner"
+
+func (s StorageClass) IsStatic() bool {
+	return s.Provisioner == StaticProvisioner
 }
 
 type RouteRef struct {
@@ -139,6 +149,7 @@ func (c *Client) StorageClasses(ctx context.Context) ([]StorageClass, error) {
 				Name        string            `json:"name"`
 				Annotations map[string]string `json:"annotations"`
 			} `json:"metadata"`
+			Provisioner string `json:"provisioner"`
 		} `json:"items"`
 	}
 	if err := json.Unmarshal([]byte(output), &payload); err != nil {
@@ -150,8 +161,9 @@ func (c *Client) StorageClasses(ctx context.Context) ([]StorageClass, error) {
 		isDefault := item.Metadata.Annotations["storageclass.kubernetes.io/is-default-class"] == "true" ||
 			item.Metadata.Annotations["storageclass.beta.kubernetes.io/is-default-class"] == "true"
 		classes = append(classes, StorageClass{
-			Name:      item.Metadata.Name,
-			IsDefault: isDefault,
+			Name:        item.Metadata.Name,
+			IsDefault:   isDefault,
+			Provisioner: item.Provisioner,
 		})
 	}
 	return classes, nil
