@@ -8,6 +8,12 @@ Three artifacts are versioned separately:
 
 Each entry lists which versions it ships with.
 
+## v0.1.11
+
+CLI `v0.1.11` · bridge `scim-bridge-v0.1.2` · operator `0.0.15`
+
+- **Fixed:** on OpenShift Data Foundation clusters, preflight recommended the `localblock` storage class, which can't provision new volumes. Accepting the default left every PVC `Pending`, and the install failed with `deployment "mas-est-iam-openldap" exceeded its progress deadline`. Preflight now never recommends a class with provisioner `kubernetes.io/no-provisioner`, and prefers the Ceph RBD class.
+
 ## v0.1.10
 
 CLI `v0.1.10` · bridge `scim-bridge-v0.1.2` · operator `0.0.15`
