@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -30,6 +31,10 @@ const (
 	// How long to keep retrying the log attach before the first byte arrives.
 	// Covers image pull onto a cold node plus scheduling.
 	installerLogAttachTimeout = 15 * time.Minute
+	// Consecutive reconnects that return no new output before giving up.
+	installerLogMaxReconnects = 20
+	// A log stream that stays open this long before dropping was healthy.
+	installerLogHealthyHold = 10 * time.Second
 
 	// Grace period for the Job's status to reach a terminal condition after
 	// the log stream ends. The controller writes it within a second or two.
@@ -138,38 +143,70 @@ func (o *inClusterInstallOptions) reconcileExistingJob(ctx context.Context, clie
 
 // streamJobLogs follows the Job until the container exits. `oc logs -f` fails
 // while the pod is still Pending/ContainerCreating, so the first attach is
-// retried; once bytes have arrived a stream error means a dropped connection,
-// and reattaching would replay the log from the top, so we stop and let the
-// caller report the Job's real state.
+// retried. After that, a dropped connection (some API load balancers close a
+// log stream that stays quiet for ~30s, and the install has quiet waits) is
+// reattached with --since-time, and resumeWriter skips anything already shown.
 func (o *inClusterInstallOptions) streamJobLogs(ctx context.Context, client *oc.Client) error {
-	counter := &countingWriter{writer: o.out}
-	deadline := time.Now().Add(installerLogAttachTimeout)
+	w := &resumeWriter{out: o.out}
+	attachDeadline := time.Now().Add(installerLogAttachTimeout)
+	failures := 0
 
 	for {
-		err := client.Logs(ctx, o.cfg.Namespace, []string{"job/" + o.jobName, "-f"}, counter, os.Stderr)
-		if err == nil {
-			return nil
+		args := []string{"job/" + o.jobName, "-f", "--timestamps"}
+		if since := w.SinceTime(); since != "" {
+			args = append(args, "--since-time="+since)
 		}
+		before := w.written
+		started := time.Now()
+		var ocErr bytes.Buffer
+		err := client.Logs(ctx, o.cfg.Namespace, args, w, &ocErr)
+		held := time.Since(started)
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if counter.written > 0 {
-			fmt.Fprintf(os.Stderr, "[in-cluster] log stream ended early (%v); the install job keeps running\n", err)
-			return nil
+
+		status, statusErr := client.Job(ctx, o.cfg.Namespace, o.jobName)
+		terminal := statusErr == nil && (status.Complete || status.FailedCondition)
+		if terminal {
+			// Catch anything printed after the stream broke, without following.
+			w.ResetPartial()
+			final := []string{"job/" + o.jobName, "--timestamps"}
+			if since := w.SinceTime(); since != "" {
+				final = append(final, "--since-time="+since)
+			}
+			_ = client.Logs(ctx, o.cfg.Namespace, final, w, io.Discard)
+			return w.Flush()
+		}
+		if err == nil && statusErr == nil && status.Active == 0 {
+			// Follow ended cleanly and the pod is gone: the container exited.
+			return w.Flush()
 		}
 
-		if status, statusErr := client.Job(ctx, o.cfg.Namespace, o.jobName); statusErr == nil {
-			if status.Complete || status.FailedCondition {
-				// Terminal before we ever attached (fast failure, or a pod that
-				// never started). One non-follow read to surface whatever the
-				// container did print.
-				_ = client.Logs(ctx, o.cfg.Namespace, []string{"job/" + o.jobName}, counter, os.Stderr)
+		if w.written == 0 {
+			// Never attached yet: the pod is probably still starting.
+			if time.Now().After(attachDeadline) {
+				if err == nil {
+					err = fmt.Errorf("log stream closed")
+				}
+				return fmt.Errorf("job/%s in namespace %s produced no logs within %s; check 'oc describe job %s -n %s': %w",
+					o.jobName, o.cfg.Namespace, installerLogAttachTimeout, o.jobName, o.cfg.Namespace, err)
+			}
+		} else {
+			// A stream that held open for a while and then dropped is the
+			// idle-timeout case: reconnecting works, so it never counts. Only
+			// attaches that fail straight away (API unreachable) add up.
+			if w.written > before || held > installerLogHealthyHold {
+				failures = 0
+			} else {
+				failures++
+			}
+			if failures >= installerLogMaxReconnects {
+				fmt.Fprintf(os.Stderr, "[in-cluster] log stream keeps dropping (%s); the install job keeps running\n",
+					strings.TrimSpace(defaultString(ocErr.String(), fmt.Sprint(err))))
 				return nil
 			}
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("job/%s in namespace %s produced no logs within %s; check 'oc describe job %s -n %s': %w",
-				o.jobName, o.cfg.Namespace, installerLogAttachTimeout, o.jobName, o.cfg.Namespace, err)
+			w.ResetPartial()
+			fmt.Fprintln(os.Stderr, "[in-cluster] log stream dropped; reconnecting")
 		}
 		if err := sleepCtx(ctx, 3*time.Second); err != nil {
 			return err
@@ -195,17 +232,6 @@ func (o *inClusterInstallOptions) waitForJobResult(ctx context.Context, client *
 			return last, err
 		}
 	}
-}
-
-type countingWriter struct {
-	writer  io.Writer
-	written int64
-}
-
-func (c *countingWriter) Write(p []byte) (int, error) {
-	n, err := c.writer.Write(p)
-	c.written += int64(n)
-	return n, err
 }
 
 func (o *inClusterInstallOptions) manifests() []map[string]any {
