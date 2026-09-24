@@ -34,7 +34,15 @@ SCIM_BRIDGE_KEYCLOAK_BASE_URL=${SCIM_BRIDGE_KEYCLOAK_BASE_URL:-}
 : "${SCIM_BRIDGE_PROVISION_KEYCLOAK:=true}"
 : "${SCIM_BRIDGE_KEYCLOAK_ROUTE_CERT_ENABLE:=true}"
 : "${SCIM_BRIDGE_KEYCLOAK_ROUTE_CERT_JOB_NAME:=scim-bridge-keycloak-route-cert}"
-: "${SCIM_BRIDGE_KEYCLOAK_ROUTE_CERT_IMAGE:=registry.redhat.io/openshift4/ose-cli}"
+# The route-cert Job needs oc and openssl. Use the cluster's own OpenShift CLI
+# image (imagestream openshift/cli), resolved to a digest: it matches the
+# cluster version and the nodes already pull it with the cluster pull secret.
+# registry.redhat.io/openshift4/ose-cli has no "latest" tag, so an untagged
+# reference to it fails with ImagePullBackOff.
+if [[ -z "${SCIM_BRIDGE_KEYCLOAK_ROUTE_CERT_IMAGE:-}" ]]; then
+  SCIM_BRIDGE_KEYCLOAK_ROUTE_CERT_IMAGE="$(oc get istag cli:latest -n openshift -o jsonpath='{.image.dockerImageReference}' 2>/dev/null || true)"
+  : "${SCIM_BRIDGE_KEYCLOAK_ROUTE_CERT_IMAGE:=image-registry.openshift-image-registry.svc:5000/openshift/cli:latest}"
+fi
 : "${SCIM_BRIDGE_KEYCLOAK_ROUTE_CERT_WAIT:=true}"
 : "${SCIM_BRIDGE_KEYCLOAK_ROUTE_NAMESPACE:=${SCIM_BRIDGE_KEYCLOAK_NAMESPACE}}"
 : "${SCIM_BRIDGE_KEYCLOAK_ROUTE_NAME:=scim-bridge-keycloak}"
