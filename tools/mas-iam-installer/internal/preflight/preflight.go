@@ -520,6 +520,28 @@ func RankStorageClasses(classes []oc.StorageClass) StorageRanking {
 		ranking.Choices = append(ranking.Choices, choice)
 	}
 
+	// Statically provisioned classes (kubernetes.io/no-provisioner, e.g. ODF's
+	// `localblock`) have no free volumes to hand out: a PVC against one stays
+	// Pending until the deployment's progress deadline fails the install. Take
+	// them out of the running before any name-based preference can pick them.
+	static := []oc.StorageClass{}
+	for _, class := range sorted {
+		if class.IsStatic() {
+			static = append(static, class)
+			delete(remaining, class.Name)
+		}
+	}
+
+	// A CSI RBD provisioner is block storage whatever the class is called.
+	for _, class := range sorted {
+		if _, ok := remaining[class.Name]; !ok {
+			continue
+		}
+		if strings.Contains(strings.ToLower(class.Provisioner), "rbd.csi.ceph.com") {
+			addChoice(class.Name, "Ceph RBD block provisioner")
+		}
+	}
+
 	for _, name := range []string{"ocs-external-storagecluster-ceph-rbd", "rook-ceph-block"} {
 		addChoice(name, "preferred block/RBD class")
 	}
@@ -551,6 +573,15 @@ func RankStorageClasses(classes []oc.StorageClass) StorageRanking {
 				ranking.Choices[idx].Recommended = true
 			}
 		}
+	}
+
+	// Listed last and never recommended, so the prompt still shows them.
+	for _, class := range static {
+		ranking.Choices = append(ranking.Choices, StorageChoice{
+			Name:      class.Name,
+			Reason:    "static provisioner; new volumes will not bind",
+			IsDefault: class.IsDefault,
+		})
 	}
 
 	if ranking.Default != "" && ranking.Recommended != "" {

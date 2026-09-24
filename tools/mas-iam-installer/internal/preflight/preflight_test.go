@@ -26,6 +26,41 @@ func TestRankStorageClassesPrefersBlockOverCephfsDefault(t *testing.T) {
 	}
 }
 
+// Regression: on a TechZone ODF cluster (2026-09-24) the name-based ranking
+// recommended `localblock`, ODF's own no-provisioner backing-disk class, over
+// ocs-storagecluster-ceph-rbd. Every PVC stayed Pending and the install failed
+// at the OpenLDAP progress deadline.
+func TestRankStorageClassesNeverRecommendsStaticProvisioner(t *testing.T) {
+	ranking := RankStorageClasses([]oc.StorageClass{
+		{Name: "localblock", Provisioner: oc.StaticProvisioner},
+		{Name: "ocs-storagecluster-ceph-rbd", Provisioner: "openshift-storage.rbd.csi.ceph.com"},
+		{Name: "ocs-storagecluster-ceph-rgw", Provisioner: "openshift-storage.ceph.rook.io/bucket"},
+		{Name: "ocs-storagecluster-cephfs", IsDefault: true, Provisioner: "openshift-storage.cephfs.csi.ceph.com"},
+		{Name: "openshift-storage.noobaa.io", Provisioner: "openshift-storage.noobaa.io/obc"},
+	})
+
+	if ranking.Recommended != "ocs-storagecluster-ceph-rbd" {
+		t.Fatalf("Recommended = %q, want ocs-storagecluster-ceph-rbd", ranking.Recommended)
+	}
+	last := ranking.Choices[len(ranking.Choices)-1]
+	if last.Name != "localblock" || last.Recommended {
+		t.Fatalf("static class must be listed last and never recommended, got %+v", ranking.Choices)
+	}
+	if ranking.Warning == "" {
+		t.Fatal("expected the cephfs-default warning to still fire")
+	}
+}
+
+// A cluster whose only classes are static must not fabricate a recommendation.
+func TestRankStorageClassesOnlyStaticClasses(t *testing.T) {
+	ranking := RankStorageClasses([]oc.StorageClass{
+		{Name: "localblock", Provisioner: oc.StaticProvisioner},
+	})
+	if ranking.Recommended != "" {
+		t.Fatalf("Recommended = %q, want empty", ranking.Recommended)
+	}
+}
+
 func TestParseMASHostRequiresSCIMPath(t *testing.T) {
 	_, err := ParseMASHost("https://api.example.com")
 	if err == nil {
