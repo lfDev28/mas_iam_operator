@@ -7,15 +7,19 @@ import (
 )
 
 // resumeWriter sits behind `oc logs --timestamps`. It strips the RFC3339Nano
-// prefix the kubelet puts on every line, remembers the newest timestamp it has
-// printed, and drops any line at or before it. That lets a dropped follow be
-// reattached with --since-time=<last> without replaying the log: --since-time
-// is inclusive, so the boundary line would otherwise print twice.
+// prefix the kubelet puts on every line and remembers the newest timestamp it
+// has printed. After a reconnect with --since-time=<last> (inclusive), the
+// replayed lines are skipped. Several lines can share one timestamp (the
+// container runtime stamps a chunk read from the pipe once), so it counts the
+// lines already shown at <last> and skips exactly that many on replay.
 type resumeWriter struct {
-	out     io.Writer
-	last    time.Time
-	partial []byte
-	written int64
+	out       io.Writer
+	last      time.Time
+	lastCount int // lines printed with timestamp == last
+	skipAtTs  int // lines still to skip at timestamp == last after a resume
+	resuming  bool
+	partial   []byte
+	written   int64
 }
 
 func (w *resumeWriter) Write(p []byte) (int, error) {
@@ -45,10 +49,15 @@ func (w *resumeWriter) Flush() error {
 	return w.emit(line)
 }
 
-// ResetPartial discards half a line left by a dropped connection; the resumed
-// stream sends that line again in full.
-func (w *resumeWriter) ResetPartial() {
+// Resume prepares for a reattached stream: it discards half a line left by
+// the dropped connection (the resumed stream sends it again in full) and arms
+// the replay skip.
+func (w *resumeWriter) Resume() {
 	w.partial = nil
+	if !w.last.IsZero() {
+		w.resuming = true
+		w.skipAtTs = w.lastCount
+	}
 }
 
 // SinceTime is the --since-time value to resume from, or "" before any line.
@@ -63,10 +72,22 @@ func (w *resumeWriter) emit(line []byte) error {
 	body := line
 	if sp := bytes.IndexByte(line, ' '); sp > 0 {
 		if ts, err := time.Parse(time.RFC3339Nano, string(line[:sp])); err == nil {
-			if !w.last.IsZero() && !ts.After(w.last) {
-				return nil
+			if w.resuming {
+				switch {
+				case ts.Before(w.last):
+					return nil
+				case ts.Equal(w.last) && w.skipAtTs > 0:
+					w.skipAtTs--
+					return nil
+				}
+				w.resuming = false
 			}
-			w.last = ts
+			if ts.Equal(w.last) {
+				w.lastCount++
+			} else {
+				w.last = ts
+				w.lastCount = 1
+			}
 			body = line[sp+1:]
 		}
 	}

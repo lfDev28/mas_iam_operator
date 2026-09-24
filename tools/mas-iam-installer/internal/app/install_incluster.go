@@ -169,7 +169,7 @@ func (o *inClusterInstallOptions) streamJobLogs(ctx context.Context, client *oc.
 		terminal := statusErr == nil && (status.Complete || status.FailedCondition)
 		if terminal {
 			// Catch anything printed after the stream broke, without following.
-			w.ResetPartial()
+			w.Resume()
 			final := []string{"job/" + o.jobName, "--timestamps"}
 			if since := w.SinceTime(); since != "" {
 				final = append(final, "--since-time="+since)
@@ -205,8 +205,12 @@ func (o *inClusterInstallOptions) streamJobLogs(ctx context.Context, client *oc.
 					strings.TrimSpace(defaultString(ocErr.String(), fmt.Sprint(err))))
 				return nil
 			}
-			w.ResetPartial()
-			fmt.Fprintln(os.Stderr, "[in-cluster] log stream dropped; reconnecting")
+			w.Resume()
+			if err != nil {
+				// err == nil means the container exited and the Job status
+				// hasn't caught up yet: recheck quietly.
+				fmt.Fprintln(os.Stderr, "[in-cluster] log stream dropped; reconnecting")
+			}
 		}
 		if err := sleepCtx(ctx, 3*time.Second); err != nil {
 			return err
