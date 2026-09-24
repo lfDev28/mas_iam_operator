@@ -8,6 +8,12 @@ Three artifacts are versioned separately:
 
 Each entry lists which versions it ships with.
 
+## v0.1.13
+
+CLI `v0.1.13` · bridge `scim-bridge-v0.1.2` · operator `0.0.15`
+
+- **Fixed:** a fresh install could fail at `Seeding 6 grouped demo users` with `command terminated with exit code 1`. On first start OpenLDAP generates its TLS parameters before it accepts connections, which can take several minutes, and the install didn't wait for it. The install now waits until OpenLDAP accepts LDAPS connections. All earlier versions are affected, intermittently.
+
 ## v0.1.12
 
 CLI `v0.1.12` · bridge `scim-bridge-v0.1.2` · operator `0.0.15`
