@@ -1,12 +1,12 @@
 ---
 title: "MAS External Services Toolkit (mas-est)"
-subtitle: "v0.1.11"
+subtitle: "v0.1.12"
 date: "2026-09-17"
 ---
 
 # What it is
 
-`mas-est` installs the external services MAS depends on onto the OpenShift cluster that runs MAS, and connects them to MAS. One command gives you LDAP, an OIDC and SAML identity provider, SCIM provisioning, S3 storage and SMTP, with demo users for every login path, in under 20 minutes.
+`mas-est` installs the external services MAS depends on onto the OpenShift cluster that runs MAS, and connects them to MAS. One command gives you LDAP, an OIDC and SAML identity provider, SCIM provisioning, S3 storage and SMTP, with demo users for every login path, in 20 to 30 minutes.
 
 # Why it exists
 
@@ -29,7 +29,7 @@ Everything runs in the `mas-est` namespace. The MAS configuration goes into `mas
 You need `podman`, `oc` logged in as cluster-admin, and a MAS API key with the **userAdmin** and **systemAdmin** permissions.
 
 ```bash
-export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.11'
+export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.12'
 mkdir -p "$HOME/mas-est"
 podman run -ti --rm -v "$HOME/mas-est:/tmp" --pull always "$MAS_EST_IMAGE" bootstrap --force
 export PATH="$HOME/mas-est:$PATH"
@@ -37,7 +37,7 @@ mas-est preflight
 mas-est install
 ```
 
-`install` asks for the MAS SCIM URL, the API key and the workspace, then runs as a Job inside the cluster, so a closed laptop doesn't interrupt it. On the reference cluster a full install took 17 minutes. When it finishes, open MAS in a private browser window and log in as `oidc.user1` with password `maxadmin`.
+`install` asks for the MAS SCIM URL, the API key and the workspace, then runs as a Job inside the cluster, so a closed laptop doesn't interrupt it. A full install takes 20 to 30 minutes, most of it waiting for MAS to accept the login providers. When it finishes, open MAS in a private browser window and log in as `oidc.user1` with password `maxadmin`.
 
 # Supported MAS versions
 

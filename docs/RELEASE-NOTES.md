@@ -8,6 +8,13 @@ Three artifacts are versioned separately:
 
 Each entry lists which versions it ships with.
 
+## v0.1.12
+
+CLI `v0.1.12` · bridge `scim-bridge-v0.1.2` · operator `0.0.15`
+
+- **Fixed:** every fresh install with SCIM failed with `timed out waiting for the condition on jobs/scim-bridge-keycloak-route-cert`. The Job used `registry.redhat.io/openshift4/ose-cli` without a tag, and Red Hat no longer serves it that way. The Job now runs on the cluster's own OpenShift CLI image. All earlier versions are affected.
+- **Fixed:** the in-cluster install's log stream ended with `log stream ended early` when the connection dropped during a quiet step. `install` now reconnects and resumes where it left off.
+
 ## v0.1.11
 
 CLI `v0.1.11` · bridge `scim-bridge-v0.1.2` · operator `0.0.15`

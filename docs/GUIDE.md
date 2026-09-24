@@ -21,14 +21,14 @@ Placeholders: `<instance>` is your MAS instance ID, `<cluster-domain>` the clust
 ### 1. Bootstrap the CLI
 
 ```bash
-export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.11'
+export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.12'
 mkdir -p "$HOME/mas-est"
 podman run -ti --rm -v "$HOME/mas-est:/tmp" --pull always "$MAS_EST_IMAGE" bootstrap --force
 export PATH="$HOME/mas-est:$PATH"
 mas-est version
 ```
 
-`version` must print `0.1.11`. `--force` overwrites an earlier runtime and is safe on a first install.
+`version` must print `0.1.12`. `--force` overwrites an earlier runtime and is safe on a first install.
 
 ### 2. Preflight
 
@@ -67,7 +67,7 @@ mas-est install
 
 Answers marked `[derived]` were worked out for you. Confirm at `Proceed with install?`.
 
-The install runs as a Job named `mas-est-install` in the `mas-est` namespace and streams its log to your terminal. Ctrl-C detaches from the log. The Job keeps running.
+The install runs as a Job named `mas-est-install` in the `mas-est` namespace and streams its log to your terminal, reconnecting if the connection drops. Ctrl-C detaches from the log. The Job keeps running.
 
 ```bash
 mas-est logs --component install-job --follow   # reattach

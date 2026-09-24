@@ -16,7 +16,7 @@ One `mas-est install` gives you:
 You need `podman`, `oc` logged in as cluster-admin, and a MAS API key with the **userAdmin** and **systemAdmin** permissions.
 
 ```bash
-export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.11'
+export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.12'
 mkdir -p "$HOME/mas-est"
 podman run -ti --rm -v "$HOME/mas-est:/tmp" --pull always "$MAS_EST_IMAGE" bootstrap --force
 export PATH="$HOME/mas-est:$PATH"
@@ -25,7 +25,7 @@ mas-est preflight
 mas-est install
 ```
 
-The install is interactive, takes about 20 minutes, and runs as a Job inside the cluster. To upgrade, re-run the `podman run` line with the new tag.
+The install is interactive, takes 20 to 30 minutes, and runs as a Job inside the cluster. To upgrade, re-run the `podman run` line with the new tag.
 
 ## Commands
 
