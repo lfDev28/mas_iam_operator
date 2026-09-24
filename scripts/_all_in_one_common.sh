@@ -249,6 +249,32 @@ wait_for_namespaced_resource() {
   die "timed out waiting for ${kind}/${name} in namespace ${namespace}"
 }
 
+# wait_for_ldaps_listening waits until slapd accepts connections on 636 inside
+# the OpenLDAP pod. The deployment reports Ready as soon as the container
+# starts, but on first start the image generates 2048-bit DH parameters before
+# slapd listens, which takes from seconds to several minutes. Keycloak federates
+# users to LDAP, so anything that writes users before then fails with
+# "Connection refused".
+wait_for_ldaps_listening() {
+  local namespace="$1"
+  local deployment="$2"
+  local timeout_seconds="${3:-1200}"
+  local waited=0
+  while (( waited < timeout_seconds )); do
+    if oc exec -n "${namespace}" "deployment/${deployment}" -c openldap -- \
+        bash -c 'exec 3<>/dev/tcp/127.0.0.1/636' >/dev/null 2>&1; then
+      log_wait "openldap is accepting LDAPS connections (after ${waited}s)"
+      return 0
+    fi
+    if (( waited % 60 == 0 )); then
+      log_wait "waiting for openldap to accept LDAPS connections (first start generates TLS parameters; can take several minutes)"
+    fi
+    sleep 10
+    waited=$(( waited + 10 ))
+  done
+  die "openldap in namespace ${namespace} did not accept LDAPS connections within ${timeout_seconds}s; check: oc logs deployment/${deployment} -n ${namespace} -c openldap"
+}
+
 find_operator_csv_name() {
   local namespace="$1"
   local csv=""
