@@ -259,6 +259,7 @@ wait_for_namespaced_resource job mas-est-iam-generate-openldap-tls "${NAMESPACE}
 oc wait --for=condition=complete -n "${NAMESPACE}" job/mas-est-iam-generate-openldap-tls --timeout=20m
 wait_for_namespaced_resource deployment mas-est-iam-openldap "${NAMESPACE}" 1200
 oc rollout status deployment/mas-est-iam-openldap -n "${NAMESPACE}" --timeout=20m
+wait_for_ldaps_listening "${NAMESPACE}" mas-est-iam-openldap 1200
 if install_keycloak; then
   wait_for_namespaced_resource deployment mas-est-iam "${NAMESPACE}" 1200
   oc rollout status deployment/mas-est-iam -n "${NAMESPACE}" --timeout=20m
