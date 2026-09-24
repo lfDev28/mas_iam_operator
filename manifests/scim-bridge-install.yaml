@@ -356,7 +356,7 @@ spec:
       serviceAccountName: scim-bridge-route-cert
       containers:
         - name: route-cert
-          image: "registry.redhat.io/openshift4/ose-cli"
+          image: "image-registry.openshift-image-registry.svc:5000/openshift/cli:latest"
           imagePullPolicy: IfNotPresent
           env:
             - name: SCIM_BRIDGE_KEYCLOAK_ROUTE_NAMESPACE

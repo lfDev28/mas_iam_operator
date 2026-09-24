@@ -44,7 +44,7 @@ set -a
 : "${SCIM_BRIDGE_PROVISION_KEYCLOAK:=true}"
 : "${SCIM_BRIDGE_KEYCLOAK_ROUTE_CERT_ENABLE:=true}"
 : "${SCIM_BRIDGE_KEYCLOAK_ROUTE_CERT_JOB_NAME:=scim-bridge-keycloak-route-cert}"
-: "${SCIM_BRIDGE_KEYCLOAK_ROUTE_CERT_IMAGE:=registry.redhat.io/openshift4/ose-cli}"
+: "${SCIM_BRIDGE_KEYCLOAK_ROUTE_CERT_IMAGE:=image-registry.openshift-image-registry.svc:5000/openshift/cli:latest}"
 : "${SCIM_BRIDGE_KEYCLOAK_ROUTE_NAMESPACE:=${SCIM_BRIDGE_KEYCLOAK_NAMESPACE}}"
 : "${SCIM_BRIDGE_KEYCLOAK_ROUTE_NAME:=scim-bridge-keycloak}"
 : "${SCIM_BRIDGE_KEYCLOAK_ROUTE_HOST:=}"
