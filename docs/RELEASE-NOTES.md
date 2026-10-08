@@ -8,6 +8,12 @@ Three artifacts are versioned separately:
 
 Each entry lists which versions it ships with.
 
+## v0.1.14
+
+CLI `v0.1.14` · bridge `scim-bridge-v0.1.2` · operator `0.0.15`
+
+- **New:** `mas-est update` upgrades the local mas-est to the newest release on Quay, so you no longer need to look up the tag. `--check` only reports whether a newer release exists, and `--version vX.Y.Z` installs a specific one. Afterwards, export the new `MAS_EST_IMAGE` it prints. Upgrading from v0.1.13 or earlier still needs one manual bootstrap.
+
 ## v0.1.13
 
 CLI `v0.1.13` · bridge `scim-bridge-v0.1.2` · operator `0.0.15`

@@ -12,8 +12,12 @@ Search this page for the error text you see. Each row gives the cause and the fi
 |---|---|---|
 | `/tmp/mas-est already exists; rerun with --force to overwrite` | A runtime is already extracted | Add `bootstrap --force` after the image name. |
 | `mas-est: command not found` | The extracted directory isn't on your PATH | `export PATH="$HOME/mas-est:$PATH"` |
-| `stale local runtime detected` | `MAS_EST_IMAGE` names a different version than the extracted binary | Re-run the bootstrap `podman run` line, then `mas-est version`. |
+| `stale local runtime detected` | `MAS_EST_IMAGE` names a different version than the extracted binary | `mas-est update --version <tag>`, or re-run the bootstrap `podman run` line. Then `mas-est version`. If you just ran `mas-est update`, export the new `MAS_EST_IMAGE` it printed. |
 | `warning: MAS_EST_IMAGE requests <tag> but this binary is v<version>` from `mas-est version` | Same as above | Same as above. |
+| `unknown command "update"` | CLI v0.1.13 or earlier, which has no `update` | Re-run the bootstrap `podman run` line with the new tag once. `update` works from then on. |
+| `look up the newest release` from `mas-est update` | Quay isn't reachable from your machine (offline, proxy) | `mas-est update --version vX.Y.Z` skips the lookup. |
+| `mas-est update only works from a bootstrapped mas-est` | The binary wasn't started through the `~/mas-est/mas-est` launcher | Run the `mas-est` from your bootstrap directory, or re-run bootstrap. |
+| `mas-est update needs podman or docker on PATH` | No container engine found | Install podman, or pass `--engine <path>`. On macOS, also `podman machine start`. |
 
 ## Preflight
 
