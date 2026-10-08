@@ -82,6 +82,7 @@ Start with `mas-est logs --component bridge --tail 300` and `mas-est config view
 
 | Symptom | Cause | Fix |
 |---|---|---|
+| `Install MinIO S3` times out, and pod `mas-minio` shows `ImagePullBackOff` with `quay.io/minio/minio: unauthorized` | CLI v0.1.14 or earlier. MinIO stopped serving its images in September 2026. | Upgrade to v0.1.15 or later, then run `mas-est install` again. On an older CLI, run `mas-est object-storage install-minio --mas-instance-id <instance> --image docker.io/pgsty/minio:RELEASE.2026-08-04T00-00-00Z --mc-image docker.io/pgsty/mc:RELEASE.2026-09-16T00-00-00Z`. |
 | `SignatureDoesNotMatch` on every attachment | `mxe.cosregion` isn't set | Add it as `us-east-1`. See [Connect S3 to Manage](GUIDE.md#connect-s3-to-manage). |
 | HTTP 503 or a certificate error on upload | `mxe.cosendpointuri` points at the MinIO route | Set it to `http://mas-est.svc.cluster.local:9000`. |
 | `BMXAA4195E` on upload | Wrong bucket, key or endpoint | Check every property in [Connect S3 to Manage](GUIDE.md#connect-s3-to-manage). |

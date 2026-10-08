@@ -8,6 +8,12 @@ Three artifacts are versioned separately:
 
 Each entry lists which versions it ships with.
 
+## v0.1.15
+
+CLI `v0.1.15` · bridge `scim-bridge-v0.1.2` · operator `0.0.15`
+
+- **Fixed:** every fresh install with S3 failed at `Install MinIO S3`, with pod `mas-minio` in `ImagePullBackOff` (`quay.io/minio/minio: unauthorized`). MinIO stopped serving its images from Docker Hub and Quay in September 2026. The install now uses Pigsty's drop-in fork, `docker.io/pgsty/minio` and `docker.io/pgsty/mc`, pinned to fixed releases. All earlier versions are affected. On an existing install, run `mas-est install` again to switch the image.
+
 ## v0.1.14
 
 CLI `v0.1.14` · bridge `scim-bridge-v0.1.2` · operator `0.0.15`
