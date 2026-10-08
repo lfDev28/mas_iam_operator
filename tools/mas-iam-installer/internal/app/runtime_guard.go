@@ -101,8 +101,8 @@ func checkRuntimeVersion(skip bool) error {
   this binary is : v%s
 
 The mas-est command execs a binary extracted at bootstrap time; exporting
-%s does not refresh it. Re-run bootstrap to pick up %s (--force is
-required, because a runtime already exists):
+%s does not refresh it. Run mas-est update --version %s, or re-run
+bootstrap (--force is required, because a runtime already exists):
 
   podman run -ti --rm -v "$HOME/mas-est:/tmp" --pull always "$%s" bootstrap --force
 

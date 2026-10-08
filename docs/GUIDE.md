@@ -109,12 +109,19 @@ Every deployment shows `ready=1/1`, the CSV shows `phase=Succeeded`, and every P
 
 ## Upgrade
 
-Re-run bootstrap with the new tag. Exporting a new `MAS_EST_IMAGE` doesn't replace the extracted binary, and `install` refuses to run while the two differ.
+```bash
+mas-est update
+export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v<new-version>'
+mas-est version
+```
+
+`update` looks up the newest release on Quay and re-runs bootstrap with podman (or docker) into the directory that holds `mas-est`. `mas-est update --check` only reports whether a newer release exists, and `--version vX.Y.Z` installs a specific tag. Update `MAS_EST_IMAGE` afterwards as `update` prints: `install` refuses to run while it names a different version than the binary.
+
+Versions before v0.1.14 don't have `update`. Upgrade those by re-running bootstrap with the new tag:
 
 ```bash
 export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v<new-version>'
 podman run -ti --rm -v "$HOME/mas-est:/tmp" --pull always "$MAS_EST_IMAGE" bootstrap --force
-mas-est version
 ```
 
 Nothing in the cluster changes until you run `mas-est install` again.

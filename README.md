@@ -25,7 +25,7 @@ mas-est preflight
 mas-est install
 ```
 
-The install is interactive, takes 20 to 30 minutes, and runs as a Job inside the cluster. To upgrade, re-run the `podman run` line with the new tag.
+The install is interactive, takes 20 to 30 minutes, and runs as a Job inside the cluster. To upgrade to the newest release, run `mas-est update`.
 
 ## Commands
 
@@ -38,6 +38,7 @@ The install is interactive, takes 20 to 30 minutes, and runs as a Job inside the
 | `config view`, `config set` | View or change SCIM bridge settings, rotate the MAS API key |
 | `mas-auth apply`, `mas-auth delete` | Create or remove the MAS LDAP, OIDC and SAML login providers |
 | `support-bundle` | Collect redacted diagnostics for a bug report |
+| `update` | Update the local mas-est to the newest release (`--check` only reports) |
 | `uninstall` | Remove the `mas-est` namespace |
 
 ## Documentation
