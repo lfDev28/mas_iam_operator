@@ -29,8 +29,13 @@ const (
 	defaultMinIOBucket         = "mas-s3-demo"
 	defaultMinIOPVCSize        = "20Gi"
 	defaultMinIOStorageClass   = "rook-ceph-block"
-	defaultMinIOImage          = "quay.io/minio/minio:latest"
-	defaultMinIOMCImage        = "quay.io/minio/mc:latest"
+	// MinIO Inc. stopped serving its images in September 2026: Docker Hub
+	// deleted minio/minio and minio/mc, and quay.io/minio answers 401 to
+	// anonymous pulls, pinned release tags included. Pigsty's fork is a
+	// drop-in replacement (same entrypoints). Pinned, never :latest, so an
+	// upstream change can't break installs again.
+	defaultMinIOImage   = "docker.io/pgsty/minio:RELEASE.2026-08-04T00-00-00Z"
+	defaultMinIOMCImage = "docker.io/pgsty/mc:RELEASE.2026-09-16T00-00-00Z"
 )
 
 type objectStorageInstallOptions struct {
@@ -99,13 +104,13 @@ func newObjectStorageCommand() *cobra.Command {
 
 func newObjectStorageInstallRookCephCommand() *cobra.Command {
 	opts := &objectStorageInstallOptions{
-		rookNamespace:       defaultRookNamespace,
-		storeName:           defaultObjectStoreName,
-		storageClassName:    defaultObjectStorageClass,
-		bucketClaimName:     defaultObjectBucketClaim,
-		bucketGenerateName:  defaultObjectBucketClaim,
-		certIssuerKind:      "ClusterIssuer",
-		replicationSize:     3,
+		rookNamespace:      defaultRookNamespace,
+		storeName:          defaultObjectStoreName,
+		storageClassName:   defaultObjectStorageClass,
+		bucketClaimName:    defaultObjectBucketClaim,
+		bucketGenerateName: defaultObjectBucketClaim,
+		certIssuerKind:     "ClusterIssuer",
+		replicationSize:    3,
 		// MAS Suite operator reconciles ObjectStorageCfg on a busy queue.
 		// Even when the credentials secret + cfg are both applied correctly,
 		// a Ready transition can take >10m on heavily-loaded clusters
@@ -159,7 +164,7 @@ func newObjectStorageInstallMinIOCommand() *cobra.Command {
 		image:            defaultMinIOImage,
 		mcImage:          defaultMinIOMCImage,
 		// See comment in newObjectStorageInstallRookCephCommand on why 20m.
-		timeout:          20 * time.Minute,
+		timeout: 20 * time.Minute,
 	}
 
 	command := &cobra.Command{
