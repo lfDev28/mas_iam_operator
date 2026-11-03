@@ -90,11 +90,54 @@ spec:
             - "--bridge-mode=poll"
             - "--bridge-state-backend=filesystem"
             - "--bridge-state-path=/var/lib/scim-bridge/state.json"
+          # The health server listens on 8081 by default
+          # (SCIM_BRIDGE_HEALTH_PORT). No flag here on purpose: bridge images
+          # before the health server reject unknown flags and would crash.
+          #
+          # SSL_CERT_FILE is deliberately unset: setting it replaced the
+          # image's system roots. SSL_CERT_DIR adds every cert mounted in
+          # /etc/scim-bridge/certs on top of the system roots, and the
+          # KEYCLOAK/MAS_CA_FILE settings add theirs the same way.
           env:
-            - name: SSL_CERT_FILE
-              value: /etc/scim-bridge/certs/ca-bundle.crt
             - name: SSL_CERT_DIR
               value: /etc/scim-bridge/certs
+          ports:
+            - name: health
+              containerPort: 8081
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            periodSeconds: 10
+            failureThreshold: 3
+          # /healthz fails only after 5 poll intervals without a successful
+          # sync cycle (SCIM_BRIDGE_HEALTH_STALE_CYCLES), so a short
+          # Keycloak/MAS outage does not restart the pod.
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
           envFrom:
             - configMapRef:
                 name: scim-bridge-config
@@ -176,79 +219,87 @@ spec:
             - -ec
             - |
               set -euo pipefail
-              mkdir -p "/Users/leeforster/.keycloak"
+              mkdir -p "${HOME}/.keycloak"
 
-              if [[ -z "" ]]; then
+              if [[ -z "${SCIM_CLIENT_SECRET}" ]]; then
                 echo "error: SCIM_CLIENT_SECRET is empty; populate scim-bridge-secret.SCIM_BRIDGE_KEYCLOAK_CLIENT_SECRET" >&2
                 exit 1
               fi
+              # Refuse the published placeholder: this Job sets it as the
+              # secret of a client that can read every realm user.
+              case "${SCIM_CLIENT_SECRET}" in
+                CHANGEME|changeme)
+                  echo "error: SCIM_CLIENT_SECRET is the placeholder '${SCIM_CLIENT_SECRET}'; set scim-bridge-secret.SCIM_BRIDGE_KEYCLOAK_CLIENT_SECRET to a random value (e.g. openssl rand -hex 32)" >&2
+                  exit 1
+                  ;;
+              esac
 
               host_port="${KC_HOST#*://}"
-              if [[ "" == "" ]]; then
-                host_port=""
+              if [[ "$host_port" == "$KC_HOST" ]]; then
+                host_port="$KC_HOST"
               fi
               host_port="${host_port%%/*}"
               host="${host_port%%:*}"
               port="${host_port##*:}"
-              if [[ "" == "" ]]; then
+              if [[ "$port" == "$host_port" ]]; then
                 port="8080"
               fi
 
-              echo "Waiting for Keycloak service :..."
-              until (echo >"/dev/tcp//") >/dev/null 2>&1; do
+              echo "Waiting for Keycloak service ${host}:${port}..."
+              until (echo >"/dev/tcp/${host}/${port}") >/dev/null 2>&1; do
                 sleep 5
               done
 
               echo "Waiting for Keycloak admin API..."
               until /opt/keycloak/bin/kcadm.sh config credentials \
-                --server "" \
+                --server "$KC_HOST" \
                 --realm master \
-                --user "" \
-                --password "" >/dev/null 2>&1; do
+                --user "$KC_ADMIN_USER" \
+                --password "$KC_ADMIN_PASSWORD" >/dev/null 2>&1; do
                 sleep 5
               done
 
               for role in scim-access scim-managed; do
-                /opt/keycloak/bin/kcadm.sh create roles -r "" -s "name=" >/dev/null 2>&1 || true
+                /opt/keycloak/bin/kcadm.sh create roles -r "${SCIM_REALM}" -s "name=${role}" >/dev/null 2>&1 || true
               done
 
               client_uuid="$(
-                /opt/keycloak/bin/kcadm.sh get clients -r "" --fields clientId,id --format csv --noquotes 2>/dev/null \
+                /opt/keycloak/bin/kcadm.sh get clients -r "${SCIM_REALM}" --fields clientId,id --format csv --noquotes 2>/dev/null \
                   | tr -d '\r' \
-                  | { grep -F "," || true; } \
+                  | { grep -F "${SCIM_CLIENT_ID}," || true; } \
                   | cut -d, -f2 \
                   | head -n1
               )"
 
-              if [[ -z "" ]]; then
-                /opt/keycloak/bin/kcadm.sh create clients -r "" \
-                  -s "clientId=" \
+              if [[ -z "${client_uuid}" ]]; then
+                /opt/keycloak/bin/kcadm.sh create clients -r "${SCIM_REALM}" \
+                  -s "clientId=${SCIM_CLIENT_ID}" \
                   -s enabled=true \
                   -s protocol=openid-connect \
                   -s serviceAccountsEnabled=true \
                   -s publicClient=false \
                   -s standardFlowEnabled=false \
                   -s directAccessGrantsEnabled=false \
-                  -s "secret=" >/dev/null
+                  -s "secret=${SCIM_CLIENT_SECRET}" >/dev/null
                 client_uuid="$(
-                  /opt/keycloak/bin/kcadm.sh get clients -r "" --fields clientId,id --format csv --noquotes 2>/dev/null \
+                  /opt/keycloak/bin/kcadm.sh get clients -r "${SCIM_REALM}" --fields clientId,id --format csv --noquotes 2>/dev/null \
                     | tr -d '\r' \
-                    | { grep -F "," || true; } \
+                    | { grep -F "${SCIM_CLIENT_ID}," || true; } \
                     | cut -d, -f2 \
                     | head -n1
                 )"
               else
-                /opt/keycloak/bin/kcadm.sh update "clients/" -r "" \
+                /opt/keycloak/bin/kcadm.sh update "clients/${client_uuid}" -r "${SCIM_REALM}" \
                   -s enabled=true \
                   -s protocol=openid-connect \
                   -s serviceAccountsEnabled=true \
                   -s publicClient=false \
                   -s standardFlowEnabled=false \
                   -s directAccessGrantsEnabled=false \
-                  -s "secret=" >/dev/null
+                  -s "secret=${SCIM_CLIENT_SECRET}" >/dev/null
               fi
 
-              if [[ -z "" ]]; then
+              if [[ -z "${client_uuid}" ]]; then
                 echo "error: failed to resolve Keycloak client UUID after create/update" >&2
                 exit 1
               fi
@@ -256,36 +307,36 @@ spec:
               sa_id=""
               for _ in {1..30}; do
                 sa_id="$(
-                  /opt/keycloak/bin/kcadm.sh get users -r "" -q "username=service-account-" \
+                  /opt/keycloak/bin/kcadm.sh get users -r "${SCIM_REALM}" -q "username=service-account-${SCIM_CLIENT_ID}" \
                     --fields id --format csv --noquotes 2>/dev/null \
                     | tr -d '\r' \
                     | head -n1
                 )"
-                [[ -n "" ]] && break
+                [[ -n "$sa_id" ]] && break
                 sleep 2
               done
 
-              if [[ -z "" ]]; then
-                echo "error: failed to resolve service account user ID for " >&2
-                /opt/keycloak/bin/kcadm.sh get users -r "" -q "username=service-account-" || true
+              if [[ -z "${sa_id}" ]]; then
+                echo "error: failed to resolve service account user ID for ${SCIM_CLIENT_ID}" >&2
+                /opt/keycloak/bin/kcadm.sh get users -r "${SCIM_REALM}" -q "username=service-account-${SCIM_CLIENT_ID}" || true
                 exit 1
               fi
 
-              /opt/keycloak/bin/kcadm.sh add-roles -r "" \
-                --uid "" \
+              /opt/keycloak/bin/kcadm.sh add-roles -r "${SCIM_REALM}" \
+                --uid "${sa_id}" \
                 --rolename scim-access >/dev/null 2>&1 || true
 
-              if [[ "" == "true" ]]; then
-                /opt/keycloak/bin/kcadm.sh add-roles -r "" \
-                  --uid "" \
+              if [[ "${SCIM_ASSIGN_MANAGED_ROLE}" == "true" ]]; then
+                /opt/keycloak/bin/kcadm.sh add-roles -r "${SCIM_REALM}" \
+                  --uid "${sa_id}" \
                   --rolename scim-managed >/dev/null 2>&1 || true
               fi
 
               for role in view-users query-users query-groups; do
-                /opt/keycloak/bin/kcadm.sh add-roles -r "" \
-                  --uid "" \
+                /opt/keycloak/bin/kcadm.sh add-roles -r "${SCIM_REALM}" \
+                  --uid "${sa_id}" \
                   --cclientid realm-management \
-                  --rolename "" >/dev/null 2>&1 || true
+                  --rolename "${role}" >/dev/null 2>&1 || true
               done
 
 ---
@@ -381,72 +432,72 @@ spec:
               cert_days="825"
               route_service="mas-est-iam"
 
-              if [[ -z "" || -z "" ]]; then
+              if [[ -z "${route_namespace}" || -z "${route_name}" ]]; then
                 echo "error: route namespace/name is required" >&2
                 exit 1
               fi
 
-              if [[ -z "" ]]; then
+              if [[ -z "${route_service}" ]]; then
                 echo "error: SCIM_BRIDGE_KEYCLOAK_ROUTE_SERVICE is required" >&2
                 exit 1
               fi
 
               workdir="$(mktemp -d)"
-              cleanup() { rm -rf ""; }
+              cleanup() { rm -rf "${workdir}"; }
               trap cleanup EXIT
 
               {
                 echo "apiVersion: route.openshift.io/v1"
                 echo "kind: Route"
                 echo "metadata:"
-                echo "  name: "
-                echo "  namespace: "
+                echo "  name: ${route_name}"
+                echo "  namespace: ${route_namespace}"
                 echo "spec:"
                 echo "  to:"
                 echo "    kind: Service"
-                echo "    name: "
+                echo "    name: ${route_service}"
                 echo "  port:"
                 echo "    targetPort: http"
                 echo "  tls:"
                 echo "    termination: edge"
                 echo "    insecureEdgeTerminationPolicy: Redirect"
-              } >"/route.yaml"
+              } >"${workdir}/route.yaml"
 
-              oc delete route -n "" "" --ignore-not-found >/dev/null 2>&1 || true
-              oc apply -f "/route.yaml"
+              oc delete route -n "${route_namespace}" "${route_name}" --ignore-not-found >/dev/null 2>&1 || true
+              oc apply -f "${workdir}/route.yaml"
 
-              route_host="$(oc get route -n "" "" -o jsonpath='{.spec.host}' 2>/dev/null || true)"
-              if [[ -z "" ]]; then
-                echo "error: failed to resolve generated host for route " >&2
+              route_host="$(oc get route -n "${route_namespace}" "${route_name}" -o jsonpath='{.spec.host}' 2>/dev/null || true)"
+              if [[ -z "${route_host}" ]]; then
+                echo "error: failed to resolve generated host for route ${route_name}" >&2
                 exit 1
               fi
 
-              cert_chain="/route-chain.crt"
+              cert_chain="${workdir}/route-chain.crt"
               for _ in {1..30}; do
-                echo | openssl s_client -showcerts -servername "" -connect ":443" 2>/dev/null \
-                  | sed -n '/BEGIN CERTIFICATE/,/END CERTIFICATE/p' >"" || true
-                if grep -q "BEGIN CERTIFICATE" ""; then
+                echo | openssl s_client -showcerts -servername "${route_host}" -connect "${route_host}:443" 2>/dev/null \
+                  | sed -n '/BEGIN CERTIFICATE/,/END CERTIFICATE/p' >"${cert_chain}" || true
+                if grep -q "BEGIN CERTIFICATE" "${cert_chain}"; then
                   break
                 fi
                 sleep 5
               done
 
-              if ! grep -q "BEGIN CERTIFICATE" ""; then
-                echo "error: failed to fetch route certificate chain for " >&2
+              if ! grep -q "BEGIN CERTIFICATE" "${cert_chain}"; then
+                echo "error: failed to fetch route certificate chain for ${route_host}" >&2
                 exit 1
               fi
 
               bundle_source="/etc/pki/tls/certs/ca-bundle.crt"
-              if [[ -f "" ]]; then
-                cat "" "" >"/ca-bundle.crt"
+              if [[ -f "${bundle_source}" ]]; then
+                cat "${bundle_source}" "${cert_chain}" >"${workdir}/ca-bundle.crt"
               else
-                cp "" "/ca-bundle.crt"
+                cp "${cert_chain}" "${workdir}/ca-bundle.crt"
               fi
 
               oc create secret generic scim-bridge-ca \
-                -n "" \
-                --from-file=keycloak-ca.crt="" \
-                --from-file=ca-bundle.crt="/ca-bundle.crt" \
+                -n "${bridge_namespace}" \
+                --from-file=keycloak-ca.crt="${cert_chain}" \
+                --from-file=ca-bundle.crt="${workdir}/ca-bundle.crt" \
                 --dry-run=client -o yaml | oc apply --server-side -f -
 
 ---
@@ -546,43 +597,43 @@ spec:
                 echo "error: MAS_BASE_URL is required" >&2
                 exit 1
               fi
-              case "" in
+              case "${MAS_BASE_URL}" in
                 http://http://*|https://https://*|http://https://*|https://http://*)
-                  echo "error: MAS_BASE_URL is malformed ()" >&2
+                  echo "error: MAS_BASE_URL is malformed (${MAS_BASE_URL})" >&2
                   exit 1
                   ;;
               esac
 
               profile_id="${MAS_PROFILE_ID:-}"
-              if [ -z "" ]; then
+              if [ -z "${profile_id}" ]; then
                 echo "error: MAS_PROFILE_ID is required" >&2
                 exit 1
               fi
 
               base="${MAS_BASE_URL%/}"
               auth_root="${base%/scim/v2}"
-              auth_url="/v1/authenticate"
-              profiles_url="/Profiles"
-              profile_url="/"
+              auth_url="${auth_root}/v1/authenticate"
+              profiles_url="${base}/Profiles"
+              profile_url="${profiles_url}/${profile_id}"
 
               curl_args="-sS"
               if [ "${MAS_INSECURE_SKIP_VERIFY:-false}" = "true" ]; then
-                curl_args=" -k"
+                curl_args="${curl_args} -k"
               fi
               if [ -n "${MAS_CA_FILE:-}" ]; then
-                curl_args=" --cacert "
+                curl_args="${curl_args} --cacert ${MAS_CA_FILE}"
               fi
 
               token="${MAS_TOKEN:-}"
               auth_type="${MAS_AUTH_TYPE:-jwt}"
-              if [ -z "" ]; then
+              if [ -z "${token}" ]; then
                 if [ -z "${MAS_API_TOKEN_NAME:-}" ] || [ -z "${MAS_API_TOKEN_VALUE:-}" ]; then
                   echo "error: set MAS_TOKEN or MAS_API_TOKEN_NAME/VALUE" >&2
                   exit 1
                 fi
-                resp="$(curl  -u ":" "")"
-                token="$(printf '%s' "" | tr -d '\r\n' | sed 's/.*"token"[[:space:]]*:[[:space:]]*"//; s/".*//')"
-                case "" in
+                resp="$(curl ${curl_args} -u "${MAS_API_TOKEN_NAME}:${MAS_API_TOKEN_VALUE}" "${auth_url}")"
+                token="$(printf '%s' "${resp}" | tr -d '\r\n' | sed 's/.*"token"[[:space:]]*:[[:space:]]*"//; s/".*//')"
+                case "${token}" in
                   *.*.*) ;;
                   *)
                     echo "error: failed to parse token from MAS auth response" >&2
@@ -593,49 +644,49 @@ spec:
                 auth_type="jwt"
               fi
 
-              auth_header="Authorization: Bearer "
-              if [ "" = "api-key" ]; then
-                auth_header="Authorization: APIKey "
+              auth_header="Authorization: Bearer ${token}"
+              if [ "${auth_type}" = "api-key" ]; then
+                auth_header="Authorization: APIKey ${token}"
               fi
 
               payload="${MAS_PROFILE_BOOTSTRAP_JSON:-}"
-              if [ -z "" ]; then
+              if [ -z "${payload}" ]; then
                 workspace_id="${MAS_WORKSPACE_ID:-}"
-                if [ -z "" ]; then
+                if [ -z "${workspace_id}" ]; then
                   echo "error: MAS_WORKSPACE_ID is required when no JSON payload is provided" >&2
                   exit 1
                 fi
-                payload="$(printf '{"id":"%s","version":1,"identities":[{"type":"local"}],"entitlement":{"application":"PREMIUM","admin":"ADMIN_PREMIUM"},"workspaces":[{"id":"%s","applications":["manage"]}]}' "" "")"
+                payload="$(printf '{"id":"%s","version":1,"identities":[{"type":"local"}],"entitlement":{"application":"PREMIUM","admin":"ADMIN_PREMIUM"},"workspaces":[{"id":"%s","applications":["manage"]}]}' "${profile_id}" "${workspace_id}")"
               fi
 
-              echo "Checking for existing MAS profile ..."
-              status="$(curl  -o /tmp/profile.json -w "%{http_code}" -H "" "" || true)"
-              if [ "" = "200" ]; then
-                echo "MAS profile  already exists."
+              echo "Checking for existing MAS profile ${profile_id}..."
+              status="$(curl ${curl_args} -o /tmp/profile.json -w "%{http_code}" -H "${auth_header}" "${profile_url}" || true)"
+              if [ "${status}" = "200" ]; then
+                echo "MAS profile ${profile_id} already exists."
                 exit 0
               fi
-              if [ "" != "404" ]; then
-                echo "error: unexpected status checking profile ()" >&2
+              if [ "${status}" != "404" ]; then
+                echo "error: unexpected status checking profile (${status})" >&2
                 cat /tmp/profile.json >&2 || true
                 exit 1
               fi
 
-              echo "Creating MAS profile ..."
-              create_status="$(curl  -o /tmp/profile-create.json -w "%{http_code}" \
-                -H "" \
+              echo "Creating MAS profile ${profile_id}..."
+              create_status="$(curl ${curl_args} -o /tmp/profile-create.json -w "%{http_code}" \
+                -H "${auth_header}" \
                 -H "Content-Type: application/scim+json" \
-                -X POST "" \
-                -d "" || true)"
+                -X POST "${profiles_url}" \
+                -d "${payload}" || true)"
 
-              case "" in
+              case "${create_status}" in
                 200|201)
-                  echo "MAS profile  created."
+                  echo "MAS profile ${profile_id} created."
                   ;;
                 409)
-                  echo "MAS profile  already exists (conflict)."
+                  echo "MAS profile ${profile_id} already exists (conflict)."
                   ;;
                 *)
-                  echo "error: failed to create MAS profile ()" >&2
+                  echo "error: failed to create MAS profile (${create_status})" >&2
                   cat /tmp/profile-create.json >&2 || true
                   exit 1
                   ;;
