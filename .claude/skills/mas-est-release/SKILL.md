@@ -1,6 +1,6 @@
 ---
 name: mas-est-release
-description: Cut and publish a mas-est release — version bumps, doc/manifest pins, tests, git tag, and image builds pushed to Quay for any of the three artifacts (CLI, SCIM bridge, operator+bundle+catalog). Use when the user asks to ship / cut / publish / release a new version, push images to Quay, bump to vX.Y.Z, or publish a dev tag for testing. Requires podman logged in to quay.io.
+description: Cut and publish a mas-est release — version bumps, release checks, a release candidate, a cluster smoke test, promotion, and git tags last, for any of the three artifacts (CLI, SCIM bridge, operator+bundle+catalog). Use when the user asks to ship / cut / publish / release a new version, push images to Quay, bump to vX.Y.Z, publish a release candidate, or publish a dev tag for testing. Requires podman logged in to quay.io.
 user-invocable: true
 allowed-tools:
   - Bash
@@ -11,239 +11,105 @@ allowed-tools:
 
 # /mas-est-release — cut and publish a mas-est release
 
-Three independently-versioned artifacts. Publish only what changed:
+The mechanics live in scripts behind make targets. This skill is the order,
+the approvals, and the traps. **Run the steps in order and stop at the first
+red; report it, do not work around it.**
 
-| Artifact | Image | Tag scheme | Arch | Section |
+| Artifact | Image (quay.io/lee_forster/…) | Tags | Arch | Git tag |
 |---|---|---|---|---|
-| CLI (`mas-est`) | `quay.io/lee_forster/mas-external-services-tool` | `v0.1.3` | multi-arch (amd64 + arm64 manifest) | §6 |
-| SCIM bridge | `quay.io/lee_forster/mas-iam-scim-bridge` | `scim-bridge-v0.1.2` | single-arch `linux/amd64` | §6 |
-| Operator (+bundle+catalog) | `quay.io/lee_forster/mas-iam-operator` | `0.0.15` / `catalog-0.0.15` | single-arch `linux/amd64` | §9 |
+| CLI | `mas-external-services-tool` | `vX.Y.Z-rc.N`, `vX.Y.Z` | amd64 + arm64 manifest list | `vX.Y.Z` |
+| SCIM bridge | `mas-iam-scim-bridge` | `scim-bridge-vX.Y.Z` | amd64 | `scim-bridge-vX.Y.Z` |
+| Operator | `mas-iam-operator`, `-bundle` | `0.0.N`, `catalog-0.0.N` | amd64 | `operator-0.0.N` |
 
-The version numbers are independent and drift apart — CLI `v0.1.3` shipped with bridge `scim-bridge-v0.1.2` and operator `0.0.14`. Never assume they match.
-
-**Sequencing trap (bit us 2026-08-18):** bumping the operator version in the repo points `manifests/install-olm.yaml` and `scripts/install-operator-from-catalog.sh` at a `catalog-0.0.N` that does not exist on Quay yet. Any install from that commit hangs and fails at the CatalogSource wait. If the operator version was bumped, **publish the operator before cutting a CLI release that bundles those manifests.**
-
-## Dev tags
-
-For changes that need real-cluster iteration before earning a release number (RBAC, anything untested in-cluster), publish a dev tag instead:
-
-- Set `version.go` to `0.1.4-dev` and publish the CLI image as `v0.1.4-dev`. **These must match**: the in-cluster installer derives its default Job image from `"v" + version.Version`, so a mismatch silently launches the wrong image.
-- Leave doc pins on the last stable release — docs should not advertise a dev build.
-- No git tag for dev builds; commit only.
-- Iterate on `-dev` freely, then bump to the real version and follow the full flow.
+Versions are independent and drift apart; never assume they match.
 
 ## Preconditions
 
-1. **Named approval to push.** Each Quay push needs the user's explicit go-ahead for that specific version ("push v0.1.3", "ship it"). Never push on your own initiative.
-2. `podman login --get-login quay.io` returns a user. If not, ask them to run `podman login quay.io` — do not attempt to authenticate for them.
-3. Working tree has the changes to ship, `main` is the release branch, tests pass.
+1. **Named approval for every push.** Each `PUSH=1` below needs the user's
+   explicit go-ahead for that artifact and version ("push v0.1.16-rc.1").
+   Never push on your own initiative; an approval for an rc is not one for
+   the promotion or the tags.
+2. `podman login --get-login quay.io` prints a user. If not, ask the user to
+   run `podman login quay.io`; never authenticate for them.
+3. On `main`, tree clean, `make check` green.
 
 ## Steps
 
-### 1. Decide what changed
+1. **What changed.** `git log --oneline $(git describe --tags --abbrev=0 --match 'v*')..HEAD`
+   - `operators/mas-iam-operator/{helm-charts,watches.yaml,Dockerfile}` → operator bump.
+   - `services/scim-bridge/**` → bridge bump. Bridge code without a new image is a no-op on the cluster.
+   - Anything else (scripts, manifests, env, Go) → CLI version; the CLI image bundles scripts and manifests.
+2. **Bump**, operator and bridge first (the CLI bump writes a RELEASE-NOTES
+   skeleton naming the current bridge and operator):
+   `make bump ARTIFACT=operator VERSION=0.0.N`, `make bump ARTIFACT=bridge VERSION=X.Y.Z`,
+   `make bump ARTIFACT=cli VERSION=X.Y.Z`. Then fill in the `## vX.Y.Z` bullets
+   (symptom + any user action, one or two sentences each), update
+   `docs/TROUBLESHOOTING.md`, `docs/KNOWN-LIMITATIONS.md` and `docs/GUIDE.md`
+   for what changed, run `make docs-pdf`, and commit `Release vX.Y.Z — <summary>`.
+3. **Publish operator / bridge first, if bumped** (approval):
+   `make release-images ARTIFACT=operator VERSION=0.0.N PUSH=1`,
+   `make release-images ARTIFACT=bridge VERSION=X.Y.Z PUSH=1`.
+   The CLI's manifests point at `catalog-0.0.N`; if that tag is missing,
+   every install hangs at the CatalogSource wait. They get no rc tag:
+   nothing installs them until a CLI release references them.
+4. **Gate:** `make release-check VERSION=X.Y.Z [OPERATOR_VERSION=0.0.N] [BRIDGE_VERSION=X.Y.Z]`.
+   Read the warnings too. A missing `operator-*` / `scim-bridge-v*` git tag
+   is reported with the command to create it; pass that to the user.
+5. **Release candidate** (approval): `make release-images ARTIFACT=cli VERSION=X.Y.Z-rc.1 PUSH=1`.
+   version.go stays `X.Y.Z`; the Containerfile stamps `-rc.1` and fails the
+   build for any other mismatch. `mas-est update` and `scripts/get-mas-est.sh`
+   only pick `vX.Y.Z` tags, so users never see an rc.
+6. **Smoke** on a scratch cluster (ask first; never a cluster someone is
+   testing on): `scripts/smoke.sh --image vX.Y.Z-rc.1 --leg both`.
+   Both legs matter: fresh-after-wipe alone hides upgrade bugs. Red → fix,
+   commit, back to step 4 with `-rc.2`.
+7. **Promote** (approval): same commit, no new changes:
+   `make release-images ARTIFACT=cli VERSION=X.Y.Z PUSH=1`. It verifies from
+   the registry, including that the image's revision label is HEAD.
+8. **Tag last** (approval): `make release-tag VERSION=X.Y.Z [OPERATOR_VERSION=..] [BRIDGE_VERSION=..] PUSH=1`.
+   Re-verifies every image, then creates and pushes `vX.Y.Z`, `operator-0.0.N`
+   and `scim-bridge-vX.Y.Z` (existing tags are left alone) with the branch.
+9. **Report:** give `export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:vX.Y.Z'`.
+   If the bridge shipped, say that existing installs keep the old bridge until
+   reinstalled (the most common "why isn't my fix live"). Update the project
+   memory (`project_state.md`, `MEMORY.md`).
 
-```bash
-git log --oneline $(git describe --tags --abbrev=0)..HEAD
-```
+## Dev tags
 
-- Anything under `tools/mas-iam-installer/` → new CLI version.
-- Anything under `services/scim-bridge/` → new bridge image. **A bridge code change does nothing without a rebuilt image** — an old image silently ignores new ConfigMap keys.
-- Only `scripts/`, `manifests/`, `docs/` → usually still ship a CLI version, since the CLI image bundles scripts and manifests.
+For changes that need cluster iteration before they earn a version:
+`make bump ARTIFACT=cli VERSION=X.Y.Z-dev` (version.go only; docs stay on the
+last release), commit, `make release-images ARTIFACT=cli VERSION=X.Y.Z-dev PUSH=1`
+(approval). No git tag. `-dev` tags may be re-pushed; release and rc tags may
+not. The in-cluster installer runs the Job image `"v" + version.Version`, so
+the tag and version.go must agree; the Containerfile enforces it.
 
-### 2. Version bumps
+## Traps (the scripts handle these; know them when a step goes red)
 
-CLI version string:
-- `tools/mas-iam-installer/internal/version/version.go` → `Version = "0.1.3"` (no `v` prefix here).
-
-CLI image pins in docs (all `mas-external-services-tool:vX.Y.Z`), plus the `subtitle:` line of the announcement:
-```bash
-for f in README.md docs/GUIDE.md docs/ANNOUNCEMENT.md; do
-  sed -i '' 's|mas-external-services-tool:vOLD|mas-external-services-tool:vNEW|g' "$f"
-done
-sed -i '' 's|^subtitle: "vOLD"|subtitle: "vNEW"|' docs/ANNOUNCEMENT.md
-```
-Confirm nothing else pins the old tag: `grep -rn 'mas-external-services-tool:v' README.md docs tools/mas-iam-installer/README.md` should show only the new one. (`docs/design/IN-CLUSTER-INSTALLER.md` is a maintainer record and keeps its historical pin.) Then re-render every PDF and commit them: `make docs-pdf` (renders ANNOUNCEMENT, GUIDE, TROUBLESHOOTING, KNOWN-LIMITATIONS and RELEASE-NOTES next to their Markdown; needs pandoc, xelatex and the eisvogel template, see the Makefile comment).
-
-Bridge image pins (only when the bridge ships):
-```bash
-for f in env/scim-bridge.env.release manifests/scim-bridge-install-template.yaml \
-         scripts/install-all-in-one.sh manifests/scim-bridge-install.yaml; do
-  sed -i '' 's|mas-iam-scim-bridge:scim-bridge-vOLD|mas-iam-scim-bridge:scim-bridge-vNEW|g' "$f"
-done
-```
-**Careful:** `manifests/scim-bridge-install-template.yaml` also pins `mas-iam-keycloak:scim-bridge-vX.Y.Z` — a *different* image that happens to share the tag naming. Match on the full `mas-iam-scim-bridge:` repo prefix so you don't bump Keycloak by accident. Verify with `grep -rn "scim-bridge-v"` afterwards.
-
-### 3. Release notes
-
-Add a section to the top of `docs/RELEASE-NOTES.md` (below the intro), newest first, with a version line naming all three artifacts:
-
-```markdown
-## v0.1.10
-
-CLI `v0.1.10` · bridge `scim-bridge-v0.1.2` · operator `0.0.15`
-
-- **Fixed:** <symptom the user saw>. <one-line cause or change>.
-```
-
-Keep each bullet to one or two sentences: name the symptom and any action the user must take.
-
-**Update the user docs in the same release.** For every fix or change, check:
-- `docs/TROUBLESHOOTING.md`: remove or reword rows whose error text, cause or fix changed; add a row for any new error string.
-- `docs/KNOWN-LIMITATIONS.md`: delete the entry for anything the release fixes; add one for any new gap.
-- `docs/GUIDE.md`: any changed command, flag, prompt or resource name.
-
-### 4. Test both modules
-
-```bash
-cd tools/mas-iam-installer && go build ./... && go test ./...
-cd ../../services/scim-bridge && go build ./... && go test ./...
-```
-Both must be green before tagging. Also `bash -n` any shell script touched.
-
-### 5. Commit, tag, push
-
-```bash
-git add -A
-git commit -m "Release vX.Y.Z — <one-line summary>"
-git tag vX.Y.Z
-git push origin main vX.Y.Z
-```
-Tag names track the CLI version. The bridge image tag is recorded in the commit body, not as a separate git tag.
-
-### 6. Build and push images
-
-Long-running (several minutes per arch) — run in the background and report when the manifest verifies.
-
-CLI, multi-arch (per-arch tags then a manifest list, so a laptop pulling `:vX.Y.Z` gets its own arch):
-```bash
-IMG=quay.io/lee_forster/mas-external-services-tool
-for arch in amd64 arm64; do
-  podman build --platform linux/$arch -f tools/mas-iam-installer/Containerfile -t $IMG:vX.Y.Z-$arch .
-done
-podman push $IMG:vX.Y.Z-amd64
-podman push $IMG:vX.Y.Z-arm64
-podman rmi -f $IMG:vX.Y.Z 2>/dev/null || true      # see note below
-podman manifest rm $IMG:vX.Y.Z 2>/dev/null || true
-podman manifest create $IMG:vX.Y.Z
-podman manifest add $IMG:vX.Y.Z docker://$IMG:vX.Y.Z-amd64
-podman manifest add $IMG:vX.Y.Z docker://$IMG:vX.Y.Z-arm64
-podman manifest push --all $IMG:vX.Y.Z docker://$IMG:vX.Y.Z
-```
-Run from the repo root — the Containerfile's build context is the whole repo (it copies `scripts/`, `manifests/`, `env/`).
-
-**Republishing an existing tag (dev-tag iteration): `podman rmi` the tag first.**
-Anything that pulled or ran that tag locally — including your own post-publish
-verification — leaves a plain local *image* under the same name. `manifest
-create`/`push` then fails with `image is not a manifest list`, the per-arch tags
-push fine, and **the multi-arch tag silently keeps pointing at the previous
-build**. Worse, a `set -e` build script can still print its success line, so the
-push looks like it worked. Never trust the script's own output — always run §7.
-
-Note: the CLI Containerfile's runtime stage is `FROM` a *previous published mas-est image* (self-referencing base, pinned to `v0.1.0-beta.9`). It only supplies OS layers plus the bootstrap layout; everything else is rebuilt. Dropping this self-reference for a small OS base is a tracked roadmap item.
-
-Bridge, single-arch (it only ever runs on the cluster; the build script also pushes):
-```bash
-SCIM_BRIDGE_IMAGE=quay.io/lee_forster/mas-iam-scim-bridge:scim-bridge-vX.Y.Z \
-SCIM_BRIDGE_TARGET_ARCH=amd64 \
-SCIM_BRIDGE_CONTAINER_CLI=podman \
-bash scripts/scim-bridge-01-build-image.sh
-```
-Set `SCIM_BRIDGE_TARGET_ARCH` explicitly — unset, the script infers it from the *currently logged-in cluster's* nodes, which silently produces the wrong arch when pointed at an arm64 cluster or none at all.
-
-### 7. Verify published
-
-Multi-arch CLI image — `manifest inspect` works because it *is* a manifest list:
-```bash
-podman manifest inspect quay.io/lee_forster/mas-external-services-tool:vX.Y.Z \
-  | python3 -c 'import sys,json; d=json.load(sys.stdin); [print(m["platform"]["os"]+"/"+m["platform"]["architecture"]) for m in d["manifests"]]'
-```
-Must list both `linux/amd64` and `linux/arm64`.
-
-Single-arch images (bridge, operator, catalog) are **not** manifest lists, so
-`podman manifest inspect` fails on them and looks exactly like "image missing".
-Pull from the registry instead — this also proves the push actually landed
-rather than inspecting a stale local copy:
-```bash
-podman pull -q quay.io/lee_forster/mas-iam-operator:catalog-0.0.15 >/dev/null \
-  && podman image inspect quay.io/lee_forster/mas-iam-operator:catalog-0.0.15 --format '{{.Os}}/{{.Architecture}}'
-```
-`skopeo` is **not installed** on this machine — a `skopeo inspect` check silently
-falls through to whatever `||` branch follows it and reports a false "MISSING".
-
-### 8. Report to the user
-
-Give them the copy-paste upgrade line and say what needs redeploying:
-
-```bash
-export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:vX.Y.Z'
-```
-
-- CLI-only release → users re-run bootstrap; nothing on-cluster changes until they install.
-- Bridge shipped → existing installs keep running the OLD bridge until reinstalled or the deployment image is updated. Say so explicitly; it is the most common "why isn't my fix live" confusion.
-
-Finally, update the project memory (`project_state.md` + `MEMORY.md` index) with the new current version, both image tags, and what shipped.
-
-### 9. Operator release (image + bundle + catalog)
-
-Only when something under `operators/` changed. Three images, all `linux/amd64`.
-Version lives in `operators/mas-iam-operator/Makefile` (`VERSION ?= 0.0.N`) and
-must also be bumped in `config/manager/kustomization.yaml`, the bundle CSV
-(`name`, `image`, `version`), `manifests/install-olm.yaml`,
-and `scripts/install-operator-from-catalog.sh`.
-
-The operator Makefile can do all of this in one line
-(`make docker-build docker-push bundle bundle-build bundle-push catalog-build catalog-push`).
-**Do not use that as-is on an arm64 Mac.** `docker-build` and `bundle-build` both
-run `$(CONTAINER_ENGINE) build` with no `--platform`, and `opm index add` builds
-the catalog through podman the same way — so on Apple Silicon all three images
-publish as arm64. The cluster is amd64, and the failure surfaces later as the
-operator pod crash-looping with an exec-format error, which reads like "the new
-operator version is broken" rather than "wrong architecture".
-
-Force the platform at every step (verified 2026-08-20 for 0.0.15):
-
-```bash
-cd operators/mas-iam-operator
-VERSION=0.0.15
-IMG=quay.io/lee_forster/mas-iam-operator:${VERSION}
-BUNDLE_IMG=quay.io/lee_forster/mas-iam-operator-bundle:${VERSION}
-CATALOG_IMG=quay.io/lee_forster/mas-iam-operator:catalog-${VERSION}
-
-podman build --platform linux/amd64 -t "$IMG" .
-podman push "$IMG"
-
-CONTAINER_ENGINE=podman VERSION="$VERSION" IMG="$IMG" make bundle
-
-podman build --platform linux/amd64 -f bundle.Dockerfile -t "$BUNDLE_IMG" .
-podman push "$BUNDLE_IMG"
-
-make opm
-./bin/opm index add --container-tool podman --mode semver \
-  --tag "$CATALOG_IMG" --bundles "$BUNDLE_IMG" \
-  --generate --out-dockerfile index.Dockerfile
-podman build --platform linux/amd64 -f index.Dockerfile -t "$CATALOG_IMG" .
-podman push "$CATALOG_IMG"
-```
-
-`--generate` makes `opm` emit the Dockerfile instead of building it, which is the
-only way to control the catalog image's architecture.
-
-Note the catalog tag is `mas-iam-operator:catalog-0.0.N` — the repo's manifests
-expect that, **not** the Makefile's `CATALOG_IMG` default of
-`mas-iam-operator-catalog:v0.0.N`. Always pass `CATALOG_IMG` explicitly.
-
-Verify all three per §7, then confirm on-cluster that the CatalogSource reaches
-`READY` and `packagemanifests` reports the new `currentCSV` before declaring the
-operator released.
-
-## Gotchas
-
-- **Never push without version-specific approval** (see Preconditions).
-- **Publish the operator before a CLI release that bundles bumped manifests** — otherwise installs fail at the CatalogSource wait against a catalog tag that does not exist.
-- **Force `--platform` on every operator/bridge build** on an arm64 host; only the CLI build loop sets it already.
-- **`podman manifest inspect` on a single-arch image reports failure, not absence** — use the pull-then-inspect check in §7.
-- **Verify every publish by pulling the tag back down.** A failed manifest push does not reliably stop the build script, so "PUBLISHED" in the log proves nothing.
-- **Bridge code without a rebuilt image is a no-op.** New env/ConfigMap keys are ignored by old images with no error.
-- **Don't bump the Keycloak image tag** while bumping the bridge (§2).
-- **A published tag is immutable in practice** — people have pulled it. Cut a new patch version instead of re-pushing over one.
-- **Do not deploy new images to a cluster someone is actively testing on** without asking; validate on a scratch namespace or a spare cluster first.
+- **Operator before CLI.** See step 3. `make check-images` (nightly in CI,
+  and in release-check) fails while a pinned tag is missing.
+- **Force `--platform`.** On an arm64 Mac, an unforced build publishes arm64
+  images that crash-loop on the amd64 cluster with an exec-format error,
+  which reads like a broken release. release-images forces it everywhere. Do
+  not use the operator Makefile one-liner (`docker-build … catalog-push`):
+  it does not force the platform, and its `CATALOG_IMG` default is not the
+  `mas-iam-operator:catalog-0.0.N` tag the manifests expect.
+- **Multi-arch manifest.** A plain local image under the manifest name (left
+  by any pull or run of that tag) makes `podman manifest create` fail with
+  "image is not a manifest list" while the per-arch pushes succeed, and the
+  multi-arch tag silently keeps the previous build. The script removes it
+  first and re-verifies from the registry. Never trust push output.
+- **Verify from the registry, not podman.** Single-arch images are not
+  manifest lists, so `podman manifest inspect` reports them as missing.
+  `skopeo` is not installed. Use `make release-verify` or
+  `scripts/check-images.sh --ref <ref> --archs amd64`.
+- **Bridge pins** share the `scim-bridge-vX.Y.Z` naming with the
+  `mas-iam-keycloak` image; bump-version matches the full
+  `mas-iam-scim-bridge:` repo so Keycloak is never bumped.
+- **Published tags are immutable.** People have pulled them. Cut a new patch
+  or rc number; release-images refuses to overwrite.
+- **CLI runtime base** is `mas-external-services-tool:v0.1.0-beta.9`
+  (self-referencing). If that tag goes, no CLI can be built; images.yaml
+  checks it nightly.
+- **Operator on-cluster check:** after an operator release, the CatalogSource
+  must reach READY and `packagemanifests` must report the new `currentCSV`;
+  the smoke test asserts this.
