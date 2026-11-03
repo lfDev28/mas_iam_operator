@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -282,6 +283,22 @@ func (o *masAuthApplyOptions) applySelfRegConfigMap(ctx context.Context, client 
 	}
 
 	name := o.masInstanceID + "-selfreg"
+
+	// Read, merge, write. The apply below is a server-side apply under the
+	// mas-est-installer field manager, which REMOVES any key that manager set
+	// last time and omits now — so `mas-auth apply --providers ldap` after an
+	// all-providers run used to delete the default-oidc / default-saml
+	// entries and break OIDC/SAML self-registration. Carrying every existing
+	// key forward keeps entries for providers outside this run (and any a
+	// customer added by hand); ours overwrite only their own keys.
+	existing, err := client.ConfigMapData(ctx, o.masCoreNamespace, name)
+	if err != nil && !oc.IsNotFound(err) {
+		return fmt.Errorf("read self-reg configmap %s/%s: %w", o.masCoreNamespace, name, err)
+	}
+	data, preserved := mergeSelfRegData(existing, data)
+	if len(preserved) > 0 {
+		fmt.Fprintf(os.Stdout, "[mas-auth] keeping existing self-reg entries for: %s\n", strings.Join(preserved, ", "))
+	}
 	manifest := map[string]any{
 		"apiVersion": "v1",
 		"kind":       "ConfigMap",
@@ -301,6 +318,25 @@ func (o *masAuthApplyOptions) applySelfRegConfigMap(ctx context.Context, client 
 		return fmt.Errorf("apply self-reg configmap: %w", err)
 	}
 	return nil
+}
+
+// mergeSelfRegData overlays this run's entries on the ConfigMap's current
+// data and returns the merged map plus the (sorted) keys kept unchanged from
+// the existing data.
+func mergeSelfRegData(existing, desired map[string]string) (map[string]string, []string) {
+	merged := make(map[string]string, len(existing)+len(desired))
+	preserved := []string{}
+	for key, value := range existing {
+		merged[key] = value
+		if _, overwritten := desired[key]; !overwritten {
+			preserved = append(preserved, key)
+		}
+	}
+	for key, value := range desired {
+		merged[key] = value
+	}
+	sort.Strings(preserved)
+	return merged, preserved
 }
 
 // oidcSelfRegMappings — OIDC standard claims. Reused for SAML because the
