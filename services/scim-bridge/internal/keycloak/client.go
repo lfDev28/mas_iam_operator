@@ -2,20 +2,18 @@ package keycloak
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/lfDev28/mas-iam/services/scim-bridge/internal/config"
+	"github.com/lfDev28/mas-iam/services/scim-bridge/internal/tlsutil"
 )
 
 // Client interacts with the Keycloak Admin REST API.
@@ -35,18 +33,11 @@ func NewClient(cfg config.KeycloakConfig) (*Client, error) {
 	}
 	trimmed := strings.TrimRight(cfg.BaseURL, "/")
 	transport := http.DefaultTransport.(*http.Transport).Clone()
-	tlsConfig := &tls.Config{}
-	if cfg.CAFile != "" {
-		rootCAs, err := loadCertPool(cfg.CAFile)
-		if err != nil {
-			return nil, fmt.Errorf("load keycloak CA file: %w", err)
-		}
-		tlsConfig.RootCAs = rootCAs
+	tlsConfig, err := tlsutil.ClientConfig(cfg.CAFile, cfg.InsecureSkipVerify)
+	if err != nil {
+		return nil, fmt.Errorf("load keycloak CA file: %w", err)
 	}
-	if cfg.InsecureSkipVerify {
-		tlsConfig.InsecureSkipVerify = true
-	}
-	if tlsConfig.InsecureSkipVerify || tlsConfig.RootCAs != nil {
+	if tlsConfig != nil {
 		transport.TLSClientConfig = tlsConfig
 	}
 	return &Client{
@@ -316,18 +307,6 @@ func (c *Client) clientCredentialsToken(ctx context.Context) (string, error) {
 		return "", errors.New("token response missing access_token")
 	}
 	return payload.AccessToken, nil
-}
-
-func loadCertPool(path string) (*x509.CertPool, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM(data) {
-		return nil, fmt.Errorf("failed to append certs from %s", path)
-	}
-	return pool, nil
 }
 
 func firstAttribute(attrs map[string][]string, key string) string {

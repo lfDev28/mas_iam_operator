@@ -3,8 +3,6 @@ package mas
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,11 +12,12 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/lfDev28/mas-iam/services/scim-bridge/internal/config"
+	"github.com/lfDev28/mas-iam/services/scim-bridge/internal/tlsutil"
 )
 
 // Client is an HTTP adapter for MAS SCIM endpoints.
@@ -62,26 +61,32 @@ func NewClient(cfg config.MASConfig) (*Client, error) {
 		return nil, fmt.Errorf("invalid mas base URL: %w", err)
 	}
 	trimmed := strings.TrimRight(cfg.BaseURL, "/")
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	tlsConfig := &tls.Config{}
-	if cfg.CAFile != "" {
-		rootCAs, err := loadCertPool(cfg.CAFile)
-		if err != nil {
-			return nil, fmt.Errorf("load MAS CA file: %w", err)
-		}
-		tlsConfig.RootCAs = rootCAs
-	}
-	if cfg.InsecureSkipVerify {
-		tlsConfig.InsecureSkipVerify = true // dev/self-signed only
-	}
-	if tlsConfig.RootCAs != nil || tlsConfig.InsecureSkipVerify {
-		transport.TLSClientConfig = tlsConfig
+	httpClient, err := NewHTTPClient(cfg)
+	if err != nil {
+		return nil, err
 	}
 	return &Client{
 		cfg:  cfg,
 		base: trimmed,
-		http: &http.Client{Timeout: 30 * time.Second, Transport: transport},
+		http: httpClient,
 	}, nil
+}
+
+// RequestTimeout bounds every MAS HTTP call, including /v1/authenticate.
+const RequestTimeout = 30 * time.Second
+
+// NewHTTPClient builds the HTTP client every MAS call goes through: system
+// roots plus MAS_CA_FILE, optional skip-verify, and a request timeout.
+func NewHTTPClient(cfg config.MASConfig) (*http.Client, error) {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	tlsConfig, err := tlsutil.ClientConfig(cfg.CAFile, cfg.InsecureSkipVerify)
+	if err != nil {
+		return nil, fmt.Errorf("load MAS CA file: %w", err)
+	}
+	if tlsConfig != nil {
+		transport.TLSClientConfig = tlsConfig
+	}
+	return &http.Client{Timeout: RequestTimeout, Transport: transport}, nil
 }
 
 // DefaultProfileID returns the configured default MAS SCIM profile.
@@ -295,22 +300,33 @@ func (c *Client) authHeader() string {
 
 // retry settings (override in tests as needed)
 var (
-	maxRetries  = 3
-	baseBackoff = 200 * time.Millisecond
+	maxRetries    = 3
+	baseBackoff   = 200 * time.Millisecond
+	maxRetryAfter = 60 * time.Second
 )
 
 func jitterDuration(d time.Duration) time.Duration {
-	if d <= 0 {
+	if d <= 1 {
 		return d
 	}
 	jitter := rand.Int63n(int64(d / 2))
 	return d + time.Duration(jitter)
 }
 
+// doWithRetry sends req with short in-call retries:
+//   - 429 is retried for every method, honouring Retry-After (capped);
+//   - 5xx and transport errors/timeouts are retried only for idempotent
+//     methods. A POST that timed out or got a 5xx may still have created the
+//     user, and re-POSTing could duplicate it; the executor's cross-cycle
+//     backoff (and its 409 handling) covers those instead;
+//   - a POST that never left (dial failure) is safe to retry.
+//
+// Waits honour context cancellation.
 func (c *Client) doWithRetry(req *http.Request) (*http.Response, error) {
-	var lastErr error
+	ctx := req.Context()
+	idempotent := req.Method != http.MethodPost
 	backoff := baseBackoff
-	for attempt := 0; attempt <= maxRetries; attempt++ {
+	for attempt := 0; ; attempt++ {
 		if attempt > 0 && req.GetBody != nil {
 			body, err := req.GetBody()
 			if err != nil {
@@ -318,57 +334,104 @@ func (c *Client) doWithRetry(req *http.Request) (*http.Response, error) {
 			}
 			req.Body = body
 		}
+		last := attempt >= maxRetries
+		var wait time.Duration
 		resp, err := c.http.Do(req)
-		if err != nil {
-			lastErr = err
-			if !isRetryableError(err) || attempt == maxRetries {
+		switch {
+		case err != nil:
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, ctxErr
+			}
+			retryable := isRetryableError(err) && (idempotent || isDialError(err))
+			if !retryable || last {
 				return nil, &ResponseError{StatusCode: 0, Status: "transport error", Body: err.Error()}
 			}
 			log.Printf("MAS request retry attempt=%d method=%s url=%s error=%v", attempt, req.Method, req.URL.String(), err)
-			time.Sleep(jitterDuration(backoff))
-			backoff *= 2
-			continue
-		}
-		if resp.StatusCode >= 500 {
-			lastErr = &ResponseError{StatusCode: resp.StatusCode, Status: resp.Status}
-			if attempt == maxRetries {
+			wait = jitterDuration(backoff)
+		case resp.StatusCode == http.StatusTooManyRequests:
+			if last {
 				return resp, nil
 			}
-			io.Copy(io.Discard, resp.Body)
-			resp.Body.Close()
+			wait = retryAfter(resp.Header.Get("Retry-After"), jitterDuration(backoff))
+			drain(resp)
+			log.Printf("MAS request throttled attempt=%d method=%s url=%s retry_after=%s", attempt, req.Method, req.URL.String(), wait)
+		case resp.StatusCode >= 500 && idempotent:
+			if last {
+				return resp, nil
+			}
+			drain(resp)
 			log.Printf("MAS request retry attempt=%d method=%s url=%s status=%s", attempt, req.Method, req.URL.String(), resp.Status)
-			time.Sleep(jitterDuration(backoff))
-			backoff *= 2
-			continue
+			wait = jitterDuration(backoff)
+		default:
+			return resp, nil
 		}
-		return resp, nil
+		if err := sleepCtx(ctx, wait); err != nil {
+			return nil, err
+		}
+		backoff *= 2
 	}
-	return nil, lastErr
+}
+
+func drain(resp *http.Response) {
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
+	_ = resp.Body.Close()
+}
+
+// retryAfter parses a Retry-After header (delay-seconds or HTTP-date),
+// capped at maxRetryAfter; fallback applies when it is absent or invalid.
+func retryAfter(header string, fallback time.Duration) time.Duration {
+	header = strings.TrimSpace(header)
+	if header == "" {
+		return fallback
+	}
+	var d time.Duration
+	if secs, err := strconv.Atoi(header); err == nil {
+		d = time.Duration(secs) * time.Second
+	} else if when, err := http.ParseTime(header); err == nil {
+		d = time.Until(when)
+	} else {
+		return fallback
+	}
+	if d < 0 {
+		d = 0
+	}
+	if d > maxRetryAfter {
+		d = maxRetryAfter
+	}
+	return d
+}
+
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return ctx.Err()
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
 }
 
 func isRetryableError(err error) bool {
+	if errors.Is(err, context.Canceled) {
+		return false
+	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return true
 	}
 	var netErr net.Error
-	if errors.As(err, &netErr) {
-		return netErr.Timeout() || netErr.Temporary()
-	}
-	var opErr *net.OpError
-	if errors.As(err, &opErr) {
+	if errors.As(err, &netErr) && netErr.Timeout() {
 		return true
 	}
-	return false
+	var opErr *net.OpError
+	return errors.As(err, &opErr)
 }
 
-func loadCertPool(path string) (*x509.CertPool, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM(data) {
-		return nil, fmt.Errorf("failed to append certs from %s", path)
-	}
-	return pool, nil
+// isDialError reports a failure to connect, i.e. the request never left.
+func isDialError(err error) bool {
+	var opErr *net.OpError
+	return errors.As(err, &opErr) && opErr.Op == "dial"
 }

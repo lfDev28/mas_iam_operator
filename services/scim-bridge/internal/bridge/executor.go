@@ -421,6 +421,10 @@ func (e *Executor) performPut(ctx context.Context, action Action, payload mas.Us
 // permanent failures park after RetryPolicy.ParkAfter of them, conflicts
 // park at once, transient failures never park.
 func (e *Executor) recordFailure(ctx context.Context, action Action, entry state.Entry, hash, class, detail string) error {
+	if err := ctx.Err(); err != nil {
+		// Shutting down mid-call: not a MAS failure, leave state untouched.
+		return err
+	}
 	attempts := 1
 	p := action.Prior
 	if action.HasPrior && p.Status == state.StatusError && p.ErrorClass == class && p.DesiredHash == hash {

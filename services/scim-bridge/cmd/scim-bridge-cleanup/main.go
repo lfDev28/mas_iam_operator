@@ -115,7 +115,7 @@ func buildMASClient(cfg config.MASConfig) (*mas.Client, error) {
 		if cfg.APITokenName == "" || cfg.APITokenValue == "" {
 			return nil, fmt.Errorf("mas-token or mas-api-token-name/value are required when --delete is set")
 		}
-		token, err := mas.FetchToken(cfg.BaseURL, cfg.APITokenName, cfg.APITokenValue, cfg.InsecureSkipVerify)
+		token, err := mas.FetchToken(context.Background(), cfg, cfg.APITokenName, cfg.APITokenValue)
 		if err != nil {
 			return nil, fmt.Errorf("obtain MAS token: %w", err)
 		}

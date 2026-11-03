@@ -164,7 +164,7 @@ func (a *App) ensureMASToken(force bool) error {
 		}
 		return nil
 	}
-	token, err := mas.FetchToken(a.cfg.MAS.BaseURL, a.cfg.MAS.APITokenName, a.cfg.MAS.APITokenValue, a.cfg.MAS.InsecureSkipVerify)
+	token, err := mas.FetchToken(context.Background(), a.cfg.MAS, a.cfg.MAS.APITokenName, a.cfg.MAS.APITokenValue)
 	if err != nil {
 		return fmt.Errorf("obtain MAS token: %w", err)
 	}
