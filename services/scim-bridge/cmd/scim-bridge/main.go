@@ -59,6 +59,8 @@ func run(ctx context.Context, args []string) error {
 	fs.BoolVar(&cfg.Bridge.AllowUpdates, "bridge-allow-updates", cfg.Bridge.AllowUpdates, "Allow MAS updates; when false, updates are logged as skipped")
 	fs.StringVar(&cfg.Bridge.LogLevel, "bridge-log-level", cfg.Bridge.LogLevel, "Bridge log level: debug, info, warn, or error")
 	fs.BoolVar(&cfg.Bridge.PayloadLogging, "bridge-payload-logging", cfg.Bridge.PayloadLogging, "Log redacted outbound SCIM payloads (support/debug only)")
+	fs.IntVar(&cfg.Bridge.HealthPort, "health-port", cfg.Bridge.HealthPort, "Port for /healthz, /readyz and /status in poll/hybrid mode (0 disables)")
+	fs.IntVar(&cfg.Bridge.HealthStaleCycles, "health-stale-cycles", cfg.Bridge.HealthStaleCycles, "Poll intervals without a successful cycle before /healthz fails")
 
 	includeUsernames := strings.Join(cfg.Bridge.IncludeUsernames, ",")
 	includePrefix := cfg.Bridge.IncludeUsernamePrefix

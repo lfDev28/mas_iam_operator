@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -58,7 +59,16 @@ type BridgeConfig struct {
 	IncludeGroups         []string
 	LogLevel              string
 	PayloadLogging        bool
+	// HealthPort serves /healthz, /readyz and /status in poll/hybrid mode;
+	// 0 disables the server.
+	HealthPort int
+	// HealthStaleCycles is how many poll intervals may pass without a
+	// successful cycle before /healthz fails.
+	HealthStaleCycles int
 }
+
+// DefaultHealthPort is where /healthz, /readyz and /status listen.
+const DefaultHealthPort = 8081
 
 // DefaultSettings seeds sane defaults for the CLI/env overrides.
 func DefaultSettings() Settings {
@@ -83,6 +93,8 @@ func DefaultSettings() Settings {
 			IncludeGroups:         nil,
 			LogLevel:              "info",
 			PayloadLogging:        false,
+			HealthPort:            DefaultHealthPort,
+			HealthStaleCycles:     5,
 		},
 	}
 }
@@ -167,6 +179,28 @@ func ApplyEnvOverrides(cfg *Settings) error {
 			cfg.Bridge.PayloadLogging = v == "1" || strings.EqualFold(v, "true")
 			return nil
 		}},
+		{envName("HEALTH_PORT"), func(v string) error {
+			if strings.TrimSpace(v) == "" {
+				return nil
+			}
+			n, err := strconv.Atoi(strings.TrimSpace(v))
+			if err != nil {
+				return err
+			}
+			cfg.Bridge.HealthPort = n
+			return nil
+		}},
+		{envName("HEALTH_STALE_CYCLES"), func(v string) error {
+			if strings.TrimSpace(v) == "" {
+				return nil
+			}
+			n, err := strconv.Atoi(strings.TrimSpace(v))
+			if err != nil {
+				return err
+			}
+			cfg.Bridge.HealthStaleCycles = n
+			return nil
+		}},
 		{envName("INCLUDE_USERNAMES"), func(v string) error { cfg.Bridge.IncludeUsernames = ParseList(v); return nil }},
 		{envName("INCLUDE_USERNAME_PREFIX"), func(v string) error { cfg.Bridge.IncludeUsernamePrefix = v; return nil }},
 		{envName("INCLUDE_GROUPS"), func(v string) error { cfg.Bridge.IncludeGroups = ParseList(v); return nil }},
@@ -207,6 +241,12 @@ func (s Settings) Validate() error {
 	}
 	if s.Bridge.PollInterval <= 0 {
 		problems = append(problems, "poll interval must be > 0")
+	}
+	if s.Bridge.HealthPort < 0 || s.Bridge.HealthPort > 65535 {
+		problems = append(problems, "health port must be 0 (disabled) or 1-65535")
+	}
+	if s.Bridge.HealthStaleCycles < 1 {
+		problems = append(problems, "health stale cycles must be >= 1")
 	}
 	if len(problems) > 0 {
 		return errors.New(strings.Join(problems, "; "))
