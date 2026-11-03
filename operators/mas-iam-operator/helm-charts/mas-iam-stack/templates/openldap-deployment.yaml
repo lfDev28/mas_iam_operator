@@ -28,6 +28,15 @@
   {{- end -}}
 {{- end -}}
 {{- $saName := default (printf "%s-openldap" (include "mas-iam-stack.fullname" .)) $openldap.serviceAccount.name -}}
+{{- $probes := $openldap.probes | default dict -}}
+{{- $probesEnabled := true -}}
+{{- if hasKey $probes "enabled" -}}
+{{- $probesEnabled = $probes.enabled -}}
+{{- end -}}
+{{- $probePort := "ldap" -}}
+{{- if and $tlsEnabled $openldap.service.tlsPort -}}
+{{- $probePort = "ldaps" -}}
+{{- end -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -37,6 +46,12 @@ metadata:
     app.kubernetes.io/component: openldap
 spec:
   replicas: {{ $openldap.replicaCount }}
+  # The data volume is ReadWriteOnce and slapd holds an exclusive mdb lock, so
+  # the old pod has to be gone before the new one mounts the volume.
+  # RollingUpdate deadlocks on Multi-Attach whenever the new pod lands on
+  # another node.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       {{- include "mas-iam-stack.labels" . | nindent 6 }}
@@ -54,8 +69,59 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
     spec:
-      {{- if or $loadCustomLdif $tlsEnabled }}
       initContainers:
+        # Keeps cn=config on the data volume next to the database and migrates
+        # volumes written by chart <= 0.1.7 (operator <= 0.0.15), where the PVC
+        # root was /var/lib/ldap and /etc/ldap/slapd.d lived on an emptyDir.
+        # osixia's startup.sh exits with "the config directory
+        # (/etc/ldap/slapd.d) is empty but not the database directory" in that
+        # state, so every new pod on an existing volume crash-looped.
+        - name: openldap-storage
+          image: "{{ $openldap.image.repository }}:{{ $openldap.image.tag }}"
+          imagePullPolicy: {{ $openldap.image.pullPolicy }}
+          {{- if $openldap.containerSecurityContext.enabled }}
+          securityContext:
+            {{- toYaml (omit $openldap.containerSecurityContext "enabled") | nindent 12 }}
+          {{- end }}
+          env:
+            - name: LDAP_ORGANISATION
+              value: {{ $openldap.config.organisation | quote }}
+            - name: LDAP_DOMAIN
+              value: {{ $openldap.config.domain | quote }}
+            - name: LDAP_BASE_DN
+              value: {{ $baseDN | quote }}
+            - name: LDAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: {{ default "password" $admin.passwordKey | quote }}
+            {{- if $openldap.config.enableConfigAdmin }}
+            - name: LDAP_CONFIG_ADMIN_ENABLED
+              value: "true"
+            - name: LDAP_CONFIG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: {{ default "configPassword" $admin.configPasswordKey | quote }}
+            {{- end }}
+            {{- range $extra := $openldap.extraEnv }}
+            {{- if not (or (hasPrefix "LDAP_TLS" $extra.name) (hasPrefix "LDAP_SEED_" $extra.name)) }}
+            - name: {{ $extra.name }}
+              value: {{ $extra.value | quote }}
+            {{- end }}
+            {{- end }}
+            # The throwaway bootstrap only has to rebuild the schema, database
+            # and ACL config; the main container adds TLS on its own start.
+            - name: LDAP_TLS
+              value: "false"
+          command:
+            - /bin/bash
+            - -c
+            - |
+{{ .Files.Get "openldap-scripts/storage-init.sh" | trim | indent 14 }}
+          volumeMounts:
+            - name: ldap-data
+              mountPath: /ldap-volume
         {{- if $loadCustomLdif }}
         - name: openldap-seed-passwords
           image: "{{ $openldap.image.repository }}:{{ $openldap.image.tag }}"
@@ -127,13 +193,19 @@ spec:
               cp /tls-src/{{ default "ca.crt" $openldap.tls.caKey }} /tls-runtime/{{ default "ca.crt" $openldap.tls.caKey }}
               chmod 400 /tls-runtime/{{ default "tls.key" $openldap.tls.privateKeyKey }}
               chmod 444 /tls-runtime/{{ default "tls.crt" $openldap.tls.certKey }} /tls-runtime/{{ default "ca.crt" $openldap.tls.caKey }}
+              # RFC 7919 ffdhe2048 group (public and standard). With the file in
+              # place osixia skips `openssl dhparam 2048`, which took minutes on
+              # every new pod because this directory is an emptyDir.
+              cat > /tls-runtime/dhparam.pem <<'DHPARAM'
+{{ .Files.Get "openldap-tls/ffdhe2048.pem" | trim | indent 14 }}
+              DHPARAM
+              chmod 444 /tls-runtime/dhparam.pem
           volumeMounts:
             - name: openldap-tls-runtime
               mountPath: /tls-runtime
             - name: openldap-tls-source
               mountPath: /tls-src
         {{- end }}
-      {{- end }}
       serviceAccountName: {{ $saName }}
       {{- if $openldap.podSecurityContext.enabled }}
       securityContext:
@@ -181,6 +253,8 @@ spec:
               value: {{ default "tls.key" $openldap.tls.privateKeyKey | quote }}
             - name: LDAP_TLS_CA_CRT_FILENAME
               value: {{ default "ca.crt" $openldap.tls.caKey | quote }}
+            - name: LDAP_TLS_DH_PARAM_FILENAME
+              value: dhparam.pem
             - name: LDAP_TLS_ENFORCE
               value: {{ ternary "true" "false" (default false $openldap.tls.enforce) | quote }}
             {{- end }}
@@ -197,11 +271,38 @@ spec:
               containerPort: {{ $openldap.service.tlsPort }}
               protocol: TCP
             {{- end }}
+          {{- if $probesEnabled }}
+          # The first boot opens 389 on a temporary slapd while it bootstraps
+          # and seeds; only the final slapd listens on 636, so probe that one
+          # when TLS is on.
+          startupProbe:
+            tcpSocket:
+              port: {{ $probePort }}
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: {{ default 60 $probes.startupFailureThreshold }}
+          readinessProbe:
+            tcpSocket:
+              port: {{ $probePort }}
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket:
+              port: {{ $probePort }}
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          {{- end }}
           volumeMounts:
+            # Database and cn=config share the volume so they always move
+            # together; osixia refuses to start when only one of them exists.
             - name: ldap-data
               mountPath: /var/lib/ldap
-            - name: ldap-config
+              subPath: data
+            - name: ldap-data
               mountPath: /etc/ldap/slapd.d
+              subPath: config
             {{- if $loadCustomLdif }}
             - name: seed-runtime
               mountPath: /seed-runtime
@@ -221,8 +322,6 @@ spec:
           {{- else }}
           emptyDir: {}
           {{- end }}
-        - name: ldap-config
-          emptyDir: {}
         {{- if $loadCustomLdif }}
         - name: seed-runtime
           emptyDir: {}

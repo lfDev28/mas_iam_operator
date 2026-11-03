@@ -56,6 +56,10 @@ spec:
       #             operator: In
       #             values:
       #               - linux
+      # The operator, bundle and catalog images are built for amd64 only.
+      # Override through the Subscription's spec.config.nodeSelector.
+      nodeSelector:
+        kubernetes.io/arch: amd64
       securityContext:
         runAsNonRoot: true
         # TODO(user): For common cases that do not require escalating privileges
@@ -71,6 +75,13 @@ spec:
         - --leader-election-id=mas-iam-operator
         image: controller:latest
         imagePullPolicy: Always
+        env:
+        # Watch only the OperatorGroup's target namespace(s); the CSV's RBAC is
+        # namespaced to match.
+        - name: WATCH_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.annotations['olm.targetNamespaces']
         name: manager
         securityContext:
           allowPrivilegeEscalation: false

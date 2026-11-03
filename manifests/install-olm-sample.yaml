@@ -149,6 +149,54 @@ spec:
           trap cleanup EXIT
           pushd "${workdir}" >/dev/null
 
+          api_server="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}"
+          token="$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)"
+          cacert="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+          kubectl_args=(--server "${api_server}" --token "${token}" --certificate-authority "${cacert}" --namespace "${namespace}")
+
+          # Re-running this Job (it is re-applied on every install and its
+          # TTL is 5 minutes) must not rotate the CA: OpenLDAP, Keycloak's
+          # truststore and the MAS LDAP IDPCfg all hold the current one.
+          # Keep the secret when it is complete, consistent and not expiring
+          # within 30 days; regenerate only when it is missing or unusable.
+          secret_field() {
+            "${kubectl_bin}" "${kubectl_args[@]}" get secret "${secret}" \
+              -o "go-template={{ with index .data \"$1\" }}{{ . }}{{ end }}" 2>/dev/null | openssl base64 -d -A
+          }
+          existing_secret_valid() {
+            "${kubectl_bin}" "${kubectl_args[@]}" get secret "${secret}" >/dev/null 2>&1 || {
+              echo "Secret ${secret} not found."
+              return 1
+            }
+            local key
+            for key in ca.crt tls.crt tls.key ldap-truststore.p12 truststorePassword; do
+              if [[ -z "$("${kubectl_bin}" "${kubectl_args[@]}" get secret "${secret}" -o "go-template={{ with index .data \"${key}\" }}{{ . }}{{ end }}" 2>/dev/null)" ]]; then
+                echo "Secret ${secret} has no ${key}."
+                return 1
+              fi
+            done
+            secret_field ca.crt > existing-ca.crt
+            secret_field tls.crt > existing-tls.crt
+            secret_field tls.key > existing-tls.key
+            openssl x509 -in existing-ca.crt -noout >/dev/null 2>&1 || { echo "ca.crt does not parse."; return 1; }
+            openssl x509 -in existing-tls.crt -noout >/dev/null 2>&1 || { echo "tls.crt does not parse."; return 1; }
+            openssl verify -CAfile existing-ca.crt existing-tls.crt >/dev/null 2>&1 || { echo "tls.crt is not signed by ca.crt."; return 1; }
+            local cert_pub key_pub
+            cert_pub="$(openssl x509 -in existing-tls.crt -noout -pubkey 2>/dev/null)"
+            key_pub="$(openssl pkey -in existing-tls.key -pubout 2>/dev/null)"
+            [[ -n "${cert_pub}" && "${cert_pub}" == "${key_pub}" ]] || { echo "tls.key does not match tls.crt."; return 1; }
+            openssl x509 -in existing-tls.crt -noout -checkend 2592000 >/dev/null || { echo "tls.crt expires within 30 days."; return 1; }
+            openssl x509 -in existing-ca.crt -noout -checkend 2592000 >/dev/null || { echo "ca.crt expires within 30 days."; return 1; }
+            return 0
+          }
+          if existing_secret_valid; then
+            echo "${secret} already holds a valid CA and server certificate (not expiring within 30 days); leaving it unchanged."
+            exit 0
+          fi
+          echo "Generating new OpenLDAP TLS material for ${secret}."
+          echo "NOTE: a new CA means OpenLDAP and Keycloak pods must restart to pick it up, and MAS's LDAP IDPCfg CA must be refreshed."
+          rm -f existing-ca.crt existing-tls.crt existing-tls.key
+
           openssl genrsa -out ca.key 4096
           openssl req -x509 -new -key ca.key -sha256 -days 3650 \
             -out ca.crt \
@@ -172,11 +220,6 @@ spec:
             -nokeys \
             -out ldap-truststore.p12 \
             -passout pass:"${truststore_password}"
-
-          api_server="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}"
-          token="$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)"
-          cacert="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
-          kubectl_args=(--server "${api_server}" --token "${token}" --certificate-authority "${cacert}" --namespace "${namespace}")
 
           "${kubectl_bin}" "${kubectl_args[@]}" delete secret "${secret}" --ignore-not-found
           "${kubectl_bin}" "${kubectl_args[@]}" create secret generic "${secret}" \

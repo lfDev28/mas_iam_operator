@@ -1,0 +1,94 @@
+# Everything the mas-iam-stack chart renders, plus the Helm release secrets and
+# the MasIamStack CR itself. The operator only watches the OperatorGroup's
+# target namespace (WATCH_NAMESPACE), so none of this needs to be cluster-wide.
+# OLM creates this Role in that namespace from the CSV's `permissions`.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    app.kubernetes.io/name: role
+    app.kubernetes.io/instance: manager-namespaced-role
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: mas-iam-operator
+    app.kubernetes.io/part-of: mas-iam-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: manager-namespaced-role
+rules:
+# Helm release secrets and every core kind the chart renders.
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - persistentvolumeclaims
+  - secrets
+  - serviceaccounts
+  - services
+  verbs:
+  - "*"
+# Events on the CR about reconciliation.
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+- apiGroups:
+  - iam.mas.ibm.com
+  resources:
+  - masiamstacks
+  - masiamstacks/status
+  - masiamstacks/finalizers
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  - statefulsets
+  verbs:
+  - "*"
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - "*"
+- apiGroups:
+  - policy
+  resources:
+  - poddisruptionbudgets
+  verbs:
+  - "*"
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - networkpolicies
+  verbs:
+  - "*"
+# routes/custom-host is needed to set spec.host on the Keycloak Route.
+- apiGroups:
+  - route.openshift.io
+  resources:
+  - routes
+  - routes/custom-host
+  verbs:
+  - "*"
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resources:
+  - roles
+  - rolebindings
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch

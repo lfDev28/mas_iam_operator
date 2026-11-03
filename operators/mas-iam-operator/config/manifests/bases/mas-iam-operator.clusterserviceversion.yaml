@@ -4,6 +4,9 @@ metadata:
   annotations:
     alm-examples: '[]'
     capabilities: Basic Install
+    # Lets OLM upgrade any earlier release straight to this one. Keep the
+    # bound in step with VERSION when bumping (another step bumps versions).
+    olm.skipRange: '<0.0.16'
   name: mas-iam-operator.v0.0.0
   namespace: placeholder
 spec:

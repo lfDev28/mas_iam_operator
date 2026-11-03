@@ -92,6 +92,9 @@ metadata:
     "helm.sh/hook-delete-policy": before-hook-creation
 spec:
   backoffLimit: 3
+  # Hard stop for the whole Job (all retries); each wait inside the script is
+  # also capped at KC_WAIT_TIMEOUT_SECONDS.
+  activeDeadlineSeconds: {{ default 1800 $ldap.configJobActiveDeadlineSeconds }}
   template:
     metadata:
       labels:
@@ -103,6 +106,10 @@ spec:
         - name: configure-ldap
           image: "{{ .Values.keycloak.image.registry }}/{{ .Values.keycloak.image.repository }}:{{ .Values.keycloak.image.tag }}"
           imagePullPolicy: {{ .Values.keycloak.image.pullPolicy }}
+          {{- with .Values.keycloak.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           env:
             - name: KC_HOST
               value: {{ printf "http://%s:8080" (include "mas-iam-stack.fullname" .) | quote }}
@@ -150,6 +157,8 @@ spec:
                   key: {{ default "password" .Values.keycloak.bootstrapAdmin.passwordKey | quote }}
             - name: HOME
               value: /tmp/kcadm
+            - name: KC_WAIT_TIMEOUT_SECONDS
+              value: {{ default 900 $ldap.configJobWaitTimeoutSeconds | quote }}
             - name: KC_BIND_CREDENTIAL
               valueFrom:
                 secretKeyRef:
@@ -161,6 +170,32 @@ spec:
             - |
               set -euo pipefail
               mkdir -p "${HOME}/.keycloak"
+              WAIT_TIMEOUT="${KC_WAIT_TIMEOUT_SECONDS:-900}"
+              # retry <what> <command...>: rerun every 5s until it succeeds or
+              # WAIT_TIMEOUT seconds pass, then fail the Job with a clear reason.
+              retry() {
+                local what="$1"; shift
+                local deadline=$(( $(date +%s) + WAIT_TIMEOUT ))
+                until "$@"; do
+                  if (( $(date +%s) >= deadline )); then
+                    echo "ERROR: gave up after ${WAIT_TIMEOUT}s: ${what}. Check the Keycloak pod logs; the hook reruns on the next reconcile." >&2
+                    exit 1
+                  fi
+                  echo "${what}: not yet; retrying in 5s..."
+                  sleep 5
+                done
+              }
+              kc_login() {
+                /opt/keycloak/bin/kcadm.sh config credentials --server "$KC_HOST" --realm master --user "$KC_ADMIN_USER" --password "$KC_ADMIN_PASSWORD"
+              }
+              port_open() {
+                (echo >"/dev/tcp/${host}/${port}") >/dev/null 2>&1
+              }
+              # A failed admin call may be an expired token; log in again
+              # before the next attempt.
+              kc_or_relogin() {
+                "$@" || { kc_login >/dev/null 2>&1 || true; return 1; }
+              }
               host_port="${KC_HOST#*://}"
               if [[ "$host_port" == "$KC_HOST" ]]; then
                 host_port="$KC_HOST"
@@ -172,14 +207,9 @@ spec:
                 port="8080"
               fi
               echo "Waiting for Keycloak service ${host}:${port}..."
-              until (echo >"/dev/tcp/${host}/${port}") >/dev/null 2>&1; do
-                sleep 5
-              done
+              retry "Waiting for Keycloak service ${host}:${port}" port_open
               echo "Service port is open; waiting for Keycloak admin API..."
-              until /opt/keycloak/bin/kcadm.sh config credentials --server "$KC_HOST" --realm master --user "$KC_ADMIN_USER" --password "$KC_ADMIN_PASSWORD"; do
-                echo "Waiting for Keycloak admin API..."
-                sleep 5
-              done
+              retry "Waiting for Keycloak admin API login" kc_login
               echo "Authenticated against Keycloak admin API."
               echo "Ensuring bootstrap admin password is permanent."
               /opt/keycloak/bin/kcadm.sh config credentials \
@@ -252,30 +282,22 @@ spec:
               if (( ${#existing_ids[@]} > 0 )); then
                 primary="${existing_ids[0]}"
                 echo "Updating existing LDAP user storage provider ${primary}."
-                until /opt/keycloak/bin/kcadm.sh update components/"$primary" -r "$KC_REALM" -f /tmp/ldap-component.json; do
-                  echo "Update of ${primary} failed; retrying in 5 seconds..."
-                  sleep 5
-                  /opt/keycloak/bin/kcadm.sh config credentials --server "$KC_HOST" --realm master --user "$KC_ADMIN_USER" --password "$KC_ADMIN_PASSWORD" >/dev/null
-                done
+                retry "Updating LDAP component ${primary}" \
+                  kc_or_relogin /opt/keycloak/bin/kcadm.sh update components/"$primary" -r "$KC_REALM" -f /tmp/ldap-component.json
                 if (( ${#existing_ids[@]} > 1 )); then
                   echo "Removing duplicate LDAP user storage providers: ${existing_ids[*]:1}"
                   for comp in "${existing_ids[@]:1}"; do
                     [[ -z "$comp" ]] && continue
                     echo "Deleting LDAP component $comp"
-                    until /opt/keycloak/bin/kcadm.sh delete components/"$comp" -r "$KC_REALM"; do
-                      echo "Deletion of $comp failed; retrying in 5 seconds..."
-                      sleep 5
-                      /opt/keycloak/bin/kcadm.sh config credentials --server "$KC_HOST" --realm master --user "$KC_ADMIN_USER" --password "$KC_ADMIN_PASSWORD" >/dev/null
-                    done
+                    retry "Deleting duplicate LDAP component ${comp}" \
+                      kc_or_relogin /opt/keycloak/bin/kcadm.sh delete components/"$comp" -r "$KC_REALM"
                   done
                 fi
                 echo "LDAP user storage provider '${KC_PROVIDER_NAME}' updated successfully."
               else
                 echo "No existing LDAP user storage providers found; creating a new one."
-                until /opt/keycloak/bin/kcadm.sh create components -r "$KC_REALM" -f /tmp/ldap-component.json; do
-                  echo "LDAP provider creation failed; retrying in 5 seconds..."
-                  sleep 5
-                done
+                retry "Creating LDAP user storage provider" \
+                  kc_or_relogin /opt/keycloak/bin/kcadm.sh create components -r "$KC_REALM" -f /tmp/ldap-component.json
                 echo "LDAP user storage provider '${KC_PROVIDER_NAME}' created successfully."
               fi
 {{- end -}}
