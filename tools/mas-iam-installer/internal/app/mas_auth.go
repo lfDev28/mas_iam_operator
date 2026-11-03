@@ -19,6 +19,7 @@ import (
 
 	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/config"
 	executil "github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/exec"
+	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/masadmin"
 	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/oc"
 	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/ui"
 )
@@ -800,9 +801,9 @@ func fetchKeycloakSAMLMetadata(ctx context.Context, routeHost, realm string) (st
 	}
 	client := &http.Client{
 		Timeout: 30 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // lab route certificates are often cluster-local CAs
-		},
+		// Lab route certificates are often cluster-local CAs; the transport
+		// also honours HTTPS_PROXY / NO_PROXY.
+		Transport: masadmin.NewInsecureTransport(),
 	}
 	resp, err := client.Do(req)
 	if err != nil {

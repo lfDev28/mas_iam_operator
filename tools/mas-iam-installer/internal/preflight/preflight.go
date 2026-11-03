@@ -2,7 +2,6 @@ package preflight
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -371,12 +370,11 @@ func CheckIDPCfgOverwrite(ctx context.Context, lookup IDPCfgLookup, plan IDPCfgP
 // verification is skipped because MAS routes are commonly signed by a
 // cluster-local CA that is not in the system trust store — same policy as
 // internal/masadmin's WithInsecureTLS, which the installer always enables.
+// Uses masadmin.NewInsecureTransport so HTTPS_PROXY / NO_PROXY are honoured.
 func masHTTPClient() *http.Client {
 	return &http.Client{
-		Timeout: 15 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		},
+		Timeout:   15 * time.Second,
+		Transport: masadmin.NewInsecureTransport(),
 	}
 }
 
