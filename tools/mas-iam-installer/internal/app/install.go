@@ -131,6 +131,19 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 	discovery := discoverInstallDiscovery(ctx, client)
 	fillMASAPICredentialsFromSecret(ctx, client, &cfg)
 
+	// Existing PVCs pin their storage class (storageClassName is immutable):
+	// default to it, so neither the recommendation nor the prompt suggests a
+	// class a re-run could not apply. Flag/env values are re-checked below.
+	if !cfg.WipeFirst {
+		pvcClasses := existingPVCStorageClasses(ctx, client, cfg.Namespace)
+		if cfg.StorageClass == "" {
+			cfg.StorageClass, _, _ = reconcileStorageClass("", false, pvcClasses, primaryStoragePVCs)
+		}
+		if cfg.ScimBridgeStorageClass == "" {
+			cfg.ScimBridgeStorageClass, _, _ = reconcileStorageClass("", false, pvcClasses, scimBridgeStoragePVCs)
+		}
+	}
+
 	var storageRanking preflight.StorageRanking
 	if classes, err := client.StorageClasses(ctx); err == nil && len(classes) > 0 {
 		storageRanking = preflight.RankStorageClasses(classes)
@@ -238,6 +251,30 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 	}
 	if cfg.ScimBridgeStorageClass == "" && report.Storage.Recommended != "" {
 		cfg.ScimBridgeStorageClass = report.Storage.Recommended
+	}
+	// Final say for existing PVCs (the prompt may have changed the namespace
+	// or the class). --uninstall-first deletes them, so nothing is pinned.
+	if !cfg.WipeFirst {
+		pvcClasses := existingPVCStorageClasses(ctx, client, cfg.Namespace)
+		explicitStorage := interactive || strings.TrimSpace(o.config.StorageClass) != ""
+		explicitScimStorage := interactive || strings.TrimSpace(o.config.ScimBridgeStorageClass) != ""
+		for _, target := range []struct {
+			value    *string
+			explicit bool
+			pvcs     []string
+		}{
+			{&cfg.StorageClass, explicitStorage, primaryStoragePVCs},
+			{&cfg.ScimBridgeStorageClass, explicitScimStorage, scimBridgeStoragePVCs},
+		} {
+			class, note, warn := reconcileStorageClass(*target.value, target.explicit, pvcClasses, target.pvcs)
+			*target.value = class
+			switch {
+			case warn:
+				fmt.Fprintf(os.Stderr, "[warn] %s\n", note)
+			case note != "":
+				fmt.Fprintf(os.Stdout, "[config] %s\n", note)
+			}
+		}
 	}
 
 	if interactive {

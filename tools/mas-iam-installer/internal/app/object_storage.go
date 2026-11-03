@@ -421,6 +421,17 @@ func (o *minioInstallOptions) defaultAndValidate(ctx context.Context, client *oc
 	o.name = defaultString(o.name, defaultMinIOName)
 	o.bucket = defaultString(o.bucket, defaultMinIOBucket)
 	o.storageClassName = strings.TrimSpace(o.storageClassName)
+	// The data PVC's storageClassName is immutable: a re-run that picked a
+	// different class failed on the apply. Keep the existing PVC's class.
+	if class, note, warn := reconcileStorageClass(o.storageClassName, o.storageClassName != "",
+		existingPVCStorageClasses(ctx, client, o.namespace), []string{o.name + "-data"}); note != "" {
+		o.storageClassName = class
+		if warn {
+			fmt.Fprintf(os.Stderr, "[object-storage] WARN: %s\n", note)
+		} else {
+			fmt.Fprintf(os.Stdout, "[object-storage] %s\n", note)
+		}
+	}
 	if o.storageClassName == "" {
 		storageClass, err := defaultPVCStorageClass(ctx, client)
 		if err != nil {
@@ -457,18 +468,35 @@ func defaultPVCStorageClass(ctx context.Context, client *oc.Client) (string, err
 	if err != nil {
 		return "", err
 	}
+	return pickPVCStorageClass(storageClasses)
+}
+
+// pickPVCStorageClass chooses the MinIO PVC class: the cluster default, else
+// rook-ceph-block, else the first class. Static no-provisioner classes (e.g.
+// ODF's localblock) are skipped everywhere: a new PVC against one never
+// binds, so MinIO would sit Pending until the rollout times out.
+func pickPVCStorageClass(storageClasses []oc.StorageClass) (string, error) {
+	dynamic := make([]oc.StorageClass, 0, len(storageClasses))
 	for _, storageClass := range storageClasses {
+		if !storageClass.IsStatic() {
+			dynamic = append(dynamic, storageClass)
+		}
+	}
+	for _, storageClass := range dynamic {
 		if storageClass.IsDefault {
 			return storageClass.Name, nil
 		}
 	}
-	for _, storageClass := range storageClasses {
+	for _, storageClass := range dynamic {
 		if storageClass.Name == defaultMinIOStorageClass {
 			return storageClass.Name, nil
 		}
 	}
+	if len(dynamic) > 0 {
+		return dynamic[0].Name, nil
+	}
 	if len(storageClasses) > 0 {
-		return storageClasses[0].Name, nil
+		return "", fmt.Errorf("only statically provisioned storage classes (%s) found; their PVCs never bind. Provide --storage-class", oc.StaticProvisioner)
 	}
 	return "", fmt.Errorf("no storage classes found; provide --storage-class")
 }
