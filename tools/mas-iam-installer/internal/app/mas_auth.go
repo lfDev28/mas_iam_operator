@@ -510,6 +510,8 @@ func (o *masAuthApplyOptions) configureKeycloak(ctx context.Context, runner *exe
 	if adminPassword == "" {
 		return keycloakMASClients{}, fmt.Errorf("Keycloak admin secret %s/%s is missing password", o.namespace, adminSecretName)
 	}
+	// Only used when the OIDC client does not exist yet: the script reuses
+	// an existing client's current secret (see keycloakMASClientScript).
 	oidcSecret, err := randomSecretString(32)
 	if err != nil {
 		return keycloakMASClients{}, err
@@ -539,11 +541,24 @@ func (o *masAuthApplyOptions) configureKeycloak(ctx context.Context, runner *exe
 		// "Can't finish SAML logout as there is no logout binding set."
 		"SAML_SLO_URL": fmt.Sprintf("https://%s/ibm/saml20/%s/slo", o.masAuthHost, defaultMASAuthSAMLSPName),
 	})
-	if _, err := runner.InputOutput(ctx, executil.Options{
+	output, err := runner.InputOutput(ctx, executil.Options{
 		Name: "oc",
 		Args: []string{"exec", "-i", "-n", o.namespace, pod, "-c", "keycloak", "--", "bash", "-s"},
-	}, strings.NewReader(script)); err != nil {
+	}, strings.NewReader(script))
+	if err != nil {
 		return keycloakMASClients{}, fmt.Errorf("configure Keycloak MAS clients: %w", err)
+	}
+	if o.hasProvider(config.MASAuthProviderOIDC) {
+		effective, state, ok := parseKeycloakOIDCSecret(output)
+		if !ok {
+			return keycloakMASClients{}, fmt.Errorf("configure Keycloak MAS clients: the client script did not report the OIDC client secret; refusing to send MAS a secret Keycloak may not hold")
+		}
+		oidcSecret = effective
+		if state == "reused" {
+			fmt.Fprintf(os.Stdout, "[mas-auth] Keycloak OIDC client %s exists; keeping its current client secret\n", o.oidcProviderID)
+		} else {
+			fmt.Fprintf(os.Stdout, "[mas-auth] Keycloak OIDC client %s configured with a new client secret\n", o.oidcProviderID)
+		}
 	}
 
 	metadata := ""
@@ -656,12 +671,54 @@ func keycloakMASClientScript(values map[string]string) string {
 		fmt.Fprintf(&b, "%s=%s\n", key, shellQuote(values[key]))
 	}
 	b.WriteString(`
-export HOME=/tmp/mas-est-auth
+# KCADM / MAS_EST_KCADM_HOME exist so the unit tests can run this script
+# against a fake kcadm; in the Keycloak pod both keep their defaults.
+KCADM="${KCADM:-/opt/keycloak/bin/kcadm.sh}"
+export HOME="${MAS_EST_KCADM_HOME:-/tmp/mas-est-auth}"
 mkdir -p "$HOME/.keycloak"
-/opt/keycloak/bin/kcadm.sh config credentials --server "$KC_SERVICE" --realm master --user "$KC_ADMIN_USER" --password "$KC_ADMIN_PASSWORD" >/dev/null
+"$KCADM" config credentials --server "$KC_SERVICE" --realm master --user "$KC_ADMIN_USER" --password "$KC_ADMIN_PASSWORD" >/dev/null
 
+# find_client_uuid prints the internal id of the client whose clientId is $1,
+# or nothing when there is no such client. A failed lookup (expired admin
+# session, missing realm, Keycloak restarting) aborts the script: it must
+# never read as "client absent", because the create path that follows would
+# either 409 or, for OIDC, mint a new secret MAS does not know about.
+find_client_uuid() {
+  local want=$1 listing client_id client_uuid
+  if ! listing=$("$KCADM" get clients -r "$KC_REALM" --fields clientId,id --format csv --noquotes); then
+    echo "error: 'kcadm get clients' failed in realm $KC_REALM; refusing to guess whether client $want exists" >&2
+    return 1
+  fi
+  while IFS=, read -r client_id client_uuid _; do
+    client_id="${client_id//$'\r'/}"
+    client_uuid="${client_uuid//$'\r'/}"
+    if [[ "$client_id" == "$want" ]]; then
+      printf '%s' "$client_uuid"
+      return 0
+    fi
+  done <<<"$listing"
+  return 0
+}
+
+oidc_secret_state=""
 if [[ "$CONFIGURE_OIDC" == "true" ]]; then
-  cat >/tmp/mas-est-oidc-client.json <<JSON
+oidc_uuid=$(find_client_uuid "$OIDC_CLIENT_ID")
+if [[ -n "$oidc_uuid" ]]; then
+  # Re-runs keep the client's CURRENT secret. Rotating it here, before MAS has
+  # been told the new value, breaks every OIDC login (unauthorized_client) the
+  # moment the MAS PUT fails or coreidp is slow to reload.
+  secret_json=$("$KCADM" get "clients/${oidc_uuid}/client-secret" -r "$KC_REALM")
+  existing_secret=$(printf '%s\n' "$secret_json" | sed -n 's/.*"value"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+  if [[ -n "$existing_secret" ]]; then
+    OIDC_CLIENT_SECRET="$existing_secret"
+    oidc_secret_state="reused"
+  else
+    oidc_secret_state="generated"
+  fi
+else
+  oidc_secret_state="generated"
+fi
+  cat >"$HOME/mas-est-oidc-client.json" <<JSON
 {
   "clientId": "${OIDC_CLIENT_ID}",
   "enabled": true,
@@ -675,24 +732,15 @@ if [[ "$CONFIGURE_OIDC" == "true" ]]; then
   "webOrigins": ["+"]
 }
 JSON
-oidc_uuid=""
-while IFS=, read -r client_id client_uuid _; do
-  client_id="${client_id//$'\r'/}"
-  client_uuid="${client_uuid//$'\r'/}"
-  if [[ "$client_id" == "$OIDC_CLIENT_ID" ]]; then
-    oidc_uuid="$client_uuid"
-    break
-  fi
-done < <(/opt/keycloak/bin/kcadm.sh get clients -r "$KC_REALM" --fields clientId,id --format csv --noquotes 2>/dev/null)
 if [[ -z "$oidc_uuid" ]]; then
-  /opt/keycloak/bin/kcadm.sh create clients -r "$KC_REALM" -f /tmp/mas-est-oidc-client.json >/dev/null
+  "$KCADM" create clients -r "$KC_REALM" -f "$HOME/mas-est-oidc-client.json" >/dev/null
 else
-  /opt/keycloak/bin/kcadm.sh update "clients/${oidc_uuid}" -r "$KC_REALM" -f /tmp/mas-est-oidc-client.json >/dev/null
+  "$KCADM" update "clients/${oidc_uuid}" -r "$KC_REALM" -f "$HOME/mas-est-oidc-client.json" >/dev/null
 fi
 fi
 
 if [[ "$CONFIGURE_SAML" == "true" ]]; then
-  cat >/tmp/mas-est-saml-client.json <<JSON
+  cat >"$HOME/mas-est-saml-client.json" <<JSON
 {
   "clientId": "${SAML_CLIENT_ID}",
   "enabled": true,
@@ -710,28 +758,17 @@ if [[ "$CONFIGURE_SAML" == "true" ]]; then
   }
 }
 JSON
-saml_uuid=""
-while IFS=, read -r client_id client_uuid _; do
-  client_id="${client_id//$'\r'/}"
-  client_uuid="${client_uuid//$'\r'/}"
-  if [[ "$client_id" == "$SAML_CLIENT_ID" ]]; then
-    saml_uuid="$client_uuid"
-    break
-  fi
-done < <(/opt/keycloak/bin/kcadm.sh get clients -r "$KC_REALM" --fields clientId,id --format csv --noquotes 2>/dev/null)
+saml_uuid=$(find_client_uuid "$SAML_CLIENT_ID")
 if [[ -z "$saml_uuid" ]]; then
-  /opt/keycloak/bin/kcadm.sh create clients -r "$KC_REALM" -f /tmp/mas-est-saml-client.json >/dev/null
+  "$KCADM" create clients -r "$KC_REALM" -f "$HOME/mas-est-saml-client.json" >/dev/null
   # re-read the uuid we just created
-  while IFS=, read -r client_id client_uuid _; do
-    client_id="${client_id//$'\r'/}"
-    client_uuid="${client_uuid//$'\r'/}"
-    if [[ "$client_id" == "$SAML_CLIENT_ID" ]]; then
-      saml_uuid="$client_uuid"
-      break
-    fi
-  done < <(/opt/keycloak/bin/kcadm.sh get clients -r "$KC_REALM" --fields clientId,id --format csv --noquotes 2>/dev/null)
+  saml_uuid=$(find_client_uuid "$SAML_CLIENT_ID")
+  if [[ -z "$saml_uuid" ]]; then
+    echo "error: SAML client $SAML_CLIENT_ID not found right after creating it" >&2
+    exit 1
+  fi
 else
-  /opt/keycloak/bin/kcadm.sh update "clients/${saml_uuid}" -r "$KC_REALM" -f /tmp/mas-est-saml-client.json >/dev/null
+  "$KCADM" update "clients/${saml_uuid}" -r "$KC_REALM" -f "$HOME/mas-est-saml-client.json" >/dev/null
 fi
 
 # Keycloak's default SAML assertion ships only the NameID + role_list — no
@@ -742,12 +779,13 @@ fi
 ensure_saml_mapper() {
   local name=$1
   local user_attr=$2
-  local existing
-  existing=$(/opt/keycloak/bin/kcadm.sh get "clients/${saml_uuid}/protocol-mappers/models" -r "$KC_REALM" --fields name --format csv --noquotes 2>/dev/null | tr -d '\r' | grep -Fx "$name" || true)
+  local listing existing
+  listing=$("$KCADM" get "clients/${saml_uuid}/protocol-mappers/models" -r "$KC_REALM" --fields name --format csv --noquotes)
+  existing=$(printf '%s\n' "$listing" | tr -d '\r' | grep -Fx "$name" || true)
   if [[ -n "$existing" ]]; then
     return 0
   fi
-  cat >/tmp/mas-est-saml-mapper.json <<JSON
+  cat >"$HOME/mas-est-saml-mapper.json" <<JSON
 {
   "name": "${name}",
   "protocol": "saml",
@@ -761,15 +799,45 @@ ensure_saml_mapper() {
   }
 }
 JSON
-  /opt/keycloak/bin/kcadm.sh create "clients/${saml_uuid}/protocol-mappers/models" -r "$KC_REALM" -f /tmp/mas-est-saml-mapper.json >/dev/null
+  "$KCADM" create "clients/${saml_uuid}/protocol-mappers/models" -r "$KC_REALM" -f "$HOME/mas-est-saml-mapper.json" >/dev/null
 }
 ensure_saml_mapper preferred_username username
 ensure_saml_mapper email email
 ensure_saml_mapper given_name firstName
 ensure_saml_mapper family_name lastName
 fi
+
+rm -f "$HOME/mas-est-oidc-client.json" "$HOME/mas-est-saml-client.json" "$HOME/mas-est-saml-mapper.json"
+
+# Report the effective OIDC client secret LAST, only once everything above
+# succeeded: the Go side reads it from stdout, and a failure earlier in the
+# script surfaces the captured output in the error message.
+if [[ "$CONFIGURE_OIDC" == "true" ]]; then
+  printf '%s%s\n' '` + keycloakOIDCStateMarker + `' "$oidc_secret_state"
+  printf '%s%s\n' '` + keycloakOIDCSecretMarker + `' "$OIDC_CLIENT_SECRET"
+fi
 `)
 	return b.String()
+}
+
+const (
+	keycloakOIDCSecretMarker = "MAS_EST_OIDC_CLIENT_SECRET="
+	keycloakOIDCStateMarker  = "MAS_EST_OIDC_CLIENT_SECRET_STATE="
+)
+
+// parseKeycloakOIDCSecret extracts the effective OIDC client secret (and
+// whether it was reused or newly generated) from the client script's output.
+func parseKeycloakOIDCSecret(output string) (secret, state string, ok bool) {
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimRight(line, "\r")
+		switch {
+		case strings.HasPrefix(line, keycloakOIDCSecretMarker):
+			secret = strings.TrimPrefix(line, keycloakOIDCSecretMarker)
+		case strings.HasPrefix(line, keycloakOIDCStateMarker):
+			state = strings.TrimPrefix(line, keycloakOIDCStateMarker)
+		}
+	}
+	return secret, state, secret != ""
 }
 
 func shellQuote(value string) string {
