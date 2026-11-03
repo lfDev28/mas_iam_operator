@@ -11,6 +11,28 @@ keycloak:
   args:
     - start
   replicaCount: 1
+  # Heap follows the memory limit: the image sets KC_RUN_IN_CONTAINER=true and
+  # kc.sh then uses -XX:MaxRAMPercentage=70.
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      memory: 2Gi
+  # Applied to the Keycloak container and both init containers. On OpenShift
+  # the anyuid SCC does not allow a seccomp profile, so with RuntimeDefault set
+  # the pod is admitted under restricted-v2 (arbitrary uid, which the Keycloak
+  # image supports). Set to {} to fall back to the previous behaviour.
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    runAsNonRoot: true
+    capabilities:
+      drop:
+        - ALL
+    seccompProfile:
+      type: RuntimeDefault
+  # x 10s; the first boot imports the realm.
+  startupProbeFailureThreshold: 60
   env:
     - name: KC_HEALTH_ENABLED
       value: "true"
@@ -93,6 +115,11 @@ keycloak:
     uuidLDAPAttribute: entryUUID
     usernameLDAPAttribute: uid
     rdnLDAPAttribute: uid
+    # ldap-config hook Job: each wait/retry loop gives up after
+    # configJobWaitTimeoutSeconds; the Job as a whole after
+    # configJobActiveDeadlineSeconds.
+    configJobWaitTimeoutSeconds: 900
+    configJobActiveDeadlineSeconds: 1800
 postgresql:
   enabled: true
   image:
@@ -131,8 +158,16 @@ postgresql:
       enabled: true
       runAsUser: 1001
       runAsNonRoot: true
-    volumePermissions:
-      enabled: true
+    # Explicit sizing instead of the subchart's resourcesPreset "nano"
+    # (which caps memory at 192Mi).
+    resourcesPreset: none
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
 openldap:
   enabled: true
   image:
