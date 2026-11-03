@@ -11,15 +11,39 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 COPY tools/mas-iam-installer /src/tools/mas-iam-installer
 
 ARG TARGETARCH=amd64
+# Release builds stamp these (scripts/build-cli-image.sh passes them):
+#   --build-arg VERSION=0.1.16 --build-arg COMMIT=<git sha> --build-arg BUILD_DATE=<UTC>
+# VERSION may carry a leading "v". It must equal Version in
+# internal/version/version.go, or be that value plus -rc.N for a release
+# candidate: the in-cluster installer launches the Job image "v" + Version, so
+# a tag that disagrees with the binary would launch the wrong image. Empty
+# VERSION keeps version.go's value (local and dev builds).
+ARG VERSION=""
+ARG COMMIT=unknown
+ARG BUILD_DATE=unknown
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    mkdir -p /out/bin \
-    && for target in "darwin amd64" "darwin arm64" "linux amd64" "linux arm64"; do \
+    set -eu; \
+    source_version="$(sed -n 's/^[[:space:]]*Version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' internal/version/version.go)"; \
+    if [ -z "${source_version}" ]; then \
+      echo "error: cannot read Version from internal/version/version.go" >&2; exit 1; \
+    fi; \
+    version="${VERSION#v}"; \
+    case "${version}" in \
+      ""|"${source_version}"|"${source_version}"-rc.[0-9]*) ;; \
+      *) echo "error: VERSION=${version} does not match version.go (${source_version}); bump version.go or fix the tag" >&2; exit 1 ;; \
+    esac; \
+    version="${version:-${source_version}}"; \
+    pkg=github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/version; \
+    ldflags="-s -w -X ${pkg}.Version=${version} -X ${pkg}.Commit=${COMMIT} -X ${pkg}.BuildDate=${BUILD_DATE}"; \
+    mkdir -p /out/bin; \
+    for target in "darwin amd64" "darwin arm64" "linux amd64" "linux arm64"; do \
       set -- ${target}; \
       mkdir -p "/out/bin/$1-$2"; \
       CGO_ENABLED=0 GOOS="$1" GOARCH="$2" \
-        go build -trimpath -ldflags="-s -w" -o "/out/bin/$1-$2/est" ./cmd/mas-iam-installer; \
-    done
+        go build -trimpath -ldflags="${ldflags}" -o "/out/bin/$1-$2/est" ./cmd/mas-iam-installer; \
+    done; \
+    echo "stamped mas-est ${version} (commit ${COMMIT}, built ${BUILD_DATE})"
 
 ARG TARGETARCH=amd64
 # Runtime base is the previous published mas-est image (multi-arch manifest,
@@ -33,6 +57,14 @@ ARG TARGETARCH=amd64
 FROM quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.9
 
 ARG TARGETARCH=amd64
+ARG VERSION=""
+ARG COMMIT=unknown
+ARG BUILD_DATE=unknown
+# scripts/release-tag.sh reads the revision label back from Quay to prove the
+# published image was built from the commit being tagged.
+LABEL org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${COMMIT}" \
+      org.opencontainers.image.created="${BUILD_DATE}"
 
 ENV MAS_EST_REPO_ROOT=/opt/mas-est
 WORKDIR /opt/mas-est

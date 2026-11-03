@@ -1,0 +1,51 @@
+name: Go
+
+# The same checks as `make check`, split so each Go module builds with the Go
+# version its own go.mod names. Run `make check` locally before pushing.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: go (${{ matrix.module }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - tools/mas-iam-installer
+          - services/scim-bridge
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go from ${{ matrix.module }}/go.mod
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ matrix.module }}/go.mod
+          # services/scim-bridge has no go.sum (no dependencies), so key the
+          # module cache on go.mod, which both modules have.
+          cache-dependency-path: ${{ matrix.module }}/go.mod
+
+      - name: vet, test (-race), build
+        run: make check-go GO_MODULES=${{ matrix.module }}
+
+  static:
+    name: scripts, chart, image list
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: bash -n, helm lint, chart symlink, image refs listed in images.yaml
+        run: make check-scripts check-helm lint check-images-scan

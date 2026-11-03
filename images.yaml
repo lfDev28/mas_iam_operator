@@ -1,0 +1,159 @@
+# images.yaml: the one list of every container image mas-est pulls or builds from.
+#
+# scripts/check-images.sh (`make check-images`) reads this file and:
+#   (a) checks that every `images:` ref still exists on its registry with the
+#       archs listed (an `optional: true` entry only warns), and
+#   (b) fails when the tracked tree references an image that is missing here.
+# Refs that appear in the tree but are never pulled (placeholders, scaffolding)
+# go under `allowlist:` with a reason; they are not checked on the registry.
+#
+# Schema (kept flat so the script can parse it without yq):
+#   - ref:      full image ref, registry/repo:tag or registry/repo@sha256:...
+#     kind:     runtime (pulled on the cluster) | release (an artifact we publish)
+#               | build (FROM / build base) | mirror-source
+#     archs:    [amd64, arm64]  archs the registry must serve for this ref
+#     optional: true            missing or wrong arch is a warning, not a failure
+#     used_in:  [path, ...]
+#     note:     free text
+#
+# Version pins of the three mas-est artifacts (CLI, bridge, operator/catalog)
+# are rewritten by scripts/bump-version.sh; do not hand-edit them.
+
+images:
+  # --- mas-est release artifacts -----------------------------------------
+  - ref: quay.io/lee_forster/mas-external-services-tool:v0.1.15
+    kind: release
+    archs: [amd64, arm64]
+    used_in: [tools/mas-iam-installer/internal/app/install_incluster.go, README.md, docs/GUIDE.md, docs/ANNOUNCEMENT.md]
+    note: CLI image. The in-cluster installer Job runs "v" + version.Version; laptops bootstrap from it.
+  - ref: quay.io/lee_forster/mas-iam-scim-bridge:scim-bridge-v0.1.2
+    kind: release
+    archs: [amd64]
+    used_in: [env/scim-bridge.env.release, scripts/install-all-in-one.sh, manifests/scim-bridge-install.yaml, manifests/scim-bridge-install-template.yaml]
+  - ref: quay.io/lee_forster/mas-iam-operator:0.0.15
+    kind: release
+    archs: [amd64]
+    used_in: [operators/mas-iam-operator/bundle/manifests/mas-iam-operator.clusterserviceversion.yaml, operators/mas-iam-operator/config/manager/kustomization.yaml]
+  - ref: quay.io/lee_forster/mas-iam-operator:catalog-0.0.15
+    kind: release
+    archs: [amd64]
+    used_in: [manifests/install-olm.yaml, scripts/install-operator-from-catalog.sh]
+    note: Must be pushed before any CLI release that references it, or installs hang at the CatalogSource wait.
+
+  # --- runtime images pulled on the cluster ------------------------------
+  - ref: quay.io/keycloak/keycloak:26.0.5
+    kind: runtime
+    archs: [amd64, arm64]
+    used_in: [operators/mas-iam-operator/helm-charts/mas-iam-stack/values.yaml, env/scim-bridge.env.release, manifests/scim-bridge-install.yaml, images/keycloak-scim/Dockerfile]
+  - ref: quay.io/lee_forster/mas-iam-operator:postgresql-17.6.0-debian-12-r4-multi
+    kind: runtime
+    archs: [amd64, arm64]
+    used_in: [operators/mas-iam-operator/helm-charts/mas-iam-stack/values.yaml, operators/mas-iam-operator/config/samples/iam_v1alpha1_masiamstack.yaml]
+    note: Mirror of docker.io/bitnami/postgresql (see scripts/mirror-dev-images.sh).
+  - ref: quay.io/lee_forster/mas-iam-operator:openldap-1.5.0-multi
+    kind: runtime
+    archs: [amd64, arm64]
+    used_in: [operators/mas-iam-operator/helm-charts/mas-iam-stack/values.yaml, operators/mas-iam-operator/config/samples/iam_v1alpha1_masiamstack.yaml]
+    note: Mirror of docker.io/osixia/openldap (see scripts/mirror-dev-images.sh).
+  - ref: quay.io/lee_forster/openldap-tls-generator:0.1.0
+    kind: runtime
+    archs: [amd64]
+    used_in: [manifests/install-olm-sample.yaml]
+  - ref: quay.io/brancz/kube-rbac-proxy:v0.14.1
+    kind: runtime
+    archs: [amd64, arm64]
+    used_in: [operators/mas-iam-operator/bundle/manifests/mas-iam-operator.clusterserviceversion.yaml, operators/mas-iam-operator/config/default/manager_auth_proxy_patch.yaml]
+  - ref: quay.io/curl/curl:8.5.0
+    kind: runtime
+    archs: [amd64, arm64]
+    used_in: [env/scim-bridge.env.release, manifests/scim-bridge-install.yaml, scripts/scim-bridge-02-deploy.sh, scripts/scim-bridge-04-render-install-manifest.sh]
+  - ref: docker.io/pgsty/minio:RELEASE.2026-08-04T00-00-00Z
+    kind: runtime
+    archs: [amd64, arm64]
+    used_in: [tools/mas-iam-installer/internal/app/object_storage.go]
+    note: Pigsty fork; upstream minio/minio images were deleted 2026-10. Mirror target in scripts/mirror-dev-images.sh.
+  - ref: docker.io/pgsty/mc:RELEASE.2026-09-16T00-00-00Z
+    kind: runtime
+    archs: [amd64, arm64]
+    used_in: [tools/mas-iam-installer/internal/app/object_storage.go]
+  - ref: ghcr.io/axllent/mailpit:v1.30.1
+    kind: runtime
+    archs: [amd64, arm64]
+    used_in: [tools/mas-iam-installer/internal/app/smtp.go]
+
+  # Bitnami postgresql subchart defaults. Only pulled when a non-default
+  # toggle is on (postgresql.metrics.enabled / volumePermissions.enabled), so
+  # a missing tag is a warning: Bitnami prunes versioned tags from Docker Hub.
+  - ref: docker.io/bitnami/postgres-exporter:0.15.0-debian-12-r43
+    kind: runtime
+    archs: [amd64]
+    optional: true
+    used_in: [operators/mas-iam-operator/bundle/manifests/mas-iam-operator.clusterserviceversion.yaml, operators/mas-iam-operator/config/samples/iam_v1alpha1_masiamstack.yaml]
+    note: postgresql.metrics.enabled=true only (off by default).
+  - ref: docker.io/bitnami/os-shell:12-debian-12-r30
+    kind: runtime
+    archs: [amd64]
+    optional: true
+    used_in: [operators/mas-iam-operator/bundle/manifests/mas-iam-operator.clusterserviceversion.yaml, operators/mas-iam-operator/config/samples/iam_v1alpha1_masiamstack.yaml]
+    note: postgresql.volumePermissions.enabled=true only (off by default).
+
+  # --- mirror sources (scripts/mirror-dev-images.sh) ---------------------
+  - ref: docker.io/bitnami/postgresql@sha256:14aa30df4c41d43590a0ae59b1963522f5e4344bedda67e1f2e423ea8267c115
+    kind: mirror-source
+    archs: [amd64, arm64]
+    optional: true
+    used_in: [scripts/mirror-dev-images.sh]
+  - ref: docker.io/osixia/openldap:1.5.0
+    kind: mirror-source
+    archs: [amd64, arm64]
+    optional: true
+    used_in: [scripts/mirror-dev-images.sh]
+
+  # --- build bases --------------------------------------------------------
+  - ref: quay.io/lee_forster/mas-external-services-tool:v0.1.0-beta.9
+    kind: build
+    archs: [amd64, arm64]
+    used_in: [tools/mas-iam-installer/Containerfile]
+    note: Self-referencing runtime base of the CLI image. If this tag goes, no CLI release can be built.
+  - ref: docker.io/library/golang:1.25-bookworm
+    kind: build
+    archs: [amd64, arm64]
+    used_in: [tools/mas-iam-installer/Containerfile]
+  - ref: docker.io/library/golang:1.22-alpine
+    kind: build
+    archs: [amd64, arm64]
+    used_in: [services/scim-bridge/Dockerfile]
+  - ref: gcr.io/distroless/static:nonroot
+    kind: build
+    archs: [amd64, arm64]
+    used_in: [services/scim-bridge/Dockerfile]
+  - ref: quay.io/operator-framework/helm-operator:v1.33.0
+    kind: build
+    archs: [amd64]
+    used_in: [operators/mas-iam-operator/Dockerfile]
+  - ref: quay.io/operator-framework/opm:latest
+    kind: build
+    archs: [amd64]
+    used_in: [operators/mas-iam-operator/index.Dockerfile, operators/mas-iam-operator/index.amd64.Dockerfile, operators/mas-iam-operator/index-0.0.2.amd64.Dockerfile]
+    note: Floating tag (the ose-cli lesson). The release flow regenerates index.Dockerfile via opm --generate.
+  - ref: registry.access.redhat.com/ubi9/ubi:9.4
+    kind: build
+    archs: [amd64]
+    used_in: [images/openldap-tls-generator/Dockerfile]
+  - ref: docker.io/library/eclipse-temurin:21-jdk
+    kind: build
+    archs: [amd64]
+    used_in: [images/keycloak-scim/Dockerfile]
+    note: Only for the optional keycloak-scim image (make scim-keycloak-image).
+
+allowlist:
+  - ref: image-registry.openshift-image-registry.svc:5000/openshift/cli:latest
+    reason: Cluster-internal openshift/cli ImageStream; present on every OpenShift cluster and not reachable from outside.
+  - ref: quay.io/example/mas-iam-keycloak:scim-0.0.1
+    reason: Makefile placeholder default for SCIM_KEYCLOAK_IMG; override when building.
+  - ref: quay.io/example/openldap-tls-generator:0.1.0
+    reason: Makefile placeholder default for TLS_IMG; override when building.
+  - ref: quay.io/operator-framework/scorecard-test:v1.33.0
+    reason: operator-sdk scorecard scaffolding; never run by the release flow.
+  - ref: quay.io/lee_forster/mas-iam-keycloak:scim-bridge-v0.1.1
+    reason: "TODO: remove with manifests/scim-bridge-install-template.yaml (being deleted). The tag does not exist on Quay."
