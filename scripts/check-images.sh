@@ -4,6 +4,9 @@
 #   scripts/check-images.sh               # both checks below
 #   scripts/check-images.sh --scan-only   # (b) only: offline, no network
 #   scripts/check-images.sh --registry-only
+#   scripts/check-images.sh --expect-unpublished REF   # REF may be missing (repeatable)
+#   scripts/check-images.sh --ref REF --archs amd64,arm64 [--label KEY=VALUE]
+#                                                      # one ref only (release verify)
 #
 # (a) Registry: every `images:` ref in images.yaml must exist on its registry
 #     (anonymous registry v2 manifest GET, with the bearer-token dance that
@@ -28,9 +31,13 @@ IMAGES_FILE="${IMAGES_FILE:-${ROOT_DIR}/images.yaml}"
 do_registry=true
 do_scan=true
 verbose=false
+expect_unpublished=" "
+single_ref=""
+single_archs=""
+single_label=""
 
 usage() {
-  sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 while [[ $# -gt 0 ]]; do
@@ -38,6 +45,10 @@ while [[ $# -gt 0 ]]; do
     --scan-only) do_registry=false ;;
     --registry-only) do_scan=false ;;
     -v|--verbose) verbose=true ;;
+    --expect-unpublished) expect_unpublished+="${2:-} "; shift ;;
+    --ref) single_ref="${2:-}"; do_scan=false; shift ;;
+    --archs) single_archs="${2:-}"; shift ;;
+    --label) single_label="${2:-}"; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "error: unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -202,8 +213,29 @@ image_archs() {
   jq -r '.architecture // "unknown"' "${TMP_DIR}/config.json"
 }
 
+# image_label <ref> <key>: prints the image config label (of the first
+# platform for a multi-arch index), or nothing.
+image_label() {
+  split_ref "$1"
+  local body="${TMP_DIR}/label-manifest.json" digest
+  [[ "$(registry_get "https://${API_HOST}/v2/${REPO}/manifests/${REFERENCE}" "${body}")" == 200 ]] || return 0
+  if jq -e '.manifests' "${body}" >/dev/null 2>&1; then
+    digest="$(jq -r '[.manifests[] | select((.platform.architecture // "") != "unknown")][0].digest // empty' "${body}")"
+    [[ -n "${digest}" ]] || return 0
+    [[ "$(registry_get "https://${API_HOST}/v2/${REPO}/manifests/${digest}" "${body}")" == 200 ]] || return 0
+  fi
+  digest="$(jq -r '.config.digest // empty' "${body}")"
+  [[ -n "${digest}" ]] || return 0
+  [[ "$(registry_get "https://${API_HOST}/v2/${REPO}/blobs/${digest}" "${TMP_DIR}/label-config.json" "*/*")" == 200 ]] || return 0
+  jq -r --arg k "$2" '.config.Labels[$k] // empty' "${TMP_DIR}/label-config.json"
+}
+
 check_registry() {
-  echo "== (a) registry: every images.yaml ref exists with its archs"
+  if [[ -n "${single_ref}" ]]; then
+    echo "== registry: ${single_ref} [${single_archs:-any arch}]"
+  else
+    echo "== (a) registry: every images.yaml ref exists with its archs"
+  fi
   command -v curl >/dev/null || { fail "curl is required"; return; }
   command -v jq >/dev/null || { fail "jq is required"; return; }
   local section ref kind archs optional used found missing_arch a report hint
@@ -212,6 +244,10 @@ check_registry() {
     found="$(image_archs "${ref}")"
     report=fail
     [[ "${optional}" == true ]] && report=warn
+    if [[ "${found}" == MISSING:* && "${expect_unpublished}" == *" ${ref} "* ]]; then
+      echo "note  ${ref} not published yet (expected: this release publishes it)"
+      continue
+    fi
     if [[ "${found}" == MISSING:* ]]; then
       hint="HTTP ${found#MISSING:}"
       [[ "${found}" == MISSING:401 ]] && hint+=": no anonymous pull, or the repo is gone"
@@ -227,8 +263,25 @@ check_registry() {
     else
       ok "${ref} [${found}]"
     fi
-  done < <(parse_images_file)
+    if [[ -n "${single_label}" ]]; then
+      local key="${single_label%%=*}" want="${single_label#*=}" got
+      got="$(image_label "${ref}" "${key}")"
+      if [[ "${got}" == "${want}" ]]; then
+        ok "${ref} label ${key}=${got}"
+      else
+        fail "${ref} label ${key}='${got}', expected '${want}'"
+      fi
+    fi
+  done < <(images_to_check)
   return 0
+}
+
+images_to_check() {
+  if [[ -n "${single_ref}" ]]; then
+    printf 'images|%s|release|%s|false|--ref\n' "${single_ref}" "${single_archs}"
+  else
+    parse_images_file
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -236,12 +289,13 @@ check_registry() {
 # ---------------------------------------------------------------------------
 REGISTRY_RE='(quay\.io|docker\.io|ghcr\.io|gcr\.io|registry\.access\.redhat\.com|registry\.redhat\.io|registry\.k8s\.io|public\.ecr\.aws|image-registry\.openshift-image-registry\.svc:5000)/[A-Za-z0-9._/-]+(:[A-Za-z0-9._-]+)?(@sha256:[a-f0-9]{64})?'
 
-# Tracked files worth scanning. Docs, skills, CI config, tests and binaries
-# are excluded: they mention images without pulling them.
+# Tracked files worth scanning. Docs, skills, CI config, tests, binaries and
+# the release tooling itself are excluded: they mention images without
+# pulling them.
 scan_files() {
   git -C "${ROOT_DIR}" ls-files -z \
     | tr '\0' '\n' \
-    | grep -vE '(^docs/|^\.claude/|^\.github/|^bin/|\.md$|\.pdf$|\.png$|\.tgz$|_test\.go$|(^|/)\.DS_Store$|^LICENSE$|^images\.yaml$)' \
+    | grep -vE '(^docs/|^\.claude/|^\.github/|^bin/|\.md$|\.pdf$|\.png$|\.tgz$|_test\.go$|(^|/)\.DS_Store$|^LICENSE$|^images\.yaml$|^scripts/(check-images|release-check|release-images|release-tag|bump-version|smoke)\.sh$)' \
     || true
 }
 
