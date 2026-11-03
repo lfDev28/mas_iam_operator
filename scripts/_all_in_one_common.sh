@@ -249,6 +249,124 @@ wait_for_namespaced_resource() {
   die "timed out waiting for ${kind}/${name} in namespace ${namespace}"
 }
 
+# When this run started, as ISO-8601 UTC so it compares lexically with
+# Kubernetes creationTimestamps (portable: no GNU/BSD `date -d` differences).
+MAS_EST_RUN_STARTED_AT="${MAS_EST_RUN_STARTED_AT:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+
+# job_true_conditions prints the type of every True condition on a Job, one
+# per line (Complete, Failed, FailureTarget, SuccessCriteriaMet, ...).
+job_true_conditions() {
+  local namespace="$1" job="$2"
+  oc get job "${job}" -n "${namespace}" \
+    -o jsonpath='{range .status.conditions[?(@.status=="True")]}{.type}{"\n"}{end}' 2>/dev/null || true
+}
+
+# print_job_diagnostics shows why a Job failed: its Failed condition, its
+# pods' phases and waiting reasons, and the tail of every pod's logs.
+print_job_diagnostics() {
+  local namespace="$1" job="$2"
+  local reason pod
+  reason="$(oc get job "${job}" -n "${namespace}" \
+    -o jsonpath='{range .status.conditions[?(@.status=="True")]}{.type}{": "}{.reason}{" - "}{.message}{"\n"}{end}' 2>/dev/null || true)"
+  if [[ -n "${reason}" ]]; then
+    printf '%s\n' "${reason}" | prefix_stream "job/${job}" >&2
+  fi
+  oc get pods -n "${namespace}" -l "job-name=${job}" \
+    -o jsonpath='{range .items[*]}{.metadata.name}{" phase="}{.status.phase}{" "}{range .status.containerStatuses[*]}{.state.waiting.reason}{" "}{.state.waiting.message}{" "}{.state.terminated.reason}{" exit="}{.state.terminated.exitCode}{end}{"\n"}{end}' \
+    2>/dev/null | prefix_stream "job/${job} pod" >&2 || true
+  while IFS= read -r pod; do
+    [[ -n "${pod}" ]] || continue
+    log_error "last log lines of ${pod}:"
+    oc logs -n "${namespace}" "${pod}" --all-containers --tail=80 2>&1 | prefix_stream "${pod##*/}" >&2 || true
+  done < <(oc get pods -n "${namespace}" -l "job-name=${job}" -o name 2>/dev/null || true)
+}
+
+# job_image_pull_stuck prints the pod waiting reason when a Job's pod cannot
+# pull or start its image, and nothing otherwise. Kubernetes never fails a Job
+# for that, so without this a bad image burns the whole wait timeout.
+job_image_pull_stuck() {
+  local namespace="$1" job="$2"
+  oc get pods -n "${namespace}" -l "job-name=${job}" \
+    -o jsonpath='{range .items[*].status.containerStatuses[*]}{.state.waiting.reason}{"\n"}{end}' 2>/dev/null \
+    | grep -E -m1 '^(ImagePullBackOff|ErrImagePull|InvalidImageName|CreateContainerConfigError)$' || true
+}
+
+# wait_for_job_complete waits for a Job to reach Complete OR Failed, instead
+# of `oc wait --for=condition=complete`, which sits out its whole timeout
+# (10-20 minutes) on a Job that has already failed. On failure it prints the
+# Job's condition, pod states and pod logs, then exits non-zero.
+#
+# A Job that is ALREADY Failed and was created before this run started is
+# usually left over from an earlier run (Helm hooks such as
+# mas-est-iam-ldap-config are not re-run on their own). It gets a grace period
+# to be replaced before the wait gives up with the stale-job hint ($4).
+wait_for_job_complete() {
+  local namespace="$1"
+  local job="$2"
+  local timeout_seconds="${3:-1200}"
+  local stale_hint="${4:-delete it with 'oc delete job ${job} -n ${namespace}' and re-run the install}"
+  local stale_grace="${MAS_EST_STALE_JOB_GRACE_SECONDS:-180}"
+  local image_pull_grace="${MAS_EST_IMAGE_PULL_GRACE_SECONDS:-180}"
+  local waited=0 stuck_for=0 conditions created stuck
+  local interval="${MAS_EST_JOB_POLL_INTERVAL:-5}"
+
+  while (( waited < timeout_seconds )); do
+    conditions="$(job_true_conditions "${namespace}" "${job}")"
+    if grep -qxE 'Complete|SuccessCriteriaMet' <<<"${conditions}"; then
+      log_wait "job/${job} complete (after ${waited}s)"
+      return 0
+    fi
+    if grep -qxE 'Failed|FailureTarget' <<<"${conditions}"; then
+      created="$(oc get job "${job}" -n "${namespace}" -o jsonpath='{.metadata.creationTimestamp}' 2>/dev/null || true)"
+      if [[ -n "${created}" && "${created}" < "${MAS_EST_RUN_STARTED_AT}" ]]; then
+        if (( waited < stale_grace )); then
+          if (( waited % 60 == 0 )); then
+            log_wait "job/${job} is Failed from an earlier run (created ${created}); waiting up to ${stale_grace}s for it to be replaced"
+          fi
+          sleep "${interval}"
+          waited=$((waited + interval))
+          continue
+        fi
+        print_job_diagnostics "${namespace}" "${job}"
+        die "job/${job} in namespace ${namespace} is still the Failed Job from an earlier run (created ${created}). Fix the cause shown above, then ${stale_hint}."
+      fi
+      print_job_diagnostics "${namespace}" "${job}"
+      die "job/${job} in namespace ${namespace} failed; see the condition, pod states and logs above."
+    fi
+
+    stuck="$(job_image_pull_stuck "${namespace}" "${job}")"
+    if [[ -n "${stuck}" ]]; then
+      stuck_for=$((stuck_for + interval))
+      if (( stuck_for >= image_pull_grace )); then
+        print_job_diagnostics "${namespace}" "${job}"
+        die "job/${job} in namespace ${namespace} cannot start its pod (${stuck} for ${stuck_for}s); see the pod state above."
+      fi
+    else
+      stuck_for=0
+    fi
+
+    if (( waited > 0 && waited % 60 == 0 )); then
+      log_wait "still waiting for job/${job} (${waited}s of ${timeout_seconds}s)"
+    fi
+    sleep "${interval}"
+    waited=$((waited + interval))
+  done
+
+  print_job_diagnostics "${namespace}" "${job}"
+  die "timed out after ${timeout_seconds}s waiting for job/${job} in namespace ${namespace} to complete"
+}
+
+# delete_job_if_failed removes a Job left Failed by an earlier run so the
+# apply that follows can create it afresh (a Job's pod template is immutable,
+# so re-applying the same manifest would leave the failed one in place).
+delete_job_if_failed() {
+  local namespace="$1" job="$2"
+  if grep -qxE 'Failed|FailureTarget' <<<"$(job_true_conditions "${namespace}" "${job}")"; then
+    log_install "deleting job/${job}, left Failed by an earlier run, so it is recreated"
+    oc delete job "${job}" -n "${namespace}" --ignore-not-found >/dev/null
+  fi
+}
+
 # wait_for_ldaps_listening waits until slapd accepts connections on 636 inside
 # the OpenLDAP pod. The deployment reports Ready as soon as the container
 # starts, but on first start the image generates 2048-bit DH parameters before

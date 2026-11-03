@@ -552,10 +552,57 @@ func (o *minioInstallOptions) runBucketInitJob(ctx context.Context, client *oc.C
 	if err := applyManifest(ctx, client, minioBucketInitJobManifest(o, jobName)); err != nil {
 		return err
 	}
-	if _, err := client.WaitForCondition(ctx, o.namespace, "job/"+jobName, "complete", o.timeout.String()); err != nil {
-		return fmt.Errorf("wait for job/%s in namespace %s: %w", jobName, o.namespace, err)
+	return waitForJobResult(ctx, client, o.namespace, jobName, o.timeout)
+}
+
+// jobOutcome classifies a Job status: done once Complete or Failed, with a
+// non-nil error for Failed.
+func jobOutcome(namespace string, status oc.JobStatus) (bool, error) {
+	switch {
+	case status.Complete:
+		return true, nil
+	case status.FailedCondition:
+		return true, fmt.Errorf("job/%s in namespace %s failed (%s: %s)", status.Name, namespace,
+			defaultString(status.FailedReason, "Failed"), status.FailedMessage)
 	}
-	return nil
+	return false, nil
+}
+
+// waitForJobResult waits for a Job to Complete OR Fail. `oc wait
+// --for=condition=complete` sat out its whole timeout on a Job that had
+// already failed; this returns as soon as the Job controller gives up, with
+// the pod logs printed so the cause is visible.
+func waitForJobResult(ctx context.Context, client *oc.Client, namespace, name string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		status, err := client.Job(ctx, namespace, name)
+		if err == nil {
+			if status.Name == "" {
+				status.Name = name
+			}
+			if done, jobErr := jobOutcome(namespace, status); done {
+				if jobErr != nil {
+					printJobLogs(ctx, client, namespace, name)
+					return fmt.Errorf("%w; pod logs are printed above", jobErr)
+				}
+				return nil
+			}
+		}
+		if time.Now().After(deadline) {
+			printJobLogs(ctx, client, namespace, name)
+			return fmt.Errorf("timed out after %s waiting for job/%s in namespace %s to complete", timeout, name, namespace)
+		}
+		if err := sleepCtx(ctx, 5*time.Second); err != nil {
+			return err
+		}
+	}
+}
+
+func printJobLogs(ctx context.Context, client *oc.Client, namespace, name string) {
+	fmt.Fprintf(os.Stderr, "[object-storage] last log lines of job/%s:\n", name)
+	if err := client.Logs(ctx, namespace, []string{"job/" + name, "--all-containers", "--tail=80"}, os.Stderr, os.Stderr); err != nil {
+		fmt.Fprintf(os.Stderr, "[object-storage] could not read logs of job/%s: %v\n", name, err)
+	}
 }
 
 func (o *minioInstallOptions) enableVirtualHostStyle(ctx context.Context, client *oc.Client) error {

@@ -179,6 +179,19 @@ func TestWaitForAdminAPIReadyAbortsOnPersistentPollErrors(t *testing.T) {
 	}
 }
 
+func TestJobOutcome(t *testing.T) {
+	if done, err := jobOutcome("ns", oc.JobStatus{Name: "j", Active: 1}); done || err != nil {
+		t.Fatalf("running job: done=%v err=%v", done, err)
+	}
+	if done, err := jobOutcome("ns", oc.JobStatus{Name: "j", Complete: true}); !done || err != nil {
+		t.Fatalf("complete job: done=%v err=%v", done, err)
+	}
+	done, err := jobOutcome("ns", oc.JobStatus{Name: "j", FailedCondition: true, FailedReason: "BackoffLimitExceeded", FailedMessage: "too many retries"})
+	if !done || err == nil || !strings.Contains(err.Error(), "BackoffLimitExceeded") {
+		t.Fatalf("failed job: done=%v err=%v", done, err)
+	}
+}
+
 func TestConditionsFreshness(t *testing.T) {
 	since := time.Date(2026, 11, 4, 10, 0, 0, 0, time.UTC)
 	raw := []byte(`{"metadata":{"generation":2},"status":{"conditions":[
