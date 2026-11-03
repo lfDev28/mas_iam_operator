@@ -18,6 +18,12 @@ func TestLogsComponentArgs(t *testing.T) {
 			want: "deployment/scim-bridge --tail=200",
 		},
 		{
+			// The Keycloak Deployment's selector also matches OpenLDAP pods.
+			name: "keycloak by component label, not the deployment",
+			opts: logsOptions{component: "keycloak", tail: 100},
+			want: "-l app.kubernetes.io/component=keycloak,app.kubernetes.io/instance=mas-est-iam -c keycloak --tail=100",
+		},
+		{
 			name: "install job reattach",
 			opts: logsOptions{component: "install-job", jobName: installerJobDefaultName, tail: 200, follow: true},
 			want: "job/mas-est-install --tail=200 -f",

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -13,6 +14,7 @@ import (
 	executil "github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/exec"
 	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/installer"
 	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/logging"
+	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/masadmin"
 	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/oc"
 	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/preflight"
 	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/ui"
@@ -34,6 +36,9 @@ type installOptions struct {
 type installDiscovery struct {
 	MASRoutes  []oc.MASRoute
 	Workspaces []oc.ManageWorkspace
+	// WorkspacesListed is false when listing ManageWorkspaces failed (no
+	// RBAC, no Manage CRD), in which case a workspace id cannot be verified.
+	WorkspacesListed bool
 }
 
 func newInstallCommand(root *RootOptions) *cobra.Command {
@@ -124,6 +129,20 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 	}
 
 	discovery := discoverInstallDiscovery(ctx, client)
+	fillMASAPICredentialsFromSecret(ctx, client, &cfg)
+
+	// Existing PVCs pin their storage class (storageClassName is immutable):
+	// default to it, so neither the recommendation nor the prompt suggests a
+	// class a re-run could not apply. Flag/env values are re-checked below.
+	if !cfg.WipeFirst {
+		pvcClasses := existingPVCStorageClasses(ctx, client, cfg.Namespace)
+		if cfg.StorageClass == "" {
+			cfg.StorageClass, _, _ = reconcileStorageClass("", false, pvcClasses, primaryStoragePVCs)
+		}
+		if cfg.ScimBridgeStorageClass == "" {
+			cfg.ScimBridgeStorageClass, _, _ = reconcileStorageClass("", false, pvcClasses, scimBridgeStoragePVCs)
+		}
+	}
 
 	var storageRanking preflight.StorageRanking
 	if classes, err := client.StorageClasses(ctx); err == nil && len(classes) > 0 {
@@ -155,8 +174,21 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 	}
 	cfg.DefaultMASCoreNamespace()
 	cfg.DefaultMASAuthTarget()
+	// The prompt may have changed the namespace or switched MAS auth on.
+	fillMASAPICredentialsFromSecret(ctx, client, &cfg)
+	resolveMASAuthAPITarget(&cfg, discovery.MASRoutes)
 	if err := cfg.Validate(); err != nil {
 		return err
+	}
+	if cfg.HasComponent(config.InstallComponentSCIM) || cfg.ConfigureMASAuth {
+		if err := checkWorkspaceExists(cfg.WorkspaceID, workspaceInstanceID(cfg, discovery.MASRoutes), discovery.Workspaces); err != nil {
+			if !interactive {
+				return err
+			}
+			fmt.Fprintf(os.Stderr, "[warn] %v\n", err)
+		} else if !discovery.WorkspacesListed && strings.TrimSpace(cfg.WorkspaceID) != "" {
+			fmt.Fprintf(os.Stderr, "[warn] could not list ManageWorkspaces; --workspace-id %q is not verified\n", cfg.WorkspaceID)
+		}
 	}
 	// The installer Job lives in the namespace the uninstall would delete, so
 	// combining the two would have the Job delete itself mid-run. In-cluster is
@@ -171,7 +203,10 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 	masBaseURLForPreflight := ""
 	apiTokenName := ""
 	apiTokenValue := ""
-	if cfg.HasComponent(config.InstallComponentSCIM) {
+	// The MAS API key is used by the SCIM bridge AND by the default (Admin
+	// API) --configure-mas-auth path; check it up front for both, so a bad
+	// key or URL fails here instead of ~20 minutes into the install.
+	if usesMASAdminAPI(cfg) {
 		masBaseURLForPreflight = cfg.MASBaseURL
 		apiTokenName = cfg.MASAPITokenName
 		apiTokenValue = cfg.MASAPITokenValue
@@ -188,12 +223,16 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 	// The provider ids are the fixed defaults the install path passes to
 	// masAuthApplyOptions below; install exposes no flag to override them.
 	report := preflight.Run(ctx, client, preflight.Input{
-		Namespace:            cfg.Namespace,
-		MASBaseURL:           masBaseURLForPreflight,
-		CheckOIDCEndpoint:    checkOIDCEndpoint,
-		APITokenName:         apiTokenName,
-		APITokenValue:        apiTokenValue,
-		CheckIDPCfgOverwrite: cfg.ConfigureMASAuth,
+		Namespace:         cfg.Namespace,
+		MASBaseURL:        masBaseURLForPreflight,
+		CheckOIDCEndpoint: checkOIDCEndpoint,
+		APITokenName:      apiTokenName,
+		APITokenValue:     apiTokenValue,
+		// Without scim the key only drives the MAS auth Admin API, which
+		// needs no SCIM permissions.
+		SkipSCIMAuthorization: !cfg.HasComponent(config.InstallComponentSCIM),
+		CheckIDPCfgOverwrite:  cfg.ConfigureMASAuth,
+		RequiredAccess:        installRequiredAccess(cfg, o.runsInCluster()),
 		IDPCfgPlan: preflight.IDPCfgPlan{
 			CoreNamespace:  cfg.MASAuthCoreNamespace,
 			InstanceID:     cfg.MASAuthInstanceID,
@@ -212,6 +251,30 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 	}
 	if cfg.ScimBridgeStorageClass == "" && report.Storage.Recommended != "" {
 		cfg.ScimBridgeStorageClass = report.Storage.Recommended
+	}
+	// Final say for existing PVCs (the prompt may have changed the namespace
+	// or the class). --uninstall-first deletes them, so nothing is pinned.
+	if !cfg.WipeFirst {
+		pvcClasses := existingPVCStorageClasses(ctx, client, cfg.Namespace)
+		explicitStorage := interactive || strings.TrimSpace(o.config.StorageClass) != ""
+		explicitScimStorage := interactive || strings.TrimSpace(o.config.ScimBridgeStorageClass) != ""
+		for _, target := range []struct {
+			value    *string
+			explicit bool
+			pvcs     []string
+		}{
+			{&cfg.StorageClass, explicitStorage, primaryStoragePVCs},
+			{&cfg.ScimBridgeStorageClass, explicitScimStorage, scimBridgeStoragePVCs},
+		} {
+			class, note, warn := reconcileStorageClass(*target.value, target.explicit, pvcClasses, target.pvcs)
+			*target.value = class
+			switch {
+			case warn:
+				fmt.Fprintf(os.Stderr, "[warn] %s\n", note)
+			case note != "":
+				fmt.Fprintf(os.Stdout, "[config] %s\n", note)
+			}
+		}
 	}
 
 	if interactive {
@@ -235,6 +298,7 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 			image:       o.installerImage,
 			interactive: interactive,
 			out:         os.Stdout,
+			env:         collectInstallerPassthroughEnv(os.LookupEnv),
 		}
 		return inCluster.run(ctx, client)
 	}
@@ -351,6 +415,9 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 			insecureTLS:        true,
 			selfRegWorkspaceID: cfg.WorkspaceID,
 			idpcfgMemoryLimit:  cfg.IDPCfgMemoryLimit,
+			// Env-only (forwarded to the in-cluster Job when set).
+			mongoNamespace: os.Getenv(envMongoNamespace),
+			mongoInstance:  os.Getenv(envMongoInstance),
 		}
 		if err := phases.run("Configure MAS LDAP / OIDC / SAML", func() error { return opts.run(ctx) }); err != nil {
 			if logPath != "" {
@@ -464,7 +531,154 @@ func discoverInstallDiscovery(ctx context.Context, client *oc.Client) installDis
 	}
 	if workspaces, err := client.ManageWorkspaces(ctx); err == nil {
 		discovery.Workspaces = workspaces
+		discovery.WorkspacesListed = true
 	}
 
 	return discovery
+}
+
+// installRequiredAccess lists the cluster-scoped permissions this install
+// needs, for the preflight RBAC check. inCluster is true for the launcher of
+// an in-cluster install, which itself creates the installer's ClusterRole and
+// ClusterRoleBinding. The Job's own (--local) run only needs the operator
+// set, all of which the installer ClusterRole grants its service account.
+func installRequiredAccess(cfg config.InstallConfig, inCluster bool) []preflight.AccessCheck {
+	checks := []preflight.AccessCheck{}
+	if inCluster {
+		checks = append(checks,
+			preflight.AccessCheck{Verb: "create", Resource: "clusterroles.rbac.authorization.k8s.io", Why: "the in-cluster installer's ClusterRole"},
+			preflight.AccessCheck{Verb: "create", Resource: "clusterrolebindings.rbac.authorization.k8s.io", Why: "the in-cluster installer's ClusterRoleBinding"},
+		)
+	}
+	if cfg.HasComponent(config.InstallComponentLDAP) || cfg.HasComponent(config.InstallComponentKeycloak) || cfg.HasComponent(config.InstallComponentSCIM) {
+		checks = append(checks,
+			preflight.AccessCheck{Verb: "create", Resource: "customresourcedefinitions.apiextensions.k8s.io", Why: "the MasIamStack CRD"},
+			preflight.AccessCheck{Verb: "create", Resource: "catalogsources.operators.coreos.com", Namespace: "openshift-marketplace", Why: "the mas-iam-operator CatalogSource"},
+			preflight.AccessCheck{Verb: "create", Resource: "securitycontextconstraints.security.openshift.io", Why: "the OpenLDAP TLS generator SCC"},
+		)
+		if !inCluster {
+			checks = append(checks, preflight.AccessCheck{Verb: "create", Resource: "clusterrolebindings.rbac.authorization.k8s.io", Why: "the operator's anyuid ClusterRoleBinding"})
+		}
+	}
+	return checks
+}
+
+// usesMASAdminAPI reports whether this install talks to the MAS API with the
+// API key: the SCIM bridge does, and so does --configure-mas-auth unless it
+// falls back to applying IDPCfg CRs.
+func usesMASAdminAPI(cfg config.InstallConfig) bool {
+	return cfg.HasComponent(config.InstallComponentSCIM) || (cfg.ConfigureMASAuth && !cfg.MASAuthUseCRApply)
+}
+
+// fillMASAPICredentialsFromSecret fills an unset MAS API key (and base URL)
+// from the scim-bridge-secret an earlier SCIM install left in the target
+// namespace — the same fallback `mas-est mas-auth apply` uses — so a re-run
+// with --configure-mas-auth does not have to repeat them. Values given by
+// flag or env always win. Silent when the secret does not exist.
+func fillMASAPICredentialsFromSecret(ctx context.Context, client *oc.Client, cfg *config.InstallConfig) {
+	if strings.TrimSpace(cfg.MASAPITokenName) != "" && strings.TrimSpace(cfg.MASAPITokenValue) != "" && strings.TrimSpace(cfg.MASBaseURL) != "" {
+		return
+	}
+	if strings.TrimSpace(cfg.Namespace) == "" {
+		return
+	}
+	data, err := client.SecretData(ctx, cfg.Namespace, scimBridgeSecretName)
+	if err != nil {
+		return
+	}
+	if applyStoredMASAPICredentials(cfg, data) {
+		fmt.Fprintf(os.Stdout, "[config] using MAS API settings stored in secret/%s in namespace %s for values not given by flag or env\n", scimBridgeSecretName, cfg.Namespace)
+	}
+}
+
+// applyStoredMASAPICredentials copies MAS API values from secret data into
+// the fields cfg leaves empty; reports whether anything was copied.
+func applyStoredMASAPICredentials(cfg *config.InstallConfig, data map[string]string) bool {
+	changed := false
+	fill := func(target *string, key string) {
+		if strings.TrimSpace(*target) == "" && strings.TrimSpace(data[key]) != "" {
+			*target = strings.TrimSpace(data[key])
+			changed = true
+		}
+	}
+	fill(&cfg.MASAPITokenName, config.EnvMASAPITokenName)
+	fill(&cfg.MASAPITokenValue, config.EnvMASAPITokenValue)
+	fill(&cfg.MASBaseURL, config.EnvMASBaseURL)
+	return changed
+}
+
+// resolveMASAuthAPITarget gives the Admin API --configure-mas-auth path a MAS
+// API URL when no SCIM component supplied one: the API route of the MAS auth
+// instance, as `mas-est mas-auth apply` would discover it. The URL is
+// normalised to carry /scim/v2 (stripped again by the Admin API client) so
+// preflight and the in-cluster Job treat it like a SCIM base URL.
+func resolveMASAuthAPITarget(cfg *config.InstallConfig, routes []oc.MASRoute) {
+	if !cfg.ConfigureMASAuth || cfg.MASAuthUseCRApply || cfg.HasComponent(config.InstallComponentSCIM) {
+		return
+	}
+	if strings.TrimSpace(cfg.MASBaseURL) == "" {
+		for _, route := range routes {
+			if route.InstanceID == cfg.MASAuthInstanceID {
+				cfg.MASBaseURL = route.SCIMBaseURL()
+				fmt.Fprintf(os.Stdout, "[config] MAS API URL for MAS auth configuration: %s (from route %s/%s; override with --mas-base-url)\n", cfg.MASBaseURL, route.Namespace, route.Name)
+				break
+			}
+		}
+	}
+	if raw := strings.TrimSpace(cfg.MASBaseURL); raw != "" && !strings.Contains(raw, "/scim/v2") {
+		cfg.MASBaseURL = masadmin.StripSCIMSuffix(raw) + "/scim/v2"
+	}
+}
+
+// workspaceInstanceID is the MAS instance whose workspaces --workspace-id must
+// belong to: the MAS auth instance when --configure-mas-auth is on, else the
+// instance whose API route matches --mas-base-url.
+func workspaceInstanceID(cfg config.InstallConfig, routes []oc.MASRoute) string {
+	if cfg.ConfigureMASAuth && strings.TrimSpace(cfg.MASAuthInstanceID) != "" {
+		return strings.TrimSpace(cfg.MASAuthInstanceID)
+	}
+	if host, err := preflight.ParseMASHost(cfg.MASBaseURL); err == nil {
+		for _, route := range routes {
+			if route.Host == host {
+				return route.InstanceID
+			}
+		}
+	}
+	return strings.TrimSpace(cfg.MASInstanceID)
+}
+
+// checkWorkspaceExists verifies --workspace-id names a ManageWorkspace of the
+// target instance. A typo otherwise surfaces much later: SCIM users land in a
+// workspace that does not exist, and the selfreg ConfigMap sends first-time
+// IDP users there. Returns nil when there is nothing to check against (no
+// workspace id, or no ManageWorkspaces visible at all).
+func checkWorkspaceExists(workspaceID, instanceID string, workspaces []oc.ManageWorkspace) error {
+	workspaceID = strings.TrimSpace(workspaceID)
+	if workspaceID == "" || len(workspaces) == 0 {
+		return nil
+	}
+	candidates := workspaces
+	if instanceID != "" {
+		scoped := []oc.ManageWorkspace{}
+		for _, workspace := range workspaces {
+			if workspace.InstanceID == instanceID {
+				scoped = append(scoped, workspace)
+			}
+		}
+		if len(scoped) > 0 {
+			candidates = scoped
+		}
+	}
+	available := make([]string, 0, len(candidates))
+	for _, workspace := range candidates {
+		if workspace.WorkspaceID == workspaceID {
+			return nil
+		}
+		available = append(available, fmt.Sprintf("%s (instance %s, ManageWorkspace %s/%s)", workspace.WorkspaceID, workspace.InstanceID, workspace.Namespace, workspace.Name))
+	}
+	scope := "on this cluster"
+	if instanceID != "" {
+		scope = "for MAS instance " + instanceID
+	}
+	return fmt.Errorf("--workspace-id %q does not match any ManageWorkspace %s; available: %s", workspaceID, scope, strings.Join(available, ", "))
 }

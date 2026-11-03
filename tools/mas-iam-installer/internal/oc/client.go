@@ -99,10 +99,14 @@ type JobStatus struct {
 }
 
 type ConditionStatus struct {
-	Type    string
-	Status  string
-	Reason  string
-	Message string
+	Type               string
+	Status             string
+	Reason             string
+	Message            string
+	LastTransitionTime string
+	// ObservedGeneration is the condition's own observedGeneration, falling
+	// back to status.observedGeneration; 0 when the controller sets neither.
+	ObservedGeneration int64
 }
 
 type PVCStatus struct {
@@ -268,22 +272,39 @@ func (c *Client) ManageWorkspaces(ctx context.Context) ([]ManageWorkspace, error
 		}
 	}
 
+	return ParseManageWorkspaces([]byte(output))
+}
+
+// MAS labels every ManageWorkspace with the instance and workspace it
+// belongs to; they are the authoritative split of the
+// {instanceId}-{workspaceId} object name, which is ambiguous as soon as
+// either id contains a dash (instance "mas-dev" + workspace "ws1").
+const (
+	masInstanceIDLabel  = "mas.ibm.com/instanceId"
+	masWorkspaceIDLabel = "mas.ibm.com/workspaceId"
+)
+
+var masManageNamespacePattern = regexp.MustCompile(`^mas-(.+)-manage$`)
+
+// ParseManageWorkspaces decodes `oc get manageworkspaces -A -o json`.
+func ParseManageWorkspaces(raw []byte) ([]ManageWorkspace, error) {
 	var payload struct {
 		Items []struct {
 			Metadata struct {
-				Name      string `json:"name"`
-				Namespace string `json:"namespace"`
+				Name      string            `json:"name"`
+				Namespace string            `json:"namespace"`
+				Labels    map[string]string `json:"labels"`
 			} `json:"metadata"`
 		} `json:"items"`
 	}
-	if err := json.Unmarshal([]byte(output), &payload); err != nil {
+	if err := json.Unmarshal(raw, &payload); err != nil {
 		return nil, fmt.Errorf("decode manageworkspaces: %w", err)
 	}
 
 	workspaces := []ManageWorkspace{}
 	for _, item := range payload.Items {
-		instanceID, workspaceID, ok := strings.Cut(item.Metadata.Name, "-")
-		if !ok || strings.TrimSpace(instanceID) == "" || strings.TrimSpace(workspaceID) == "" {
+		instanceID, workspaceID, ok := SplitManageWorkspaceName(item.Metadata.Name, item.Metadata.Namespace, item.Metadata.Labels)
+		if !ok {
 			continue
 		}
 		workspaces = append(workspaces, ManageWorkspace{
@@ -305,6 +326,46 @@ func (c *Client) ManageWorkspaces(ctx context.Context) ([]ManageWorkspace, error
 	})
 
 	return workspaces, nil
+}
+
+// SplitManageWorkspaceName works out (instanceId, workspaceId) for a
+// ManageWorkspace named {instanceId}-{workspaceId}. In order of preference:
+//
+//  1. the mas.ibm.com/instanceId and mas.ibm.com/workspaceId labels;
+//  2. the instance id from one label, or from the mas-{instance}-manage
+//     namespace, stripped off the front of the name;
+//  3. a split on the first dash (only right when the instance id has none).
+func SplitManageWorkspaceName(name, namespace string, labels map[string]string) (string, string, bool) {
+	name = strings.TrimSpace(name)
+	instanceLabel := strings.TrimSpace(labels[masInstanceIDLabel])
+	workspaceLabel := strings.TrimSpace(labels[masWorkspaceIDLabel])
+	if instanceLabel != "" && workspaceLabel != "" {
+		return instanceLabel, workspaceLabel, true
+	}
+	if workspaceLabel != "" {
+		if instance := strings.TrimSuffix(name, "-"+workspaceLabel); instance != name && instance != "" {
+			return instance, workspaceLabel, true
+		}
+	}
+
+	candidates := []string{}
+	if instanceLabel != "" {
+		candidates = append(candidates, instanceLabel)
+	}
+	if matches := masManageNamespacePattern.FindStringSubmatch(strings.TrimSpace(namespace)); len(matches) == 2 {
+		candidates = append(candidates, matches[1])
+	}
+	for _, instance := range candidates {
+		if workspace := strings.TrimPrefix(name, instance+"-"); workspace != name && workspace != "" {
+			return instance, workspace, true
+		}
+	}
+
+	instance, workspace, ok := strings.Cut(name, "-")
+	if !ok || strings.TrimSpace(instance) == "" || strings.TrimSpace(workspace) == "" {
+		return "", "", false
+	}
+	return instance, workspace, true
 }
 
 // IDPCfgs lists the IDPCfg objects in a MAS core namespace. Used by the
@@ -670,38 +731,66 @@ func (c *Client) PVCs(ctx context.Context, namespace string) ([]PVCStatus, error
 }
 
 func (c *Client) ObjectStorageCfgConditions(ctx context.Context, namespace, name string) ([]ConditionStatus, error) {
+	_, conditions, err := c.ResourceConditions(ctx, namespace, "objectstoragecfg", name)
+	return conditions, err
+}
+
+// ResourceConditions returns metadata.generation and status.conditions of any
+// namespaced resource that follows the Kubernetes condition conventions.
+func (c *Client) ResourceConditions(ctx context.Context, namespace, resource, name string) (int64, []ConditionStatus, error) {
 	output, err := c.runner.Output(ctx, executil.Options{
 		Name: "oc",
-		Args: []string{"get", "objectstoragecfg", name, "-n", namespace, "-o", "json"},
+		Args: []string{"get", resource, name, "-n", namespace, "-o", "json"},
 	})
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
+	generation, conditions, err := ParseResourceConditions([]byte(output))
+	if err != nil {
+		return 0, nil, fmt.Errorf("decode %s %s: %w", resource, name, err)
+	}
+	return generation, conditions, nil
+}
 
+// ParseResourceConditions decodes generation + conditions from `oc get -o
+// json` output. Exported for tests.
+func ParseResourceConditions(raw []byte) (int64, []ConditionStatus, error) {
 	var payload struct {
+		Metadata struct {
+			Generation int64 `json:"generation"`
+		} `json:"metadata"`
 		Status struct {
-			Conditions []struct {
-				Type    string `json:"type"`
-				Status  string `json:"status"`
-				Reason  string `json:"reason"`
-				Message string `json:"message"`
+			ObservedGeneration int64 `json:"observedGeneration"`
+			Conditions         []struct {
+				Type               string `json:"type"`
+				Status             string `json:"status"`
+				Reason             string `json:"reason"`
+				Message            string `json:"message"`
+				LastTransitionTime string `json:"lastTransitionTime"`
+				ObservedGeneration int64  `json:"observedGeneration"`
 			} `json:"conditions"`
 		} `json:"status"`
 	}
-	if err := json.Unmarshal([]byte(output), &payload); err != nil {
-		return nil, fmt.Errorf("decode objectstoragecfg %s: %w", name, err)
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return 0, nil, err
 	}
 
 	conditions := make([]ConditionStatus, 0, len(payload.Status.Conditions))
 	for _, condition := range payload.Status.Conditions {
+		observed := condition.ObservedGeneration
+		if observed == 0 {
+			observed = payload.Status.ObservedGeneration
+		}
 		conditions = append(conditions, ConditionStatus{
-			Type:    condition.Type,
-			Status:  condition.Status,
-			Reason:  condition.Reason,
-			Message: condition.Message,
+			Type:               condition.Type,
+			Status:             condition.Status,
+			Reason:             condition.Reason,
+			Message:            condition.Message,
+			LastTransitionTime: condition.LastTransitionTime,
+			ObservedGeneration: observed,
 		})
 	}
-	return conditions, nil
+	return payload.Metadata.Generation, conditions, nil
 }
 
 func (c *Client) ConfigMapData(ctx context.Context, namespace, name string) (map[string]string, error) {
@@ -798,6 +887,70 @@ func (c *Client) Apply(ctx context.Context, manifest []byte) (string, error) {
 	}, bytes.NewReader(manifest))
 }
 
+// ReadyPodName returns a Running, Ready, not-terminating pod matching
+// selector in namespace, or "" when there is none. Taking .items[0] picked
+// whatever the API listed first — during a rollout that is often a pod that
+// is still starting or already terminating, and exec into it fails.
+func (c *Client) ReadyPodName(ctx context.Context, namespace, selector string) (string, error) {
+	output, err := c.runner.Output(ctx, executil.Options{
+		Name: "oc",
+		Args: []string{"get", "pod", "-n", namespace, "-l", selector, "-o", "json"},
+	})
+	if err != nil {
+		return "", err
+	}
+	return PickReadyPod([]byte(output))
+}
+
+// PickReadyPod picks the first Running + Ready pod without a
+// deletionTimestamp from `oc get pod -o json` output.
+func PickReadyPod(raw []byte) (string, error) {
+	var payload struct {
+		Items []struct {
+			Metadata struct {
+				Name              string `json:"name"`
+				DeletionTimestamp string `json:"deletionTimestamp"`
+			} `json:"metadata"`
+			Status struct {
+				Phase      string `json:"phase"`
+				Conditions []struct {
+					Type   string `json:"type"`
+					Status string `json:"status"`
+				} `json:"conditions"`
+			} `json:"status"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return "", fmt.Errorf("decode pod list: %w", err)
+	}
+	for _, item := range payload.Items {
+		if item.Status.Phase != "Running" || item.Metadata.DeletionTimestamp != "" {
+			continue
+		}
+		for _, condition := range item.Status.Conditions {
+			if condition.Type == "Ready" && condition.Status == "True" {
+				return item.Metadata.Name, nil
+			}
+		}
+	}
+	return "", nil
+}
+
+// Exists reports whether target (e.g. "service/name") exists in namespace.
+func (c *Client) Exists(ctx context.Context, namespace, target string) (bool, error) {
+	_, err := c.runner.Output(ctx, executil.Options{
+		Name: "oc",
+		Args: []string{"get", target, "-n", namespace, "-o", "name"},
+	})
+	if err == nil {
+		return true, nil
+	}
+	if IsNotFound(err) {
+		return false, nil
+	}
+	return false, err
+}
+
 func (c *Client) DeleteIgnoreNotFound(ctx context.Context, namespace, target string) (string, error) {
 	return c.runner.Output(ctx, executil.Options{
 		Name: "oc",
@@ -834,6 +987,48 @@ func (c *Client) Logs(ctx context.Context, namespace string, args []string, stdo
 		Name: "oc",
 		Args: fullArgs,
 	}, stdout, stderr)
+}
+
+// CanI asks the API server (SelfSubjectAccessReview via `oc auth can-i`)
+// whether the current user may perform verb on resource. namespace "" means
+// cluster scope. resource may be "type", "type.group" or "type.group/name".
+func (c *Client) CanI(ctx context.Context, verb, resource, namespace string) (bool, error) {
+	args := []string{"auth", "can-i", verb, resource}
+	if namespace != "" {
+		args = append(args, "-n", namespace)
+	}
+	output, err := c.runner.Output(ctx, executil.Options{Name: "oc", Args: args})
+	return ParseCanI(output, err)
+}
+
+// ParseCanI interprets `oc auth can-i` output. The command prints yes/no on
+// its last line and exits 1 for "no", which the runner reports as an error
+// whose text ends with the output; anything else is a real failure (API
+// unreachable, unknown flag).
+func ParseCanI(output string, err error) (bool, error) {
+	lastLine := func(text string) string {
+		lines := strings.Split(strings.TrimSpace(text), "\n")
+		return strings.TrimSpace(lines[len(lines)-1])
+	}
+	// A denial may carry a reason: "no - <reason>".
+	isNo := func(line string) bool {
+		return line == "no" || strings.HasPrefix(line, "no - ") ||
+			strings.HasSuffix(line, ": no") || strings.Contains(line, ": no - ")
+	}
+	if err == nil {
+		last := lastLine(output)
+		switch {
+		case last == "yes":
+			return true, nil
+		case isNo(last):
+			return false, nil
+		}
+		return false, fmt.Errorf("unexpected oc auth can-i output: %q", strings.TrimSpace(output))
+	}
+	if isNo(lastLine(err.Error())) {
+		return false, nil
+	}
+	return false, err
 }
 
 func IsNotFound(err error) bool {

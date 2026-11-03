@@ -249,10 +249,11 @@ func (o *objectStorageInstallOptions) run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	appliedAt := time.Now()
 	if err := o.applyMASConfig(ctx, client, details, endpointURL, caCert); err != nil {
 		return err
 	}
-	if err := waitForObjectStorageCfgReady(ctx, client, o.masCoreNamespace, o.objectStorageCfg, o.timeout); err != nil {
+	if err := waitForObjectStorageCfgReady(ctx, client, o.masCoreNamespace, o.objectStorageCfg, appliedAt, o.timeout); err != nil {
 		return err
 	}
 
@@ -288,7 +289,12 @@ func (o *minioInstallOptions) run(ctx context.Context) error {
 	if err := o.migrateDeploymentStrategy(ctx, client); err != nil {
 		return err
 	}
-	for _, manifest := range o.installManifests() {
+	// On a re-run the virtual-host alias Services already exist, so the
+	// Deployment goes out with its final env (MINIO_DOMAIN) straight away.
+	// Applying it without MINIO_DOMAIN and adding it back in
+	// enableVirtualHostStyle restarted MinIO twice on every re-run.
+	virtualHostReady := o.aliasServicesExist(ctx, client)
+	for _, manifest := range o.installManifests(virtualHostReady) {
 		if err := applyManifest(ctx, client, manifest); err != nil {
 			return err
 		}
@@ -327,6 +333,7 @@ func (o *minioInstallOptions) run(ctx context.Context) error {
 		return nil
 	}
 
+	appliedAt := time.Now()
 	if err := applyMASObjectStorageConfig(ctx, client, masObjectStorageConfigOptions{
 		masInstanceID:      o.masInstanceID,
 		masCoreNamespace:   o.masCoreNamespace,
@@ -339,7 +346,7 @@ func (o *minioInstallOptions) run(ctx context.Context) error {
 	}); err != nil {
 		return err
 	}
-	if err := waitForObjectStorageCfgReady(ctx, client, o.masCoreNamespace, o.objectStorageCfg, o.timeout); err != nil {
+	if err := waitForObjectStorageCfgReady(ctx, client, o.masCoreNamespace, o.objectStorageCfg, appliedAt, o.timeout); err != nil {
 		return err
 	}
 
@@ -419,6 +426,17 @@ func (o *minioInstallOptions) defaultAndValidate(ctx context.Context, client *oc
 	o.name = defaultString(o.name, defaultMinIOName)
 	o.bucket = defaultString(o.bucket, defaultMinIOBucket)
 	o.storageClassName = strings.TrimSpace(o.storageClassName)
+	// The data PVC's storageClassName is immutable: a re-run that picked a
+	// different class failed on the apply. Keep the existing PVC's class.
+	if class, note, warn := reconcileStorageClass(o.storageClassName, o.storageClassName != "",
+		existingPVCStorageClasses(ctx, client, o.namespace), []string{o.name + "-data"}); note != "" {
+		o.storageClassName = class
+		if warn {
+			fmt.Fprintf(os.Stderr, "[object-storage] WARN: %s\n", note)
+		} else {
+			fmt.Fprintf(os.Stdout, "[object-storage] %s\n", note)
+		}
+	}
 	if o.storageClassName == "" {
 		storageClass, err := defaultPVCStorageClass(ctx, client)
 		if err != nil {
@@ -455,18 +473,35 @@ func defaultPVCStorageClass(ctx context.Context, client *oc.Client) (string, err
 	if err != nil {
 		return "", err
 	}
+	return pickPVCStorageClass(storageClasses)
+}
+
+// pickPVCStorageClass chooses the MinIO PVC class: the cluster default, else
+// rook-ceph-block, else the first class. Static no-provisioner classes (e.g.
+// ODF's localblock) are skipped everywhere: a new PVC against one never
+// binds, so MinIO would sit Pending until the rollout times out.
+func pickPVCStorageClass(storageClasses []oc.StorageClass) (string, error) {
+	dynamic := make([]oc.StorageClass, 0, len(storageClasses))
 	for _, storageClass := range storageClasses {
+		if !storageClass.IsStatic() {
+			dynamic = append(dynamic, storageClass)
+		}
+	}
+	for _, storageClass := range dynamic {
 		if storageClass.IsDefault {
 			return storageClass.Name, nil
 		}
 	}
-	for _, storageClass := range storageClasses {
+	for _, storageClass := range dynamic {
 		if storageClass.Name == defaultMinIOStorageClass {
 			return storageClass.Name, nil
 		}
 	}
+	if len(dynamic) > 0 {
+		return dynamic[0].Name, nil
+	}
 	if len(storageClasses) > 0 {
-		return storageClasses[0].Name, nil
+		return "", fmt.Errorf("only statically provisioned storage classes (%s) found; their PVCs never bind. Provide --storage-class", oc.StaticProvisioner)
 	}
 	return "", fmt.Errorf("no storage classes found; provide --storage-class")
 }
@@ -484,11 +519,15 @@ func (o *objectStorageInstallOptions) installManifests() []map[string]any {
 	return manifests
 }
 
-func (o *minioInstallOptions) installManifests() []map[string]any {
+// installManifests is the first-pass MinIO object set. virtualHostReady
+// (the bucket alias Services exist from an earlier run) renders the
+// Deployment with MINIO_DOMAIN already set, so enableVirtualHostStyle's
+// re-apply is a no-op instead of a second rollout.
+func (o *minioInstallOptions) installManifests(virtualHostReady bool) []map[string]any {
 	return []map[string]any{
 		minioPVCManifest(o),
 		minioServiceManifest(o),
-		minioDeploymentManifest(o, false),
+		minioDeploymentManifest(o, virtualHostReady),
 		minioRouteManifest(o, o.name+"-api", o.apiRouteHost, "api"),
 		minioRouteManifest(o, o.name+"-console", o.consoleRouteHost, "console"),
 	}
@@ -550,10 +589,69 @@ func (o *minioInstallOptions) runBucketInitJob(ctx context.Context, client *oc.C
 	if err := applyManifest(ctx, client, minioBucketInitJobManifest(o, jobName)); err != nil {
 		return err
 	}
-	if _, err := client.WaitForCondition(ctx, o.namespace, "job/"+jobName, "complete", o.timeout.String()); err != nil {
-		return fmt.Errorf("wait for job/%s in namespace %s: %w", jobName, o.namespace, err)
+	return waitForJobResult(ctx, client, o.namespace, jobName, o.timeout)
+}
+
+// jobOutcome classifies a Job status: done once Complete or Failed, with a
+// non-nil error for Failed.
+func jobOutcome(namespace string, status oc.JobStatus) (bool, error) {
+	switch {
+	case status.Complete:
+		return true, nil
+	case status.FailedCondition:
+		return true, fmt.Errorf("job/%s in namespace %s failed (%s: %s)", status.Name, namespace,
+			defaultString(status.FailedReason, "Failed"), status.FailedMessage)
 	}
-	return nil
+	return false, nil
+}
+
+// waitForJobResult waits for a Job to Complete OR Fail. `oc wait
+// --for=condition=complete` sat out its whole timeout on a Job that had
+// already failed; this returns as soon as the Job controller gives up, with
+// the pod logs printed so the cause is visible.
+func waitForJobResult(ctx context.Context, client *oc.Client, namespace, name string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		status, err := client.Job(ctx, namespace, name)
+		if err == nil {
+			if status.Name == "" {
+				status.Name = name
+			}
+			if done, jobErr := jobOutcome(namespace, status); done {
+				if jobErr != nil {
+					printJobLogs(ctx, client, namespace, name)
+					return fmt.Errorf("%w; pod logs are printed above", jobErr)
+				}
+				return nil
+			}
+		}
+		if time.Now().After(deadline) {
+			printJobLogs(ctx, client, namespace, name)
+			return fmt.Errorf("timed out after %s waiting for job/%s in namespace %s to complete", timeout, name, namespace)
+		}
+		if err := sleepCtx(ctx, 5*time.Second); err != nil {
+			return err
+		}
+	}
+}
+
+func printJobLogs(ctx context.Context, client *oc.Client, namespace, name string) {
+	fmt.Fprintf(os.Stderr, "[object-storage] last log lines of job/%s:\n", name)
+	if err := client.Logs(ctx, namespace, []string{"job/" + name, "--all-containers", "--tail=80"}, os.Stderr, os.Stderr); err != nil {
+		fmt.Fprintf(os.Stderr, "[object-storage] could not read logs of job/%s: %v\n", name, err)
+	}
+}
+
+// aliasServicesExist reports whether every bucket alias Service from
+// enableVirtualHostStyle is already present (i.e. this is a re-run).
+func (o *minioInstallOptions) aliasServicesExist(ctx context.Context, client *oc.Client) bool {
+	for _, bucket := range o.manageBucketNames() {
+		exists, err := client.Exists(ctx, o.namespace, "service/"+bucket)
+		if err != nil || !exists {
+			return false
+		}
+	}
+	return true
 }
 
 func (o *minioInstallOptions) enableVirtualHostStyle(ctx context.Context, client *oc.Client) error {
@@ -916,17 +1014,25 @@ func waitForDeployment(ctx context.Context, client *oc.Client, namespace, name s
 	}
 }
 
-func waitForObjectStorageCfgReady(ctx context.Context, client *oc.Client, namespace, name string, timeout time.Duration) error {
+// waitForObjectStorageCfgReady waits for a Ready condition that belongs to a
+// reconcile after `since` (the apply time); a Ready=True left over from the
+// previous install does not count. See readinessGate.
+func waitForObjectStorageCfgReady(ctx context.Context, client *oc.Client, namespace, name string, since time.Time, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
+	gate := newReadinessGate()
 	var lastState string
 	for {
-		conditions, err := client.ObjectStorageCfgConditions(ctx, namespace, name)
+		generation, conditions, err := client.ResourceConditions(ctx, namespace, "objectstoragecfg", name)
 		if err == nil {
-			ready, state := objectStorageReadyState(conditions)
-			if ready {
+			_, state := objectStorageReadyState(conditions)
+			lastState = state
+			done, note := gate.observe(conditionsFreshness(generation, conditions, since), time.Now())
+			if done {
+				if note != "" {
+					fmt.Fprintf(os.Stdout, "[object-storage] objectstoragecfg/%s: %s\n", name, note)
+				}
 				return nil
 			}
-			lastState = state
 		} else {
 			lastState = err.Error()
 		}

@@ -249,6 +249,124 @@ wait_for_namespaced_resource() {
   die "timed out waiting for ${kind}/${name} in namespace ${namespace}"
 }
 
+# When this run started, as ISO-8601 UTC so it compares lexically with
+# Kubernetes creationTimestamps (portable: no GNU/BSD `date -d` differences).
+MAS_EST_RUN_STARTED_AT="${MAS_EST_RUN_STARTED_AT:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+
+# job_true_conditions prints the type of every True condition on a Job, one
+# per line (Complete, Failed, FailureTarget, SuccessCriteriaMet, ...).
+job_true_conditions() {
+  local namespace="$1" job="$2"
+  oc get job "${job}" -n "${namespace}" \
+    -o jsonpath='{range .status.conditions[?(@.status=="True")]}{.type}{"\n"}{end}' 2>/dev/null || true
+}
+
+# print_job_diagnostics shows why a Job failed: its Failed condition, its
+# pods' phases and waiting reasons, and the tail of every pod's logs.
+print_job_diagnostics() {
+  local namespace="$1" job="$2"
+  local reason pod
+  reason="$(oc get job "${job}" -n "${namespace}" \
+    -o jsonpath='{range .status.conditions[?(@.status=="True")]}{.type}{": "}{.reason}{" - "}{.message}{"\n"}{end}' 2>/dev/null || true)"
+  if [[ -n "${reason}" ]]; then
+    printf '%s\n' "${reason}" | prefix_stream "job/${job}" >&2
+  fi
+  oc get pods -n "${namespace}" -l "job-name=${job}" \
+    -o jsonpath='{range .items[*]}{.metadata.name}{" phase="}{.status.phase}{" "}{range .status.containerStatuses[*]}{.state.waiting.reason}{" "}{.state.waiting.message}{" "}{.state.terminated.reason}{" exit="}{.state.terminated.exitCode}{end}{"\n"}{end}' \
+    2>/dev/null | prefix_stream "job/${job} pod" >&2 || true
+  while IFS= read -r pod; do
+    [[ -n "${pod}" ]] || continue
+    log_error "last log lines of ${pod}:"
+    oc logs -n "${namespace}" "${pod}" --all-containers --tail=80 2>&1 | prefix_stream "${pod##*/}" >&2 || true
+  done < <(oc get pods -n "${namespace}" -l "job-name=${job}" -o name 2>/dev/null || true)
+}
+
+# job_image_pull_stuck prints the pod waiting reason when a Job's pod cannot
+# pull or start its image, and nothing otherwise. Kubernetes never fails a Job
+# for that, so without this a bad image burns the whole wait timeout.
+job_image_pull_stuck() {
+  local namespace="$1" job="$2"
+  oc get pods -n "${namespace}" -l "job-name=${job}" \
+    -o jsonpath='{range .items[*].status.containerStatuses[*]}{.state.waiting.reason}{"\n"}{end}' 2>/dev/null \
+    | grep -E -m1 '^(ImagePullBackOff|ErrImagePull|InvalidImageName|CreateContainerConfigError)$' || true
+}
+
+# wait_for_job_complete waits for a Job to reach Complete OR Failed, instead
+# of `oc wait --for=condition=complete`, which sits out its whole timeout
+# (10-20 minutes) on a Job that has already failed. On failure it prints the
+# Job's condition, pod states and pod logs, then exits non-zero.
+#
+# A Job that is ALREADY Failed and was created before this run started is
+# usually left over from an earlier run (Helm hooks such as
+# mas-est-iam-ldap-config are not re-run on their own). It gets a grace period
+# to be replaced before the wait gives up with the stale-job hint ($4).
+wait_for_job_complete() {
+  local namespace="$1"
+  local job="$2"
+  local timeout_seconds="${3:-1200}"
+  local stale_hint="${4:-delete it with 'oc delete job ${job} -n ${namespace}' and re-run the install}"
+  local stale_grace="${MAS_EST_STALE_JOB_GRACE_SECONDS:-180}"
+  local image_pull_grace="${MAS_EST_IMAGE_PULL_GRACE_SECONDS:-180}"
+  local waited=0 stuck_for=0 conditions created stuck
+  local interval="${MAS_EST_JOB_POLL_INTERVAL:-5}"
+
+  while (( waited < timeout_seconds )); do
+    conditions="$(job_true_conditions "${namespace}" "${job}")"
+    if grep -qxE 'Complete|SuccessCriteriaMet' <<<"${conditions}"; then
+      log_wait "job/${job} complete (after ${waited}s)"
+      return 0
+    fi
+    if grep -qxE 'Failed|FailureTarget' <<<"${conditions}"; then
+      created="$(oc get job "${job}" -n "${namespace}" -o jsonpath='{.metadata.creationTimestamp}' 2>/dev/null || true)"
+      if [[ -n "${created}" && "${created}" < "${MAS_EST_RUN_STARTED_AT}" ]]; then
+        if (( waited < stale_grace )); then
+          if (( waited % 60 == 0 )); then
+            log_wait "job/${job} is Failed from an earlier run (created ${created}); waiting up to ${stale_grace}s for it to be replaced"
+          fi
+          sleep "${interval}"
+          waited=$((waited + interval))
+          continue
+        fi
+        print_job_diagnostics "${namespace}" "${job}"
+        die "job/${job} in namespace ${namespace} is still the Failed Job from an earlier run (created ${created}). Fix the cause shown above, then ${stale_hint}."
+      fi
+      print_job_diagnostics "${namespace}" "${job}"
+      die "job/${job} in namespace ${namespace} failed; see the condition, pod states and logs above."
+    fi
+
+    stuck="$(job_image_pull_stuck "${namespace}" "${job}")"
+    if [[ -n "${stuck}" ]]; then
+      stuck_for=$((stuck_for + interval))
+      if (( stuck_for >= image_pull_grace )); then
+        print_job_diagnostics "${namespace}" "${job}"
+        die "job/${job} in namespace ${namespace} cannot start its pod (${stuck} for ${stuck_for}s); see the pod state above."
+      fi
+    else
+      stuck_for=0
+    fi
+
+    if (( waited > 0 && waited % 60 == 0 )); then
+      log_wait "still waiting for job/${job} (${waited}s of ${timeout_seconds}s)"
+    fi
+    sleep "${interval}"
+    waited=$((waited + interval))
+  done
+
+  print_job_diagnostics "${namespace}" "${job}"
+  die "timed out after ${timeout_seconds}s waiting for job/${job} in namespace ${namespace} to complete"
+}
+
+# delete_job_if_failed removes a Job left Failed by an earlier run so the
+# apply that follows can create it afresh (a Job's pod template is immutable,
+# so re-applying the same manifest would leave the failed one in place).
+delete_job_if_failed() {
+  local namespace="$1" job="$2"
+  if grep -qxE 'Failed|FailureTarget' <<<"$(job_true_conditions "${namespace}" "${job}")"; then
+    log_install "deleting job/${job}, left Failed by an earlier run, so it is recreated"
+    oc delete job "${job}" -n "${namespace}" --ignore-not-found >/dev/null
+  fi
+}
+
 # wait_for_ldaps_listening waits until slapd accepts connections on 636 inside
 # the OpenLDAP pod. The deployment reports Ready as soon as the container
 # starts, but on first start the image generates 2048-bit DH parameters before
@@ -304,12 +422,77 @@ find_operator_csv_name() {
   return 1
 }
 
+# expected_operator_csv prints the CSV the catalog currently offers as the
+# head of the Subscription's channel (packagemanifest currentCSV).
+expected_operator_csv() {
+  local namespace="$1"
+  local channel
+  channel="$(oc get subscription.operators.coreos.com/mas-iam-operator -n "${namespace}" -o jsonpath='{.spec.channel}' 2>/dev/null || true)"
+  channel="${channel:-alpha}"
+  oc get packagemanifests mas-iam-operator -n openshift-marketplace \
+    -o jsonpath="{.status.channels[?(@.name==\"${channel}\")].currentCSV}" 2>/dev/null || true
+}
+
+# csv_version_older succeeds when CSV $1 (e.g. mas-iam-operator.v0.0.14) has
+# a lower version than CSV $2. Numeric dotted compare; anything it cannot
+# parse counts as "not older", so the caller never acts on a guess.
+csv_version_older() {
+  local a="${1##*.v}" b="${2##*.v}"
+  a="${a%%-*}"
+  b="${b%%-*}"
+  local -a av bv
+  IFS=. read -r -a av <<<"${a}"
+  IFS=. read -r -a bv <<<"${b}"
+  local i x y n=${#av[@]}
+  (( ${#bv[@]} > n )) && n=${#bv[@]}
+  for (( i = 0; i < n; i++ )); do
+    x="${av[i]:-0}"
+    y="${bv[i]:-0}"
+    if ! [[ "${x}" =~ ^[0-9]+$ && "${y}" =~ ^[0-9]+$ ]]; then
+      return 1
+    fi
+    if (( 10#${x} < 10#${y} )); then
+      return 0
+    fi
+    if (( 10#${x} > 10#${y} )); then
+      return 1
+    fi
+  done
+  return 1
+}
+
+# remove_stale_operator deletes the Subscription and the operator CSVs so the
+# Subscription can be re-applied and resolve afresh to the catalog head; the
+# same clean-up scripts/install-operator-from-catalog.sh does. CRDs and the
+# MasIamStack CR are left alone, so the stack itself keeps running.
+remove_stale_operator() {
+  local namespace="$1"
+  local csv
+  oc delete subscription.operators.coreos.com mas-iam-operator -n "${namespace}" --ignore-not-found >/dev/null
+  while IFS= read -r csv; do
+    [[ -n "${csv}" ]] || continue
+    oc delete csv "${csv}" -n "${namespace}" --ignore-not-found >/dev/null
+  done < <(oc get csv -n "${namespace}" -l "operators.coreos.com/mas-iam-operator.${namespace}" \
+    -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)
+}
+
+# wait_for_operator_csv_succeeded waits for the operator CSV to reach
+# Succeeded AND be the catalog's current head. Accepting any Succeeded CSV let
+# a stale operator from an earlier install (OLM resolved an older CSV, or has
+# no upgrade path to the new one) run the new stack. An older CSV gets
+# MAS_EST_STALE_CSV_GRACE_SECONDS (default 120) to be upgraded by OLM; after
+# that, when $3 names the Subscription manifest, the stale Subscription and
+# CSV are removed and the Subscription re-applied once. A CSV stuck in Failed
+# for MAS_EST_CSV_FAILED_GRACE_SECONDS (default 300) fails with its message.
 wait_for_operator_csv_succeeded() {
   local namespace="$1"
   local timeout_seconds="${2:-900}"
-  local elapsed=0
-  local csv=""
-  local phase=""
+  local subscription_manifest="${3:-}"
+  local stale_grace="${MAS_EST_STALE_CSV_GRACE_SECONDS:-120}"
+  local failed_grace="${MAS_EST_CSV_FAILED_GRACE_SECONDS:-300}"
+  local interval="${MAS_EST_CSV_POLL_INTERVAL:-10}"
+  local elapsed=0 stale_for=0 failed_for=0 replaced=0
+  local csv="" phase="" expected="" message="" last_message=""
 
   while (( elapsed < timeout_seconds )); do
     csv="$(find_operator_csv_name "${namespace}" || true)"
@@ -320,19 +503,131 @@ wait_for_operator_csv_succeeded() {
 
     log_wait "operator_csv=${csv:-missing} phase=${phase:-missing}"
     if [[ "${phase}" == "Succeeded" ]]; then
-      WAITED_OPERATOR_CSV="${csv}"
-      return 0
+      expected="$(expected_operator_csv "${namespace}")"
+      # Only an installed CSV provably OLDER than the head counts as stale:
+      # packageserver can briefly serve older catalog content, and a newer
+      # installed operator must never be torn down for it.
+      if [[ -z "${expected}" ]] || ! csv_version_older "${csv}" "${expected}"; then
+        WAITED_OPERATOR_CSV="${csv}"
+        return 0
+      fi
+      if (( stale_for == 0 )); then
+        log_warn "installed operator ${csv} is OLDER than the catalog's current ${expected}; waiting up to ${stale_grace}s for OLM to upgrade it"
+      fi
+      stale_for=$((stale_for + interval))
+      if (( stale_for >= stale_grace )); then
+        if [[ -n "${subscription_manifest}" && -s "${subscription_manifest}" && "${replaced}" == "0" ]]; then
+          log_warn "operator ${csv} is stale (catalog offers ${expected}); removing the Subscription and CSV and re-subscribing"
+          remove_stale_operator "${namespace}"
+          oc apply -f "${subscription_manifest}"
+          replaced=1
+          stale_for=0
+        else
+          die "the MAS EST IAM operator is stuck on ${csv} while the catalog offers ${expected}. Remove the stale operator ('oc delete subscription mas-iam-operator -n ${namespace}' and 'oc delete csv ${csv} -n ${namespace}') and re-run the install."
+        fi
+      fi
+    else
+      stale_for=0
     fi
 
-    sleep 10
-    elapsed=$((elapsed + 10))
+    if [[ "${phase}" == "Failed" ]]; then
+      message="$(oc get csv -n "${namespace}" "${csv}" -o jsonpath='{.status.reason}{": "}{.status.message}' 2>/dev/null || true)"
+      if [[ "${message}" != "${last_message}" ]]; then
+        log_warn "operator CSV ${csv} is Failed: ${message}"
+        last_message="${message}"
+      fi
+      failed_for=$((failed_for + interval))
+      if (( failed_for >= failed_grace )); then
+        die "the MAS EST IAM operator CSV ${csv} has been Failed for ${failed_for}s: ${message}"
+      fi
+    else
+      failed_for=0
+    fi
+
+    sleep "${interval}"
+    elapsed=$((elapsed + interval))
   done
 
+  if [[ -n "${csv}" ]]; then
+    message="$(oc get csv -n "${namespace}" "${csv}" -o jsonpath='{.status.reason}{": "}{.status.message}' 2>/dev/null || true)"
+    [[ -n "${message}" && "${message}" != ": " ]] && log_error "operator CSV ${csv} last status: ${message}"
+  fi
+  oc get subscription.operators.coreos.com/mas-iam-operator -n "${namespace}" \
+    -o jsonpath='{range .status.conditions[*]}{.type}{"="}{.status}{" "}{.reason}{" "}{.message}{"\n"}{end}' 2>/dev/null \
+    | prefix_stream "subscription" >&2 || true
   die "timed out waiting for the MAS EST IAM operator CSV to reach Succeeded in namespace ${namespace}"
+}
+
+# wait_for_catalog_source_ready waits for a CatalogSource in
+# openshift-marketplace to report READY and fails fast, with the catalog
+# pod's waiting reason, when its image cannot be pulled or the connection
+# stays in TRANSIENT_FAILURE (MAS_EST_CATALOG_FAILURE_GRACE_SECONDS, default
+# 90; OLM reports TRANSIENT_FAILURE briefly while the pod starts). It used to
+# log "proceeding anyway" and the install then timed out ~25 minutes later
+# with a generic CSV message.
+wait_for_catalog_source_ready() {
+  local name="$1"
+  local timeout_seconds="${2:-300}"
+  local failure_grace="${MAS_EST_CATALOG_FAILURE_GRACE_SECONDS:-90}"
+  local interval="${MAS_EST_CATALOG_POLL_INTERVAL:-5}"
+  local waited=0 transient_for=0 state pods image
+  while (( waited < timeout_seconds )); do
+    state="$(oc -n openshift-marketplace get catalogsource "${name}" -o jsonpath='{.status.connectionState.lastObservedState}' 2>/dev/null || true)"
+    if [[ "${state}" == "READY" ]]; then
+      log_wait "catalog_source=${name} state=READY"
+      return 0
+    fi
+    pods="$(oc -n openshift-marketplace get pods -l "olm.catalogSource=${name}" \
+      -o jsonpath='{range .items[*]}{.metadata.name}{" "}{range .status.containerStatuses[*]}{.state.waiting.reason}{" "}{.state.waiting.message}{end}{"\n"}{end}' 2>/dev/null || true)"
+    if grep -qE 'ImagePullBackOff|ErrImagePull|InvalidImageName' <<<"${pods}"; then
+      image="$(oc -n openshift-marketplace get catalogsource "${name}" -o jsonpath='{.spec.image}' 2>/dev/null || true)"
+      printf '%s\n' "${pods}" | prefix_stream "catalog-pod" >&2
+      die "CatalogSource ${name} cannot pull its image ${image:-<unknown>}; see the catalog pod state above"
+    fi
+    if [[ "${state}" == "TRANSIENT_FAILURE" ]]; then
+      transient_for=$((transient_for + interval))
+      if (( transient_for >= failure_grace )); then
+        [[ -n "${pods}" ]] && printf '%s\n' "${pods}" | prefix_stream "catalog-pod" >&2
+        die "CatalogSource ${name} has been in TRANSIENT_FAILURE for ${transient_for}s; check: oc -n openshift-marketplace get pods -l olm.catalogSource=${name}"
+      fi
+    else
+      transient_for=0
+    fi
+    sleep "${interval}"
+    waited=$((waited + interval))
+  done
+  [[ -n "${pods:-}" ]] && printf '%s\n' "${pods}" | prefix_stream "catalog-pod" >&2
+  die "CatalogSource ${name} did not report READY within ${timeout_seconds}s (last state: ${state:-none})"
 }
 
 list_storage_classes() {
   oc get sc -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true
+}
+
+# Provisioner of statically provisioned classes such as ODF's `localblock`:
+# their PersistentVolumes are pre-created, so a new PVC never binds. Mirrors
+# oc.StaticProvisioner / StorageClass.IsStatic in the Go installer.
+STATIC_STORAGE_PROVISIONER="kubernetes.io/no-provisioner"
+
+# list_static_storage_classes prints the classes whose provisioner is static.
+list_static_storage_classes() {
+  local name provisioner
+  while IFS=$'\t' read -r name provisioner; do
+    if [[ -n "${name}" && "${provisioner}" == "${STATIC_STORAGE_PROVISIONER}" ]]; then
+      printf '%s\n' "${name}"
+    fi
+  done < <(oc get sc -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.provisioner}{"\n"}{end}' 2>/dev/null || true)
+}
+
+is_static_storage_class() {
+  local candidate="$1"
+  local existing
+  for existing in "${STATIC_STORAGE_CLASSES[@]:-}"; do
+    if [[ -n "${existing}" && "${existing}" == "${candidate}" ]]; then
+      return 0
+    fi
+  done
+  return 1
 }
 
 get_default_storage_class() {
@@ -382,6 +677,7 @@ discover_storage_classes() {
   )
 
   ALL_STORAGE_CLASSES=()
+  STATIC_STORAGE_CLASSES=()
   DEFAULT_STORAGE_CLASS=""
   PREFERRED_BLOCK_STORAGE_CLASS=""
   REGEX_BLOCK_STORAGE_CLASS=""
@@ -396,16 +692,27 @@ discover_storage_classes() {
     return 1
   fi
 
+  while IFS= read -r existing; do
+    if [[ -n "${existing}" ]]; then
+      STATIC_STORAGE_CLASSES+=("${existing}")
+    fi
+  done < <(list_static_storage_classes)
+
   DEFAULT_STORAGE_CLASS="$(get_default_storage_class || true)"
 
+  # Static (no-provisioner) classes are never auto-selected: `localblock`
+  # matches the block regex below, yet a PVC against it stays Pending forever.
   for existing in "${preferred_names[@]}"; do
-    if storage_class_exists "${existing}"; then
+    if storage_class_exists "${existing}" && ! is_static_storage_class "${existing}"; then
       PREFERRED_BLOCK_STORAGE_CLASS="${existing}"
       break
     fi
   done
 
   for existing in "${ALL_STORAGE_CLASSES[@]}"; do
+    if is_static_storage_class "${existing}"; then
+      continue
+    fi
     lower_name="$(to_lower "${existing}")"
     if [[ "${lower_name}" =~ (rbd|block) ]]; then
       REGEX_BLOCK_STORAGE_CLASS="${existing}"
@@ -456,14 +763,25 @@ select_postgres_storage_class() {
     return 0
   fi
 
-  if [[ -n "${DEFAULT_STORAGE_CLASS}" ]]; then
+  if [[ -n "${DEFAULT_STORAGE_CLASS}" ]] && ! is_static_storage_class "${DEFAULT_STORAGE_CLASS}"; then
     SELECTED_STORAGE_CLASS="${DEFAULT_STORAGE_CLASS}"
     SELECTED_STORAGE_REASON="cluster-default"
     return 0
   fi
 
+  local candidate
+  for candidate in "${ALL_STORAGE_CLASSES[@]}"; do
+    if ! is_static_storage_class "${candidate}"; then
+      SELECTED_STORAGE_CLASS="${candidate}"
+      SELECTED_STORAGE_REASON="first-available"
+      return 0
+    fi
+  done
+
+  # Only static classes exist: nothing will bind; say so instead of guessing.
   SELECTED_STORAGE_CLASS="${ALL_STORAGE_CLASSES[0]}"
-  SELECTED_STORAGE_REASON="first-available"
+  SELECTED_STORAGE_REASON="first-available-static-will-not-bind"
+  log_warn "every StorageClass uses ${STATIC_STORAGE_PROVISIONER}; new PVCs will not bind. Set POSTGRES_STORAGE_CLASS / --storage-class to a dynamically provisioned class"
 }
 
 warn_if_cephfs_default_has_block_candidate() {

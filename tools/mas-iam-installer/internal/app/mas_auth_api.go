@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -126,10 +127,6 @@ func providerKeyWithSuffix(idpId, providerType string) string {
 	return idpId
 }
 
-const (
-	pollInterval = 5 * time.Second
-)
-
 // applyViaAdminAPI is the default mas-auth path. It PUTs each requested
 // provider's configuration to the MAS Admin API sequentially (LDAP → OIDC →
 // SAML SP → SAML IdP metadata), optionally polling each one to Ready before
@@ -156,11 +153,12 @@ func (o *masAuthApplyOptions) applyViaAdminAPI(ctx context.Context, client *oc.C
 		if err != nil {
 			return err
 		}
+		putAt := time.Now()
 		resp, err := mc.SetLDAP(ctx, o.ldapProviderID, req)
 		if err != nil {
 			return fmt.Errorf("setLDAPConfig %s: %w", o.ldapProviderID, err)
 		}
-		if err := o.maybeWait(ctx, mc, "ldap", o.ldapProviderID, resp); err != nil {
+		if err := o.maybeWait(ctx, mc, "ldap", o.ldapProviderID, putAt, resp); err != nil {
 			return err
 		}
 	}
@@ -168,6 +166,7 @@ func (o *masAuthApplyOptions) applyViaAdminAPI(ctx context.Context, client *oc.C
 	if o.hasProvider(config.MASAuthProviderOIDC) {
 		fmt.Fprintf(os.Stdout, "[mas-auth] PUT /config/oidc/%s\n", o.oidcProviderID)
 		req := o.buildOIDCRequest(kc)
+		putAt := time.Now()
 		resp, err := mc.SetOIDC(ctx, o.oidcProviderID, req)
 		if err != nil {
 			// MAS 9.0 has no /config/oidc endpoint at all: the PUT 404s with
@@ -178,7 +177,7 @@ func (o *masAuthApplyOptions) applyViaAdminAPI(ctx context.Context, client *oc.C
 			}
 			return fmt.Errorf("setOIDCConfig %s: %w", o.oidcProviderID, err)
 		}
-		if err := o.maybeWait(ctx, mc, "oidc", o.oidcProviderID, resp); err != nil {
+		if err := o.maybeWait(ctx, mc, "oidc", o.oidcProviderID, putAt, resp); err != nil {
 			return err
 		}
 	}
@@ -186,6 +185,7 @@ func (o *masAuthApplyOptions) applyViaAdminAPI(ctx context.Context, client *oc.C
 	if o.hasProvider(config.MASAuthProviderSAML) {
 		fmt.Fprintf(os.Stdout, "[mas-auth] PUT /config/saml/%s\n", o.samlProviderID)
 		spReq := o.buildSAMLSPRequest()
+		putAt := time.Now()
 		resp, err := mc.SetSAMLSP(ctx, o.samlProviderID, spReq)
 		if err != nil {
 			return fmt.Errorf("setSAMLConfig %s: %w", o.samlProviderID, err)
@@ -196,7 +196,7 @@ func (o *masAuthApplyOptions) applyViaAdminAPI(ctx context.Context, client *oc.C
 				return fmt.Errorf("setSAMLIDPConfig %s: %w", o.samlProviderID, err)
 			}
 		}
-		if err := o.maybeWait(ctx, mc, "saml", o.samlProviderID, resp); err != nil {
+		if err := o.maybeWait(ctx, mc, "saml", o.samlProviderID, putAt, resp); err != nil {
 			return err
 		}
 	}
@@ -219,7 +219,15 @@ func (o *masAuthApplyOptions) applyViaAdminAPI(ctx context.Context, client *oc.C
 	}
 	if linkType != "" {
 		if err := o.linkSCIMUsersToIDP(ctx, linkType); err != nil {
-			fmt.Fprintf(os.Stderr, "[mas-auth] WARN: link-scim-users-oidc step failed (non-fatal): %v\n", err)
+			// Re-running mas-auth apply does not help when Mongo lives
+			// somewhere the linker did not look; say what is affected and how
+			// to finish the step (the script's own output, printed above,
+			// carries the details).
+			fmt.Fprintf(os.Stderr, "[mas-auth] WARN: linking SCIM users to %s failed (non-fatal; the providers themselves are configured): %v\n"+
+				"[mas-auth]   SCIM-synced users cannot sign in through %s until linked. If MAS Mongo is not in namespace mongoce,\n"+
+				"[mas-auth]   pass --mongo-namespace / --mongo-instance (or set %s / %s) and re-run, or run:\n"+
+				"[mas-auth]     scripts/link-scim-users-oidc.sh %s\n",
+				linkType, err, linkType, envMongoNamespace, envMongoInstance, strings.Join(o.linkSCIMUsersArgs(linkType), " "))
 		}
 	}
 	return nil
@@ -283,6 +291,22 @@ func (o *masAuthApplyOptions) applySelfRegConfigMap(ctx context.Context, client 
 	}
 
 	name := o.masInstanceID + "-selfreg"
+
+	// Read, merge, write. The apply below is a server-side apply under the
+	// mas-est-installer field manager, which REMOVES any key that manager set
+	// last time and omits now — so `mas-auth apply --providers ldap` after an
+	// all-providers run used to delete the default-oidc / default-saml
+	// entries and break OIDC/SAML self-registration. Carrying every existing
+	// key forward keeps entries for providers outside this run (and any a
+	// customer added by hand); ours overwrite only their own keys.
+	existing, err := client.ConfigMapData(ctx, o.masCoreNamespace, name)
+	if err != nil && !oc.IsNotFound(err) {
+		return fmt.Errorf("read self-reg configmap %s/%s: %w", o.masCoreNamespace, name, err)
+	}
+	data, preserved := mergeSelfRegData(existing, data)
+	if len(preserved) > 0 {
+		fmt.Fprintf(os.Stdout, "[mas-auth] keeping existing self-reg entries for: %s\n", strings.Join(preserved, ", "))
+	}
 	manifest := map[string]any{
 		"apiVersion": "v1",
 		"kind":       "ConfigMap",
@@ -302,6 +326,25 @@ func (o *masAuthApplyOptions) applySelfRegConfigMap(ctx context.Context, client 
 		return fmt.Errorf("apply self-reg configmap: %w", err)
 	}
 	return nil
+}
+
+// mergeSelfRegData overlays this run's entries on the ConfigMap's current
+// data and returns the merged map plus the (sorted) keys kept unchanged from
+// the existing data.
+func mergeSelfRegData(existing, desired map[string]string) (map[string]string, []string) {
+	merged := make(map[string]string, len(existing)+len(desired))
+	preserved := []string{}
+	for key, value := range existing {
+		merged[key] = value
+		if _, overwritten := desired[key]; !overwritten {
+			preserved = append(preserved, key)
+		}
+	}
+	for key, value := range desired {
+		merged[key] = value
+	}
+	sort.Strings(preserved)
+	return merged, preserved
 }
 
 // oidcSelfRegMappings — OIDC standard claims. Reused for SAML because the
@@ -374,6 +417,13 @@ func (o *masAuthApplyOptions) linkSCIMUsersToIDP(ctx context.Context, providerTy
 	return err
 }
 
+// Env overrides for where link-scim-users-oidc.sh finds the MAS Mongo
+// replica set (defaults: namespace mongoce, instance mas-mongo-ce).
+const (
+	envMongoNamespace = "MAS_EST_MONGO_NAMESPACE"
+	envMongoInstance  = "MAS_EST_MONGO_INSTANCE"
+)
+
 // linkSCIMUsersArgs builds the argv for link-scim-users-oidc.sh. Extracted
 // so the IDPCfg-rename / reserved-word translation can be unit-tested without
 // shelling out.
@@ -382,11 +432,18 @@ func (o *masAuthApplyOptions) linkSCIMUsersArgs(providerType string) []string {
 	if providerType == "saml" {
 		providerID = o.samlProviderID
 	}
-	return []string{
+	args := []string{
 		"--instance", o.masInstanceID,
 		"--idp", providerKeyWithSuffix(providerID, providerType),
 		"--idp-type", providerType,
 	}
+	if ns := strings.TrimSpace(o.mongoNamespace); ns != "" {
+		args = append(args, "--mongo-namespace", ns)
+	}
+	if name := strings.TrimSpace(o.mongoInstance); name != "" {
+		args = append(args, "--mongo-instance", name)
+	}
+	return args
 }
 
 // repoScriptPath locates a script under <repo>/scripts. Order of resolution
@@ -472,45 +529,97 @@ func (o *masAuthApplyOptions) buildSAMLSPRequest() masadmin.SAMLSPConfigRequest 
 	}
 }
 
-// maybeWait polls the given provider until Ready or until o.timeout elapses,
-// when o.wait is true. If the initial PUT response already reports Ready,
-// no polling is performed.
-func (o *masAuthApplyOptions) maybeWait(ctx context.Context, mc *masadmin.Client, kind, idpId string, initial *masadmin.IDPConfigResponse) error {
+// maybeWait polls the given provider until it is Ready for the configuration
+// just PUT, or until o.timeout elapses, when o.wait is true.
+//
+// A Ready=True in the PUT response (or the first polls) is usually the
+// condition left over from the previous apply, so it only counts when it is
+// provably newer than the PUT — see readinessGate. putAt is the local time
+// just before the PUT; the PUT response's Date header (the cluster clock) is
+// preferred when present so a skewed laptop clock does not matter.
+//
+// A failed poll is logged and retried rather than aborting the wait: the
+// masadmin client already retries transient errors, but a route blip that
+// outlasts those retries must not fail an apply that has otherwise worked.
+// maxConsecutivePollErrors failures in a row still abort.
+func (o *masAuthApplyOptions) maybeWait(ctx context.Context, mc *masadmin.Client, kind, idpId string, putAt time.Time, initial *masadmin.IDPConfigResponse) error {
 	if !o.wait {
 		return nil
 	}
-	if initial != nil && initial.Ready() {
-		fmt.Fprintf(os.Stdout, "[mas-auth] %s/%s Ready\n", kind, idpId)
-		return nil
-	}
-	deadline := time.Now().Add(o.timeout)
-	for {
-		var (
-			resp *masadmin.IDPConfigResponse
-			err  error
-		)
+	poll := func() (*masadmin.IDPConfigResponse, error) {
 		switch kind {
 		case "ldap":
-			resp, err = mc.GetLDAP(ctx, idpId)
+			return mc.GetLDAP(ctx, idpId)
 		case "oidc":
-			resp, err = mc.GetOIDC(ctx, idpId)
+			return mc.GetOIDC(ctx, idpId)
 		case "saml":
-			resp, err = mc.GetSAML(ctx, idpId)
+			return mc.GetSAML(ctx, idpId)
+		}
+		return nil, fmt.Errorf("maybeWait: unknown kind %q", kind)
+	}
+	if kind != "ldap" && kind != "oidc" && kind != "saml" {
+		return fmt.Errorf("maybeWait: unknown kind %q", kind)
+	}
+	return waitForAdminAPIReady(ctx, kind+"/"+idpId, putAt, initial, o.timeout, poll)
+}
+
+func waitForAdminAPIReady(ctx context.Context, label string, putAt time.Time, initial *masadmin.IDPConfigResponse, timeout time.Duration, poll func() (*masadmin.IDPConfigResponse, error)) error {
+	since := putAt
+	if initial != nil && !initial.ServerTime.IsZero() {
+		since = initial.ServerTime
+	}
+	gate := newReadinessGate()
+	ready := func(resp *masadmin.IDPConfigResponse) bool {
+		done, note := gate.observe(resp.ReadyAfter(since, readinessClockSkew), time.Now())
+		if !done {
+			return false
+		}
+		if note != "" {
+			fmt.Fprintf(os.Stdout, "[mas-auth] %s: %s\n", label, note)
+		}
+		fmt.Fprintf(os.Stdout, "[mas-auth] %s Ready\n", label)
+		return true
+	}
+	if initial != nil && ready(initial) {
+		return nil
+	}
+
+	deadline := time.Now().Add(timeout)
+	var (
+		last           *masadmin.IDPConfigResponse
+		lastErr        error
+		consecutiveErr int
+	)
+	for {
+		if err := sleepCtx(ctx, readinessPollInterval); err != nil {
+			return err
+		}
+		resp, err := poll()
+		switch {
+		case err == nil:
+			consecutiveErr = 0
+			last = resp
+			if ready(resp) {
+				return nil
+			}
+		case masadmin.IsNotFound(err):
+			// Not created yet: counts as not-Ready.
+			consecutiveErr = 0
+			gate.observe(masadmin.NotReady, time.Now())
 		default:
-			return fmt.Errorf("maybeWait: unknown kind %q", kind)
-		}
-		if err != nil && !masadmin.IsNotFound(err) {
-			return fmt.Errorf("poll %s/%s: %w", kind, idpId, err)
-		}
-		if resp != nil && resp.Ready() {
-			fmt.Fprintf(os.Stdout, "[mas-auth] %s/%s Ready\n", kind, idpId)
-			return nil
+			consecutiveErr++
+			lastErr = err
+			if consecutiveErr >= maxConsecutivePollErrors {
+				return fmt.Errorf("poll %s: %d consecutive failures, last: %w", label, consecutiveErr, err)
+			}
+			fmt.Fprintf(os.Stderr, "[mas-auth] WARN: poll %s failed (%d/%d), retrying: %v\n", label, consecutiveErr, maxConsecutivePollErrors, err)
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("timed out waiting %s for %s/%s to become Ready: %s", o.timeout, kind, idpId, conditionSummary(resp))
-		}
-		if err := sleepCtx(ctx, pollInterval); err != nil {
-			return err
+			summary := conditionSummary(last)
+			if lastErr != nil && last == nil {
+				summary = "last poll error: " + lastErr.Error()
+			}
+			return fmt.Errorf("timed out waiting %s for %s to become Ready after the update: %s", timeout, label, summary)
 		}
 	}
 }

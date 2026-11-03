@@ -53,6 +53,62 @@ type inClusterInstallOptions struct {
 	image       string
 	interactive bool
 	out         io.Writer
+	// env holds the launcher's values for installerPassthroughEnv and
+	// installerPassthroughSecretEnv (see collectInstallerPassthroughEnv).
+	env map[string]string
+}
+
+// installerPassthroughEnv lists env-only settings that the bash scripts (and
+// mas-auth) read straight from the environment and that have no CLI flag. A
+// --local run inherits them from the user's shell; the Job's container starts
+// with a clean environment, so they used to be dropped silently in-cluster.
+// They are forwarded as plain Job env values when set on the launcher.
+var installerPassthroughEnv = []string{
+	"SCIM_BRIDGE_IMAGE",
+	"SCIM_BRIDGE_IMAGE_PULL_SECRETS",
+	"SCIM_BRIDGE_INCLUDE_GROUPS",
+	"SCIM_BRIDGE_INCLUDE_USERNAME_PREFIX",
+	"SCIM_BRIDGE_INCLUDE_USERNAMES",
+	"SCIM_BRIDGE_KEYCLOAK_REALM",
+	"SCIM_BRIDGE_KEYCLOAK_CLIENT_ID",
+	"SCIM_BRIDGE_KEYCLOAK_BASE_URL",
+	"SCIM_BRIDGE_MAS_ROUTE_NAMESPACE",
+	"SCIM_BRIDGE_MAS_ROUTE_NAME",
+	"SCIM_BRIDGE_BRIDGE_LOG_LEVEL",
+	"SCIM_BRIDGE_BRIDGE_POLL_INTERVAL",
+	envMongoNamespace,
+	envMongoInstance,
+}
+
+// installerPassthroughSecretEnv are env-only settings that are credentials:
+// forwarded through the installer credentials Secret, never the Job spec.
+var installerPassthroughSecretEnv = []string{
+	"MAS_EST_DEMO_USER_PASSWORD",
+	"SCIM_BRIDGE_KEYCLOAK_CLIENT_SECRET",
+}
+
+// collectInstallerPassthroughEnv snapshots the passthrough settings that are
+// set (non-blank) in the launcher's environment.
+func collectInstallerPassthroughEnv(lookup func(string) (string, bool)) map[string]string {
+	env := map[string]string{}
+	for _, key := range append(append([]string{}, installerPassthroughEnv...), installerPassthroughSecretEnv...) {
+		if value, ok := lookup(key); ok && strings.TrimSpace(value) != "" {
+			env[key] = value
+		}
+	}
+	return env
+}
+
+// secretData is everything the credentials Secret carries: the config's
+// secrets plus any secret passthrough env.
+func (o *inClusterInstallOptions) secretData() map[string]string {
+	data := installerSecretData(o.cfg)
+	for _, key := range installerPassthroughSecretEnv {
+		if value, ok := o.env[key]; ok {
+			data[key] = value
+		}
+	}
+	return data
 }
 
 func (o *inClusterInstallOptions) run(ctx context.Context, client *oc.Client) error {
@@ -247,7 +303,7 @@ func (o *inClusterInstallOptions) manifests() []map[string]any {
 		installerRoleManifest(o.cfg.Namespace),
 		installerRoleBindingManifest(o.cfg.Namespace),
 	}
-	if data := installerSecretData(o.cfg); len(data) > 0 {
+	if data := o.secretData(); len(data) > 0 {
 		manifests = append(manifests, installerSecretManifest(o.cfg.Namespace, data))
 	}
 	return append(manifests, installerJobManifest(o))
@@ -512,7 +568,12 @@ func installerJobManifest(o *inClusterInstallOptions) map[string]any {
 		"name":  "HOME",
 		"value": "/tmp",
 	}}
-	for _, key := range sortedKeys(installerSecretData(o.cfg)) {
+	for _, key := range installerPassthroughEnv {
+		if value, ok := o.env[key]; ok {
+			env = append(env, map[string]any{"name": key, "value": value})
+		}
+	}
+	for _, key := range sortedKeys(o.secretData()) {
 		env = append(env, map[string]any{
 			"name": key,
 			"valueFrom": map[string]any{
@@ -655,8 +716,14 @@ func installerJobArgs(cfg config.InstallConfig) []string {
 	// whenever it is set, not only when the scim component is selected.
 	add("--workspace-id", cfg.WorkspaceID)
 
-	if cfg.HasComponent(config.InstallComponentSCIM) {
+	// The MAS API URL feeds the SCIM bridge AND the Admin API path of
+	// --configure-mas-auth (the local path hands it to mas-auth either way),
+	// so it travels whenever either is on. Emitting it only for scim made an
+	// auth-only in-cluster run fall back to route discovery inside the Job.
+	if cfg.HasComponent(config.InstallComponentSCIM) || cfg.ConfigureMASAuth {
 		add("--mas-base-url", cfg.MASBaseURL)
+	}
+	if cfg.HasComponent(config.InstallComponentSCIM) {
 		add("--profile-id", cfg.ProfileID)
 		add("--scim-bridge-storage-class", cfg.ScimBridgeStorageClass)
 	}

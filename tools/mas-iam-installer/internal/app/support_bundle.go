@@ -155,7 +155,9 @@ func (c *supportBundleCollector) collect(tail int) error {
 		},
 		{
 			file: "logs-keycloak.txt",
-			args: []string{"logs", "deployment/mas-est-iam", "-n", c.namespace, fmt.Sprintf("--tail=%d", tail)},
+			// By label, not deployment/mas-est-iam, whose selector also
+			// matches the OpenLDAP pods.
+			args: []string{"logs", "-l", keycloakPodSelector(config.DefaultIAMRelease), "-c", "keycloak", "-n", c.namespace, fmt.Sprintf("--tail=%d", tail)},
 		},
 		{
 			file: "logs-scim-bridge.txt",

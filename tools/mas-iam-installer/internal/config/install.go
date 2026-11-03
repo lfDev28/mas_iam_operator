@@ -243,6 +243,22 @@ func (c InstallConfig) Validate() error {
 		if strings.TrimSpace(c.WorkspaceID) == "" && !hasComponent(normalized, InstallComponentSCIM) {
 			missing = append(missing, "--workspace-id / "+EnvWorkspaceID)
 		}
+		// The default (Admin API) path PUTs to MAS with the API key. Without
+		// SCIM these were never checked, so a missing key only surfaced ~20
+		// minutes in, after the IAM stack had installed. The launcher fills
+		// them from MAS route discovery and an existing scim-bridge-secret
+		// before calling Validate, so only genuinely unknown values land here.
+		if !c.MASAuthUseCRApply && !hasComponent(normalized, InstallComponentSCIM) {
+			if strings.TrimSpace(c.MASBaseURL) == "" {
+				missing = append(missing, "--mas-base-url / "+EnvMASBaseURL+" (MAS API URL for --configure-mas-auth)")
+			}
+			if strings.TrimSpace(c.MASAPITokenName) == "" {
+				missing = append(missing, "--mas-api-token-name / "+EnvMASAPITokenName+" (MAS API key for --configure-mas-auth)")
+			}
+			if strings.TrimSpace(c.MASAPITokenValue) == "" {
+				missing = append(missing, "--mas-api-token-value / "+EnvMASAPITokenValue+" (MAS API key for --configure-mas-auth)")
+			}
+		}
 	}
 	if len(missing) == 0 {
 		return nil

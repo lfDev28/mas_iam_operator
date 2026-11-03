@@ -16,6 +16,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -31,7 +32,18 @@ type Client struct {
 	mu         sync.Mutex
 	cachedJWT  string
 	jwtExpires time.Time
+
+	// maxAttempts / retryBaseDelay bound the transient-failure retry loop in
+	// doWithRetry. See WithRetryPolicy.
+	maxAttempts    int
+	retryBaseDelay time.Duration
 }
+
+const (
+	defaultMaxAttempts    = 5
+	defaultRetryBaseDelay = 2 * time.Second
+	maxRetryDelay         = 30 * time.Second
+)
 
 // Option configures the client at construction time.
 type Option func(*Client)
@@ -43,14 +55,40 @@ func WithHTTPClient(hc *http.Client) Option {
 
 // WithInsecureTLS disables TLS verification. Cluster routes are commonly
 // signed by a cluster-local CA that isn't in the system trust store.
+//
+// Proxy is set explicitly: a hand-built http.Transport does NOT inherit
+// http.DefaultTransport's ProxyFromEnvironment, so without it HTTPS_PROXY /
+// NO_PROXY were silently ignored on proxied networks.
 func WithInsecureTLS() Option {
 	return func(c *Client) {
 		c.httpClient = &http.Client{
-			Timeout: c.httpClient.Timeout,
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-			},
+			Timeout:   c.httpClient.Timeout,
+			Transport: NewInsecureTransport(),
 		}
+	}
+}
+
+// NewInsecureTransport returns an http.Transport that skips TLS verification
+// (MAS and Keycloak routes are commonly signed by a cluster-local CA) and
+// honours HTTPS_PROXY / HTTP_PROXY / NO_PROXY from the environment.
+func NewInsecureTransport() *http.Transport {
+	return &http.Transport{
+		Proxy:           http.ProxyFromEnvironment,
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+}
+
+// WithRetryPolicy overrides how many times an idempotent request (GET, HEAD,
+// PUT) is attempted on a transient failure — a network error or HTTP 429,
+// 502, 503 or 504 — and the base of the exponential backoff between attempts.
+// maxAttempts < 1 disables retries. Mostly for tests, which want a tiny delay.
+func WithRetryPolicy(maxAttempts int, baseDelay time.Duration) Option {
+	return func(c *Client) {
+		if maxAttempts < 1 {
+			maxAttempts = 1
+		}
+		c.maxAttempts = maxAttempts
+		c.retryBaseDelay = baseDelay
 	}
 }
 
@@ -75,10 +113,12 @@ func NewClient(baseURL, tokenName, tokenValue string, opts ...Option) (*Client, 
 		return nil, errors.New("masadmin: tokenName and tokenValue are required")
 	}
 	c := &Client{
-		baseURL:    u,
-		tokenName:  tokenName,
-		tokenValue: tokenValue,
-		httpClient: &http.Client{Timeout: 60 * time.Second},
+		baseURL:        u,
+		tokenName:      tokenName,
+		tokenValue:     tokenValue,
+		httpClient:     &http.Client{Timeout: 60 * time.Second},
+		maxAttempts:    defaultMaxAttempts,
+		retryBaseDelay: defaultRetryBaseDelay,
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -121,12 +161,16 @@ func (c *Client) Authenticate(ctx context.Context) (string, error) {
 	req.Header.Set("Accept", "application/json")
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("masadmin: authenticate against %s: %w", authURL, err)
+		return "", &transientError{err: fmt.Errorf("masadmin: authenticate against %s: %w", authURL, err)}
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return "", fmt.Errorf("masadmin: authenticate against %s: HTTP %d: %s", authURL, resp.StatusCode, strings.TrimSpace(string(body)))
+		err := fmt.Errorf("masadmin: authenticate against %s: HTTP %d: %s", authURL, resp.StatusCode, strings.TrimSpace(string(body)))
+		if isTransientStatus(resp.StatusCode) {
+			return "", &transientError{err: err, retryAfter: retryAfter(resp)}
+		}
+		return "", err
 	}
 	var payload struct {
 		Token string `json:"token"`
@@ -155,9 +199,11 @@ func (c *Client) ResetToken() {
 
 // doJSON issues an authenticated JSON request. If body is non-nil it is
 // JSON-marshalled. If out is non-nil the response body is decoded into it.
-// On 401 the cached JWT is dropped and the request is retried once.
+// On 401 the cached JWT is dropped and the request is retried once;
+// transient failures are retried with backoff for idempotent methods (see
+// doWithRetry).
 func (c *Client) doJSON(ctx context.Context, method, path string, body, out any) error {
-	return c.doWithRetry(ctx, func() (*http.Request, error) {
+	return c.doWithRetry(ctx, method, func() (*http.Request, error) {
 		var reader io.Reader
 		if body != nil {
 			raw, err := json.Marshal(body)
@@ -180,9 +226,9 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body, out any)
 
 // doMultipart issues an authenticated multipart/form-data request. body must
 // already be encoded; contentType must be the boundary-bearing Content-Type
-// header. On 401 the cached JWT is dropped and the request is retried once.
+// header. Retries as doJSON.
 func (c *Client) doMultipart(ctx context.Context, method, path string, body []byte, contentType string, out any) error {
-	return c.doWithRetry(ctx, func() (*http.Request, error) {
+	return c.doWithRetry(ctx, method, func() (*http.Request, error) {
 		req, err := c.newRequest(ctx, method, path, bytes.NewReader(body))
 		if err != nil {
 			return nil, err
@@ -207,24 +253,66 @@ func (c *Client) newRequest(ctx context.Context, method, path string, body io.Re
 	return req, nil
 }
 
-func (c *Client) doWithRetry(ctx context.Context, build func() (*http.Request, error), out any) error {
-	for attempt := 0; attempt < 2; attempt++ {
+// doWithRetry runs one logical request. Two independent retry budgets apply:
+//
+//   - 401: the cached JWT is dropped and the request is retried once, for any
+//     method (the request was rejected before it did anything).
+//   - transient failures — a network error, or HTTP 429/502/503/504 — are
+//     retried with exponential backoff up to c.maxAttempts, but ONLY for
+//     idempotent methods (GET, HEAD, PUT). A POST that timed out may already
+//     have taken effect, so it is never replayed. A transient failure while
+//     minting the JWT is retried for every method: the target request was
+//     never sent.
+func (c *Client) doWithRetry(ctx context.Context, method string, build func() (*http.Request, error), out any) error {
+	maxAttempts := c.maxAttempts
+	if maxAttempts < 1 {
+		maxAttempts = 1
+	}
+	retryable := isIdempotent(method)
+	unauthorizedRetried := false
+	for attempt := 1; ; attempt++ {
 		req, err := build()
 		if err != nil {
+			var transient *transientError
+			if errors.As(err, &transient) && attempt < maxAttempts && ctx.Err() == nil {
+				if c.backoff(ctx, attempt, transient.retryAfter) == nil {
+					continue
+				}
+			}
 			return err
 		}
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
-			return fmt.Errorf("masadmin: %s %s: %w", req.Method, req.URL.Path, err)
+			wrapped := fmt.Errorf("masadmin: %s %s: %w", req.Method, req.URL.Path, err)
+			if retryable && attempt < maxAttempts && ctx.Err() == nil {
+				if c.backoff(ctx, attempt, 0) == nil {
+					continue
+				}
+			}
+			return wrapped
 		}
 		body, readErr := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		if readErr != nil {
-			return fmt.Errorf("masadmin: read %s %s response: %w", req.Method, req.URL.Path, readErr)
+			wrapped := fmt.Errorf("masadmin: read %s %s response: %w", req.Method, req.URL.Path, readErr)
+			if retryable && attempt < maxAttempts && ctx.Err() == nil {
+				if c.backoff(ctx, attempt, 0) == nil {
+					continue
+				}
+			}
+			return wrapped
 		}
-		if resp.StatusCode == http.StatusUnauthorized && attempt == 0 {
+		if resp.StatusCode == http.StatusUnauthorized && !unauthorizedRetried {
+			unauthorizedRetried = true
 			c.ResetToken()
+			// The 401 retry does not consume the transient budget.
+			attempt--
 			continue
+		}
+		if retryable && isTransientStatus(resp.StatusCode) && attempt < maxAttempts {
+			if c.backoff(ctx, attempt, retryAfter(resp)) == nil {
+				continue
+			}
 		}
 		if resp.StatusCode < 200 || resp.StatusCode > 299 {
 			return decodeAPIError(req.Method, req.URL.Path, resp.StatusCode, body)
@@ -235,9 +323,96 @@ func (c *Client) doWithRetry(ctx context.Context, build func() (*http.Request, e
 		if err := json.Unmarshal(body, out); err != nil {
 			return fmt.Errorf("masadmin: decode %s %s response: %w", req.Method, req.URL.Path, err)
 		}
+		if stamped, ok := out.(serverTimeSetter); ok {
+			if date, err := http.ParseTime(resp.Header.Get("Date")); err == nil {
+				stamped.setServerTime(date)
+			}
+		}
 		return nil
 	}
-	return fmt.Errorf("masadmin: exhausted retries")
+}
+
+// serverTimeSetter is implemented by response types that record the
+// server's Date header (see IDPConfigResponse.ServerTime).
+type serverTimeSetter interface {
+	setServerTime(time.Time)
+}
+
+// transientError marks a failure worth retrying (network error, 429, 502,
+// 503, 504). retryAfter carries a server-supplied Retry-After, if any.
+type transientError struct {
+	err        error
+	retryAfter time.Duration
+}
+
+func (e *transientError) Error() string { return e.err.Error() }
+func (e *transientError) Unwrap() error { return e.err }
+
+func isIdempotent(method string) bool {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodPut:
+		return true
+	}
+	return false
+}
+
+func isTransientStatus(status int) bool {
+	switch status {
+	case http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	}
+	return false
+}
+
+// retryAfter parses a Retry-After header given in seconds. The HTTP-date form
+// is ignored; 0 means "use the exponential backoff".
+func retryAfter(resp *http.Response) time.Duration {
+	if resp == nil {
+		return 0
+	}
+	raw := strings.TrimSpace(resp.Header.Get("Retry-After"))
+	if raw == "" {
+		return 0
+	}
+	seconds, err := strconv.Atoi(raw)
+	if err != nil || seconds < 0 {
+		return 0
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+// backoffDelay is the wait before retry number `attempt` (1-based): base,
+// 2*base, 4*base, … capped at maxRetryDelay. A server Retry-After hint wins
+// (also capped).
+func backoffDelay(base time.Duration, attempt int, hint time.Duration) time.Duration {
+	delay := base
+	for i := 1; i < attempt && delay < maxRetryDelay; i++ {
+		delay *= 2
+	}
+	if hint > 0 {
+		delay = hint
+	}
+	if delay > maxRetryDelay {
+		delay = maxRetryDelay
+	}
+	return delay
+}
+
+// backoff sleeps for backoffDelay, returning ctx.Err() if the context ends
+// first.
+func (c *Client) backoff(ctx context.Context, attempt int, hint time.Duration) error {
+	delay := backoffDelay(c.retryBaseDelay, attempt, hint)
+	if delay <= 0 {
+		return ctx.Err()
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func decodeAPIError(method, path string, status int, body []byte) error {

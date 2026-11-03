@@ -79,6 +79,12 @@ log_preflight "recommended_postgres_storage_class=${SELECTED_STORAGE_CLASS} reas
 if [[ -n "${POSTGRES_STORAGE_CLASS}" ]] && ! storage_class_exists "${POSTGRES_STORAGE_CLASS}"; then
   log_warn "explicit PostgreSQL storage class override ${POSTGRES_STORAGE_CLASS} is not present in the cluster"
 fi
+if (( ${#STATIC_STORAGE_CLASSES[@]} > 0 )); then
+  log_preflight "static_storage_classes_skipped=${STATIC_STORAGE_CLASSES[*]} (provisioner ${STATIC_STORAGE_PROVISIONER}; new PVCs never bind)"
+fi
+if [[ -n "${POSTGRES_STORAGE_CLASS}" ]] && is_static_storage_class "${POSTGRES_STORAGE_CLASS}"; then
+  log_warn "explicit PostgreSQL storage class override ${POSTGRES_STORAGE_CLASS} is statically provisioned (${STATIC_STORAGE_PROVISIONER}); its PVCs will stay Pending unless a matching PersistentVolume is free"
+fi
 warn_if_cephfs_default_has_block_candidate
 
 mas_host_parse_rc=0

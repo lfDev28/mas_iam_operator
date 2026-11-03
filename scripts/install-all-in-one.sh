@@ -203,17 +203,7 @@ else
 fi
 
 log_wait "waiting for CatalogSource mas-iam-operator to report READY"
-for i in $(seq 1 60); do
-  state="$(oc -n openshift-marketplace get catalogsource mas-iam-operator -o jsonpath='{.status.connectionState.lastObservedState}' 2>/dev/null || true)"
-  if [[ "${state}" == "READY" ]]; then
-    log_wait "catalog_source=mas-iam-operator state=READY"
-    break
-  fi
-  sleep 5
-done
-if [[ "${state}" != "READY" ]]; then
-  log_warn "CatalogSource mas-iam-operator did not report READY within 5m; proceeding anyway"
-fi
+wait_for_catalog_source_ready mas-iam-operator 300
 
 # Now poll packagemanifests until packageserver has indexed the new catalog.
 # packagemanifests/mas-iam-operator is the cluster-wide view of what
@@ -245,18 +235,21 @@ if [[ -s "${sub_manifest}" ]]; then
 fi
 
 log_wait "waiting for the MAS EST IAM operator CSV to reach Succeeded"
-wait_for_operator_csv_succeeded "${NAMESPACE}" 900
+wait_for_operator_csv_succeeded "${NAMESPACE}" 900 "${sub_manifest}"
 
 log_install "applying sample MAS EST IAM stack"
 install_sample_args=(--namespace "${NAMESPACE}" --components "${COMPONENTS}")
 if [[ -n "${POSTGRES_STORAGE_CLASS}" ]]; then
   install_sample_args+=(--storage-class "${POSTGRES_STORAGE_CLASS}")
 fi
+# The TLS generator Job is applied (not a Helm hook): a Failed one from an
+# earlier run would survive the re-apply unchanged, so remove it first.
+delete_job_if_failed "${NAMESPACE}" mas-est-iam-generate-openldap-tls
 "${ROOT_DIR}/scripts/install-olm-sample.sh" "${install_sample_args[@]}"
 
 log_wait "waiting for MAS EST IAM core services"
 wait_for_namespaced_resource job mas-est-iam-generate-openldap-tls "${NAMESPACE}" 1200
-oc wait --for=condition=complete -n "${NAMESPACE}" job/mas-est-iam-generate-openldap-tls --timeout=20m
+wait_for_job_complete "${NAMESPACE}" mas-est-iam-generate-openldap-tls 1200
 wait_for_namespaced_resource deployment mas-est-iam-openldap "${NAMESPACE}" 1200
 oc rollout status deployment/mas-est-iam-openldap -n "${NAMESPACE}" --timeout=20m
 wait_for_ldaps_listening "${NAMESPACE}" mas-est-iam-openldap 1200
@@ -266,7 +259,11 @@ if install_keycloak; then
   wait_for_namespaced_resource pod mas-est-iam-postgresql-0 "${NAMESPACE}" 1200
   oc wait --for=condition=ready -n "${NAMESPACE}" pod/mas-est-iam-postgresql-0 --timeout=20m
   wait_for_namespaced_resource job mas-est-iam-ldap-config "${NAMESPACE}" 1200
-  oc wait --for=condition=complete -n "${NAMESPACE}" job/mas-est-iam-ldap-config --timeout=20m
+  # mas-est-iam-ldap-config is a Helm post-install/post-upgrade hook: the
+  # operator only re-runs it on a Helm upgrade of the stack, so a Failed one
+  # from an earlier run is not replaced by deleting it alone.
+  wait_for_job_complete "${NAMESPACE}" mas-est-iam-ldap-config 1200 \
+    "note it is a Helm hook the operator only re-runs on a Helm upgrade of the stack: delete it ('oc delete job mas-est-iam-ldap-config -n ${NAMESPACE}') and re-run 'mas-est install'; if the Job does not come back, run 'mas-est uninstall --namespace ${NAMESPACE}' and install again"
 
   log_install "seeding grouped demo users into Keycloak realm (oidc.*, saml.*, scim.*)"
   "${ROOT_DIR}/scripts/configure-demo-users.sh" \
@@ -313,7 +310,7 @@ if install_scim; then
   wait_for_namespaced_resource deployment scim-bridge "${NAMESPACE}" 900
   oc rollout status deployment/scim-bridge -n "${NAMESPACE}" --timeout=15m
   wait_for_namespaced_resource job scim-bridge-mas-profile-bootstrap "${NAMESPACE}" 900
-  oc wait --for=condition=complete -n "${NAMESPACE}" job/scim-bridge-mas-profile-bootstrap --timeout=15m
+  wait_for_job_complete "${NAMESPACE}" scim-bridge-mas-profile-bootstrap 900
 fi
 
 log_result "install flow completed for namespace ${NAMESPACE}"

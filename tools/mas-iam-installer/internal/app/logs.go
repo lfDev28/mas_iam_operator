@@ -67,7 +67,10 @@ func (o *logsOptions) componentArgs() ([]string, error) {
 	case "operator":
 		args = append(args, "deployment/mas-iam-operator-controller-manager")
 	case "keycloak":
-		args = append(args, "deployment/mas-est-iam")
+		// Not deployment/mas-est-iam: that Deployment's selector
+		// (name+instance only) also matches the OpenLDAP pods, so oc logs
+		// could pick an OpenLDAP pod.
+		args = append(args, "-l", keycloakPodSelector(config.DefaultIAMRelease), "-c", "keycloak")
 	case "openldap":
 		args = append(args, "deployment/mas-est-iam-openldap")
 	case "bridge":

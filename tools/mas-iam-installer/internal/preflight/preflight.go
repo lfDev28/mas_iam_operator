@@ -2,7 +2,6 @@ package preflight
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -40,12 +39,86 @@ type Input struct {
 	// silent 13-minute timeout in the scim profile-bootstrap Job.
 	APITokenName  string
 	APITokenValue string
+	// SkipSCIMAuthorization limits the API key check to authentication. Set
+	// when the key is only used for the MAS auth Admin API (no scim
+	// component), which does not need SCIM permissions.
+	SkipSCIMAuthorization bool
 	// CheckIDPCfgOverwrite lists the IDPCfgs already present in the MAS core
 	// namespace and warns about the ones this install would rewrite in place.
 	// Only meaningful when --configure-mas-auth is set, which is also the only
 	// time IDPCfgPlan is populated.
 	CheckIDPCfgOverwrite bool
 	IDPCfgPlan           IDPCfgPlan
+	// RequiredAccess lists the cluster-scoped permissions the install needs
+	// (see CheckClusterPermissions). Empty skips the check.
+	RequiredAccess []AccessCheck
+}
+
+// AccessCheck is one permission the install needs: `oc auth can-i Verb
+// Resource [-n Namespace]`. Why is shown to the user when it is missing.
+type AccessCheck struct {
+	Verb      string
+	Resource  string
+	Namespace string
+	Why       string
+}
+
+func (a AccessCheck) String() string {
+	if a.Namespace != "" {
+		return fmt.Sprintf("%s %s in namespace %s", a.Verb, a.Resource, a.Namespace)
+	}
+	return fmt.Sprintf("%s %s (cluster-scoped)", a.Verb, a.Resource)
+}
+
+// AccessReviewer answers one `oc auth can-i` question. A func type so the
+// check is testable without a cluster.
+type AccessReviewer func(ctx context.Context, verb, resource, namespace string) (bool, error)
+
+// CheckClusterPermissions fails when the current user lacks any of the
+// listed permissions, naming each one. The install creates a ClusterRole and
+// ClusterRoleBinding, a CatalogSource in openshift-marketplace, CRDs and an
+// SCC; without the rights it used to fail partway through with a bare
+// Forbidden, after the namespace and part of the stack already existed. A
+// check whose review itself errors only warns: a flaky API must not block.
+func CheckClusterPermissions(ctx context.Context, review AccessReviewer, checks []AccessCheck) Result {
+	const name = "cluster-permissions"
+	if len(checks) == 0 || review == nil {
+		return Result{Name: name, Status: StatusOK, Message: "no cluster-scoped permissions to check"}
+	}
+	missing := []string{}
+	unknown := []string{}
+	for _, check := range checks {
+		allowed, err := review(ctx, check.Verb, check.Resource, check.Namespace)
+		if err != nil {
+			unknown = append(unknown, fmt.Sprintf("%s (%v)", check, err))
+			continue
+		}
+		if !allowed {
+			entry := check.String()
+			if check.Why != "" {
+				entry += " — needed for " + check.Why
+			}
+			missing = append(missing, entry)
+		}
+	}
+	if len(missing) > 0 {
+		return Result{
+			Name:   name,
+			Status: StatusError,
+			Message: fmt.Sprintf("the logged-in user is missing %d permission(s) the install needs:\n  - %s\n"+
+				"  mas-est install creates cluster-scoped objects and needs cluster-admin (or an equivalent role). "+
+				"Log in as a cluster-admin user ('oc login'), or ask a cluster administrator to run the install.",
+				len(missing), strings.Join(missing, "\n  - ")),
+		}
+	}
+	if len(unknown) > 0 {
+		return Result{
+			Name:    name,
+			Status:  StatusWarn,
+			Message: fmt.Sprintf("could not verify %d permission(s): %s", len(unknown), strings.Join(unknown, "; ")),
+		}
+	}
+	return Result{Name: name, Status: StatusOK, Message: fmt.Sprintf("logged-in user holds the %d cluster-scoped permission(s) the install needs", len(checks))}
 }
 
 // IDPCfgPlan is everything needed to compute the IDPCfg object names a
@@ -153,6 +226,10 @@ func Run(ctx context.Context, client *oc.Client, input Input) Report {
 		Message: fmt.Sprintf("logged in as %s against %s", user, server),
 	})
 
+	if len(input.RequiredAccess) > 0 {
+		report.Results = append(report.Results, CheckClusterPermissions(ctx, client.CanI, input.RequiredAccess))
+	}
+
 	classes, err := client.StorageClasses(ctx)
 	if err != nil {
 		report.Results = append(report.Results, Result{
@@ -220,7 +297,11 @@ func Run(ctx context.Context, client *oc.Client, input Input) Report {
 		report.Results = append(report.Results, CheckOIDCEndpoint(ctx, masHTTPClient(), input.MASBaseURL))
 	}
 	if input.APITokenName != "" && input.APITokenValue != "" {
-		report.Results = append(report.Results, CheckAPIKey(ctx, masHTTPClient(), input.MASBaseURL, input.APITokenName, input.APITokenValue))
+		if input.SkipSCIMAuthorization {
+			report.Results = append(report.Results, CheckAPIKeyAuthenticates(ctx, masHTTPClient(), input.MASBaseURL, input.APITokenName, input.APITokenValue))
+		} else {
+			report.Results = append(report.Results, CheckAPIKey(ctx, masHTTPClient(), input.MASBaseURL, input.APITokenName, input.APITokenValue))
+		}
 	}
 
 	routes, err := client.RoutesByHost(ctx, masHost)
@@ -371,12 +452,11 @@ func CheckIDPCfgOverwrite(ctx context.Context, lookup IDPCfgLookup, plan IDPCfgP
 // verification is skipped because MAS routes are commonly signed by a
 // cluster-local CA that is not in the system trust store — same policy as
 // internal/masadmin's WithInsecureTLS, which the installer always enables.
+// Uses masadmin.NewInsecureTransport so HTTPS_PROXY / NO_PROXY are honoured.
 func masHTTPClient() *http.Client {
 	return &http.Client{
-		Timeout: 15 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		},
+		Timeout:   15 * time.Second,
+		Transport: masadmin.NewInsecureTransport(),
 	}
 }
 
@@ -432,6 +512,17 @@ func CheckOIDCEndpoint(ctx context.Context, httpClient *http.Client, masBaseURL 
 // permission flags authenticates but gets 403 AIUCO1003E on SCIM endpoints;
 // the SCIM API requires userAdmin + systemAdmin. Network errors only warn.
 func CheckAPIKey(ctx context.Context, httpClient *http.Client, masBaseURL, tokenName, tokenValue string) Result {
+	return checkAPIKey(ctx, httpClient, masBaseURL, tokenName, tokenValue, true)
+}
+
+// CheckAPIKeyAuthenticates is CheckAPIKey without the SCIM authorization
+// probe: --configure-mas-auth without the scim component only needs the key
+// to authenticate for the /config Admin APIs.
+func CheckAPIKeyAuthenticates(ctx context.Context, httpClient *http.Client, masBaseURL, tokenName, tokenValue string) Result {
+	return checkAPIKey(ctx, httpClient, masBaseURL, tokenName, tokenValue, false)
+}
+
+func checkAPIKey(ctx context.Context, httpClient *http.Client, masBaseURL, tokenName, tokenValue string, checkSCIM bool) Result {
 	const name = "mas-api-key"
 	authURL := masadmin.StripSCIMSuffix(masBaseURL) + "/v1/authenticate"
 
@@ -459,6 +550,9 @@ func CheckAPIKey(ctx context.Context, httpClient *http.Client, masBaseURL, token
 	}
 	if err := json.Unmarshal(body, &payload); err != nil || payload.Token == "" {
 		return Result{Name: name, Status: StatusWarn, Message: fmt.Sprintf("authenticate response from %s contained no token; cannot verify SCIM authorization", authURL)}
+	}
+	if !checkSCIM {
+		return Result{Name: name, Status: StatusOK, Message: fmt.Sprintf("MAS API key %s authenticated", tokenName)}
 	}
 
 	profilesURL := strings.TrimRight(strings.TrimSpace(masBaseURL), "/") + "/Profiles"

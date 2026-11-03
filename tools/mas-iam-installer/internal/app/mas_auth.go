@@ -19,6 +19,7 @@ import (
 
 	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/config"
 	executil "github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/exec"
+	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/masadmin"
 	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/oc"
 	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/ui"
 )
@@ -87,6 +88,12 @@ type masAuthApplyOptions struct {
 	// skip the bump (e.g. customers running their own Suite-level override).
 	// See memory: mas-entitymgr-idpcfg-oom.
 	idpcfgMemoryLimit string
+
+	// mongoNamespace / mongoInstance tell link-scim-users-oidc.sh where the
+	// MAS Mongo replica set runs. Empty = the script's defaults (env, then
+	// mongoce / mas-mongo-ce, then auto-detection).
+	mongoNamespace string
+	mongoInstance  string
 }
 
 type keycloakMASClients struct {
@@ -121,6 +128,9 @@ func newMASAuthCommand() *cobra.Command {
 		apiTokenName:  defaults.MASAPITokenName,
 		apiTokenValue: defaults.MASAPITokenValue,
 		insecureTLS:   true,
+
+		mongoNamespace: os.Getenv(envMongoNamespace),
+		mongoInstance:  os.Getenv(envMongoInstance),
 	}
 
 	command := &cobra.Command{
@@ -155,6 +165,8 @@ func newMASAuthCommand() *cobra.Command {
 	flags.BoolVar(&opts.insecureTLS, "insecure-tls", opts.insecureTLS, "Skip TLS verification when talking to the MAS API (cluster routes commonly use cluster-local CAs)")
 	flags.StringVar(&opts.selfRegWorkspaceID, "self-reg-workspace", opts.selfRegWorkspaceID, "Workspace id assigned to self-registered users in the {instance}-selfreg ConfigMap (default: workspace)")
 	flags.StringVar(&opts.idpcfgMemoryLimit, "idpcfg-memory-limit", opts.idpcfgMemoryLimit, "Memory limit applied to {instance}-entitymgr-idpcfg via Suite CR podTemplates (default 2Gi). The MAS default 512Mi OOMKills the finalizer playbook; set to 'off' to skip the bump.")
+	flags.StringVar(&opts.mongoNamespace, "mongo-namespace", opts.mongoNamespace, "Namespace of the MAS Mongo replica set used to link SCIM users to the OIDC/SAML provider (env "+envMongoNamespace+"; default mongoce, auto-detected when absent)")
+	flags.StringVar(&opts.mongoInstance, "mongo-instance", opts.mongoInstance, "MAS Mongo CR instance name (env "+envMongoInstance+"; default mas-mongo-ce)")
 	command.AddCommand(applyCommand)
 	command.AddCommand(newMASAuthDeleteCommand())
 	return command
@@ -335,6 +347,7 @@ func (o *masAuthApplyOptions) applyViaCR(ctx context.Context, client *oc.Client,
 	if err != nil {
 		return err
 	}
+	appliedAt := time.Now()
 	for _, manifest := range manifests {
 		if err := applyManifest(ctx, client, manifest); err != nil {
 			return err
@@ -343,12 +356,42 @@ func (o *masAuthApplyOptions) applyViaCR(ctx context.Context, client *oc.Client,
 
 	if o.wait {
 		for _, name := range o.idpCfgNames() {
-			if _, err := client.WaitForCondition(ctx, o.masCoreNamespace, "idpcfg/"+name, "Ready", o.timeout.String()); err != nil {
-				return fmt.Errorf("wait for idpcfg/%s in namespace %s: %w", name, o.masCoreNamespace, err)
+			if err := waitForIDPCfgReady(ctx, client, o.masCoreNamespace, name, appliedAt, o.timeout); err != nil {
+				return err
 			}
 		}
 	}
 	return nil
+}
+
+// waitForIDPCfgReady replaces `oc wait --for=condition=Ready`, which returns
+// at once on the Ready=True left by the previous apply. See readinessGate.
+func waitForIDPCfgReady(ctx context.Context, client *oc.Client, namespace, name string, since time.Time, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	gate := newReadinessGate()
+	lastState := "no status conditions yet"
+	for {
+		generation, conditions, err := client.ResourceConditions(ctx, namespace, "idpcfg", name)
+		if err == nil {
+			_, lastState = objectStorageReadyState(conditions)
+			done, note := gate.observe(conditionsFreshness(generation, conditions, since), time.Now())
+			if done {
+				if note != "" {
+					fmt.Fprintf(os.Stdout, "[mas-auth] idpcfg/%s: %s\n", name, note)
+				}
+				fmt.Fprintf(os.Stdout, "[mas-auth] idpcfg/%s Ready\n", name)
+				return nil
+			}
+		} else {
+			lastState = err.Error()
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("wait for idpcfg/%s in namespace %s to become Ready after the update: %s", name, namespace, lastState)
+		}
+		if err := sleepCtx(ctx, readinessPollInterval); err != nil {
+			return err
+		}
+	}
 }
 
 func (o *masAuthApplyOptions) defaultAndValidate(ctx context.Context, client *oc.Client) error {
@@ -465,7 +508,7 @@ func (o *masAuthApplyOptions) configureKeycloak(ctx context.Context, runner *exe
 	if err != nil {
 		return keycloakMASClients{}, err
 	}
-	pod, err := o.keycloakPod(ctx, runner)
+	pod, err := o.keycloakPod(ctx, client)
 	if err != nil {
 		return keycloakMASClients{}, err
 	}
@@ -478,6 +521,8 @@ func (o *masAuthApplyOptions) configureKeycloak(ctx context.Context, runner *exe
 	if adminPassword == "" {
 		return keycloakMASClients{}, fmt.Errorf("Keycloak admin secret %s/%s is missing password", o.namespace, adminSecretName)
 	}
+	// Only used when the OIDC client does not exist yet: the script reuses
+	// an existing client's current secret (see keycloakMASClientScript).
 	oidcSecret, err := randomSecretString(32)
 	if err != nil {
 		return keycloakMASClients{}, err
@@ -507,11 +552,24 @@ func (o *masAuthApplyOptions) configureKeycloak(ctx context.Context, runner *exe
 		// "Can't finish SAML logout as there is no logout binding set."
 		"SAML_SLO_URL": fmt.Sprintf("https://%s/ibm/saml20/%s/slo", o.masAuthHost, defaultMASAuthSAMLSPName),
 	})
-	if _, err := runner.InputOutput(ctx, executil.Options{
+	output, err := runner.InputOutput(ctx, executil.Options{
 		Name: "oc",
 		Args: []string{"exec", "-i", "-n", o.namespace, pod, "-c", "keycloak", "--", "bash", "-s"},
-	}, strings.NewReader(script)); err != nil {
+	}, strings.NewReader(script))
+	if err != nil {
 		return keycloakMASClients{}, fmt.Errorf("configure Keycloak MAS clients: %w", err)
+	}
+	if o.hasProvider(config.MASAuthProviderOIDC) {
+		effective, state, ok := parseKeycloakOIDCSecret(output)
+		if !ok {
+			return keycloakMASClients{}, fmt.Errorf("configure Keycloak MAS clients: the client script did not report the OIDC client secret; refusing to send MAS a secret Keycloak may not hold")
+		}
+		oidcSecret = effective
+		if state == "reused" {
+			fmt.Fprintf(os.Stdout, "[mas-auth] Keycloak OIDC client %s exists; keeping its current client secret\n", o.oidcProviderID)
+		} else {
+			fmt.Fprintf(os.Stdout, "[mas-auth] Keycloak OIDC client %s configured with a new client secret\n", o.oidcProviderID)
+		}
 	}
 
 	metadata := ""
@@ -624,12 +682,54 @@ func keycloakMASClientScript(values map[string]string) string {
 		fmt.Fprintf(&b, "%s=%s\n", key, shellQuote(values[key]))
 	}
 	b.WriteString(`
-export HOME=/tmp/mas-est-auth
+# KCADM / MAS_EST_KCADM_HOME exist so the unit tests can run this script
+# against a fake kcadm; in the Keycloak pod both keep their defaults.
+KCADM="${KCADM:-/opt/keycloak/bin/kcadm.sh}"
+export HOME="${MAS_EST_KCADM_HOME:-/tmp/mas-est-auth}"
 mkdir -p "$HOME/.keycloak"
-/opt/keycloak/bin/kcadm.sh config credentials --server "$KC_SERVICE" --realm master --user "$KC_ADMIN_USER" --password "$KC_ADMIN_PASSWORD" >/dev/null
+"$KCADM" config credentials --server "$KC_SERVICE" --realm master --user "$KC_ADMIN_USER" --password "$KC_ADMIN_PASSWORD" >/dev/null
 
+# find_client_uuid prints the internal id of the client whose clientId is $1,
+# or nothing when there is no such client. A failed lookup (expired admin
+# session, missing realm, Keycloak restarting) aborts the script: it must
+# never read as "client absent", because the create path that follows would
+# either 409 or, for OIDC, mint a new secret MAS does not know about.
+find_client_uuid() {
+  local want=$1 listing client_id client_uuid
+  if ! listing=$("$KCADM" get clients -r "$KC_REALM" --fields clientId,id --format csv --noquotes); then
+    echo "error: 'kcadm get clients' failed in realm $KC_REALM; refusing to guess whether client $want exists" >&2
+    return 1
+  fi
+  while IFS=, read -r client_id client_uuid _; do
+    client_id="${client_id//$'\r'/}"
+    client_uuid="${client_uuid//$'\r'/}"
+    if [[ "$client_id" == "$want" ]]; then
+      printf '%s' "$client_uuid"
+      return 0
+    fi
+  done <<<"$listing"
+  return 0
+}
+
+oidc_secret_state=""
 if [[ "$CONFIGURE_OIDC" == "true" ]]; then
-  cat >/tmp/mas-est-oidc-client.json <<JSON
+oidc_uuid=$(find_client_uuid "$OIDC_CLIENT_ID")
+if [[ -n "$oidc_uuid" ]]; then
+  # Re-runs keep the client's CURRENT secret. Rotating it here, before MAS has
+  # been told the new value, breaks every OIDC login (unauthorized_client) the
+  # moment the MAS PUT fails or coreidp is slow to reload.
+  secret_json=$("$KCADM" get "clients/${oidc_uuid}/client-secret" -r "$KC_REALM")
+  existing_secret=$(printf '%s\n' "$secret_json" | sed -n 's/.*"value"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+  if [[ -n "$existing_secret" ]]; then
+    OIDC_CLIENT_SECRET="$existing_secret"
+    oidc_secret_state="reused"
+  else
+    oidc_secret_state="generated"
+  fi
+else
+  oidc_secret_state="generated"
+fi
+  cat >"$HOME/mas-est-oidc-client.json" <<JSON
 {
   "clientId": "${OIDC_CLIENT_ID}",
   "enabled": true,
@@ -643,24 +743,15 @@ if [[ "$CONFIGURE_OIDC" == "true" ]]; then
   "webOrigins": ["+"]
 }
 JSON
-oidc_uuid=""
-while IFS=, read -r client_id client_uuid _; do
-  client_id="${client_id//$'\r'/}"
-  client_uuid="${client_uuid//$'\r'/}"
-  if [[ "$client_id" == "$OIDC_CLIENT_ID" ]]; then
-    oidc_uuid="$client_uuid"
-    break
-  fi
-done < <(/opt/keycloak/bin/kcadm.sh get clients -r "$KC_REALM" --fields clientId,id --format csv --noquotes 2>/dev/null)
 if [[ -z "$oidc_uuid" ]]; then
-  /opt/keycloak/bin/kcadm.sh create clients -r "$KC_REALM" -f /tmp/mas-est-oidc-client.json >/dev/null
+  "$KCADM" create clients -r "$KC_REALM" -f "$HOME/mas-est-oidc-client.json" >/dev/null
 else
-  /opt/keycloak/bin/kcadm.sh update "clients/${oidc_uuid}" -r "$KC_REALM" -f /tmp/mas-est-oidc-client.json >/dev/null
+  "$KCADM" update "clients/${oidc_uuid}" -r "$KC_REALM" -f "$HOME/mas-est-oidc-client.json" >/dev/null
 fi
 fi
 
 if [[ "$CONFIGURE_SAML" == "true" ]]; then
-  cat >/tmp/mas-est-saml-client.json <<JSON
+  cat >"$HOME/mas-est-saml-client.json" <<JSON
 {
   "clientId": "${SAML_CLIENT_ID}",
   "enabled": true,
@@ -678,28 +769,17 @@ if [[ "$CONFIGURE_SAML" == "true" ]]; then
   }
 }
 JSON
-saml_uuid=""
-while IFS=, read -r client_id client_uuid _; do
-  client_id="${client_id//$'\r'/}"
-  client_uuid="${client_uuid//$'\r'/}"
-  if [[ "$client_id" == "$SAML_CLIENT_ID" ]]; then
-    saml_uuid="$client_uuid"
-    break
-  fi
-done < <(/opt/keycloak/bin/kcadm.sh get clients -r "$KC_REALM" --fields clientId,id --format csv --noquotes 2>/dev/null)
+saml_uuid=$(find_client_uuid "$SAML_CLIENT_ID")
 if [[ -z "$saml_uuid" ]]; then
-  /opt/keycloak/bin/kcadm.sh create clients -r "$KC_REALM" -f /tmp/mas-est-saml-client.json >/dev/null
+  "$KCADM" create clients -r "$KC_REALM" -f "$HOME/mas-est-saml-client.json" >/dev/null
   # re-read the uuid we just created
-  while IFS=, read -r client_id client_uuid _; do
-    client_id="${client_id//$'\r'/}"
-    client_uuid="${client_uuid//$'\r'/}"
-    if [[ "$client_id" == "$SAML_CLIENT_ID" ]]; then
-      saml_uuid="$client_uuid"
-      break
-    fi
-  done < <(/opt/keycloak/bin/kcadm.sh get clients -r "$KC_REALM" --fields clientId,id --format csv --noquotes 2>/dev/null)
+  saml_uuid=$(find_client_uuid "$SAML_CLIENT_ID")
+  if [[ -z "$saml_uuid" ]]; then
+    echo "error: SAML client $SAML_CLIENT_ID not found right after creating it" >&2
+    exit 1
+  fi
 else
-  /opt/keycloak/bin/kcadm.sh update "clients/${saml_uuid}" -r "$KC_REALM" -f /tmp/mas-est-saml-client.json >/dev/null
+  "$KCADM" update "clients/${saml_uuid}" -r "$KC_REALM" -f "$HOME/mas-est-saml-client.json" >/dev/null
 fi
 
 # Keycloak's default SAML assertion ships only the NameID + role_list — no
@@ -710,12 +790,13 @@ fi
 ensure_saml_mapper() {
   local name=$1
   local user_attr=$2
-  local existing
-  existing=$(/opt/keycloak/bin/kcadm.sh get "clients/${saml_uuid}/protocol-mappers/models" -r "$KC_REALM" --fields name --format csv --noquotes 2>/dev/null | tr -d '\r' | grep -Fx "$name" || true)
+  local listing existing
+  listing=$("$KCADM" get "clients/${saml_uuid}/protocol-mappers/models" -r "$KC_REALM" --fields name --format csv --noquotes)
+  existing=$(printf '%s\n' "$listing" | tr -d '\r' | grep -Fx "$name" || true)
   if [[ -n "$existing" ]]; then
     return 0
   fi
-  cat >/tmp/mas-est-saml-mapper.json <<JSON
+  cat >"$HOME/mas-est-saml-mapper.json" <<JSON
 {
   "name": "${name}",
   "protocol": "saml",
@@ -729,15 +810,45 @@ ensure_saml_mapper() {
   }
 }
 JSON
-  /opt/keycloak/bin/kcadm.sh create "clients/${saml_uuid}/protocol-mappers/models" -r "$KC_REALM" -f /tmp/mas-est-saml-mapper.json >/dev/null
+  "$KCADM" create "clients/${saml_uuid}/protocol-mappers/models" -r "$KC_REALM" -f "$HOME/mas-est-saml-mapper.json" >/dev/null
 }
 ensure_saml_mapper preferred_username username
 ensure_saml_mapper email email
 ensure_saml_mapper given_name firstName
 ensure_saml_mapper family_name lastName
 fi
+
+rm -f "$HOME/mas-est-oidc-client.json" "$HOME/mas-est-saml-client.json" "$HOME/mas-est-saml-mapper.json"
+
+# Report the effective OIDC client secret LAST, only once everything above
+# succeeded: the Go side reads it from stdout, and a failure earlier in the
+# script surfaces the captured output in the error message.
+if [[ "$CONFIGURE_OIDC" == "true" ]]; then
+  printf '%s%s\n' '` + keycloakOIDCStateMarker + `' "$oidc_secret_state"
+  printf '%s%s\n' '` + keycloakOIDCSecretMarker + `' "$OIDC_CLIENT_SECRET"
+fi
 `)
 	return b.String()
+}
+
+const (
+	keycloakOIDCSecretMarker = "MAS_EST_OIDC_CLIENT_SECRET="
+	keycloakOIDCStateMarker  = "MAS_EST_OIDC_CLIENT_SECRET_STATE="
+)
+
+// parseKeycloakOIDCSecret extracts the effective OIDC client secret (and
+// whether it was reused or newly generated) from the client script's output.
+func parseKeycloakOIDCSecret(output string) (secret, state string, ok bool) {
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimRight(line, "\r")
+		switch {
+		case strings.HasPrefix(line, keycloakOIDCSecretMarker):
+			secret = strings.TrimPrefix(line, keycloakOIDCSecretMarker)
+		case strings.HasPrefix(line, keycloakOIDCStateMarker):
+			state = strings.TrimPrefix(line, keycloakOIDCStateMarker)
+		}
+	}
+	return secret, state, secret != ""
 }
 
 func shellQuote(value string) string {
@@ -777,19 +888,34 @@ func (o *masAuthApplyOptions) keycloakService(ctx context.Context, runner *execu
 	return "", fmt.Errorf("unable to find Keycloak service in namespace %s; tried %s, %s-keycloak, scim-bridge-keycloak", o.namespace, o.release, o.release)
 }
 
-func (o *masAuthApplyOptions) keycloakPod(ctx context.Context, runner *executil.Runner) (string, error) {
-	output, err := runner.Output(ctx, executil.Options{
-		Name: "oc",
-		Args: []string{"get", "pod", "-n", o.namespace, "-l", "app.kubernetes.io/component=keycloak,app.kubernetes.io/instance=" + o.release, "-o", "jsonpath={.items[0].metadata.name}"},
-	})
-	if err != nil {
-		return "", err
+// keycloakPodSelector selects the Keycloak pods of a mas-est IAM release.
+// The Keycloak Deployment's own selector (name + instance) also matches the
+// OpenLDAP pods, so anything that needs a Keycloak pod must add the component
+// label (operators/mas-iam-operator/helm-charts/mas-iam-stack deployment.yaml).
+func keycloakPodSelector(release string) string {
+	return "app.kubernetes.io/component=keycloak,app.kubernetes.io/instance=" + release
+}
+
+// keycloakPod returns a Running and Ready Keycloak pod, waiting up to two
+// minutes for one (a re-run often lands mid-rollout).
+func (o *masAuthApplyOptions) keycloakPod(ctx context.Context, client *oc.Client) (string, error) {
+	deadline := time.Now().Add(2 * time.Minute)
+	for {
+		pod, err := client.ReadyPodName(ctx, o.namespace, keycloakPodSelector(o.release))
+		if err == nil && pod != "" {
+			return pod, nil
+		}
+		if time.Now().After(deadline) {
+			if err != nil {
+				return "", fmt.Errorf("find a Ready Keycloak pod in namespace %s for release %s: %w", o.namespace, o.release, err)
+			}
+			return "", fmt.Errorf("no Running and Ready Keycloak pod in namespace %s for release %s (selector %s); check: oc get pods -n %s -l %s",
+				o.namespace, o.release, keycloakPodSelector(o.release), o.namespace, keycloakPodSelector(o.release))
+		}
+		if err := sleepCtx(ctx, 5*time.Second); err != nil {
+			return "", err
+		}
 	}
-	pod := strings.TrimSpace(output)
-	if pod == "" {
-		return "", fmt.Errorf("Keycloak pod not found in namespace %s for release %s", o.namespace, o.release)
-	}
-	return pod, nil
 }
 
 func fetchKeycloakSAMLMetadata(ctx context.Context, routeHost, realm string) (string, error) {
@@ -800,9 +926,9 @@ func fetchKeycloakSAMLMetadata(ctx context.Context, routeHost, realm string) (st
 	}
 	client := &http.Client{
 		Timeout: 30 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // lab route certificates are often cluster-local CAs
-		},
+		// Lab route certificates are often cluster-local CAs; the transport
+		// also honours HTTPS_PROXY / NO_PROXY.
+		Transport: masadmin.NewInsecureTransport(),
 	}
 	resp, err := client.Do(req)
 	if err != nil {
