@@ -82,7 +82,6 @@ case "${artifact}" in
     for f in env/scim-bridge.env.release scripts/install-all-in-one.sh manifests/scim-bridge-install.yaml images.yaml; do
       subst "${f}" "${expr}"
     done
-    subst_if_present manifests/scim-bridge-install-template.yaml "${expr}"
     echo "[bump] bridge scim-bridge-v${old} -> scim-bridge-v${new}"
     echo "[bump] the image must be rebuilt: a bridge change without a new image is a no-op on the cluster"
     ;;

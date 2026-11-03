@@ -29,7 +29,7 @@ images:
   - ref: quay.io/lee_forster/mas-iam-scim-bridge:scim-bridge-v0.1.2
     kind: release
     archs: [amd64]
-    used_in: [env/scim-bridge.env.release, scripts/install-all-in-one.sh, manifests/scim-bridge-install.yaml, manifests/scim-bridge-install-template.yaml]
+    used_in: [env/scim-bridge.env.release, scripts/install-all-in-one.sh, manifests/scim-bridge-install.yaml]
   - ref: quay.io/lee_forster/mas-iam-operator:0.0.15
     kind: release
     archs: [amd64]
@@ -119,7 +119,7 @@ images:
     kind: build
     archs: [amd64, arm64]
     used_in: [tools/mas-iam-installer/Containerfile]
-  - ref: docker.io/library/golang:1.22-alpine
+  - ref: docker.io/library/golang:1.25-alpine
     kind: build
     archs: [amd64, arm64]
     used_in: [services/scim-bridge/Dockerfile]
@@ -131,11 +131,11 @@ images:
     kind: build
     archs: [amd64]
     used_in: [operators/mas-iam-operator/Dockerfile]
-  - ref: quay.io/operator-framework/opm:latest
+  - ref: quay.io/operator-framework/opm:v1.74.0
     kind: build
     archs: [amd64]
     used_in: [operators/mas-iam-operator/index.Dockerfile, operators/mas-iam-operator/index.amd64.Dockerfile, operators/mas-iam-operator/index-0.0.2.amd64.Dockerfile]
-    note: Floating tag (the ose-cli lesson). The release flow regenerates index.Dockerfile via opm --generate.
+    note: Pinned; opm v2 drops the SQLite catalog this repo still builds. The release flow passes --binary-image with this ref to opm index add --generate.
   - ref: registry.access.redhat.com/ubi9/ubi:9.4
     kind: build
     archs: [amd64]
@@ -155,5 +155,3 @@ allowlist:
     reason: Makefile placeholder default for TLS_IMG; override when building.
   - ref: quay.io/operator-framework/scorecard-test:v1.33.0
     reason: operator-sdk scorecard scaffolding; never run by the release flow.
-  - ref: quay.io/lee_forster/mas-iam-keycloak:scim-bridge-v0.1.1
-    reason: "TODO: remove with manifests/scim-bridge-install-template.yaml (being deleted). The tag does not exist on Quay."

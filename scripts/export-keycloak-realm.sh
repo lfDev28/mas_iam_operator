@@ -61,8 +61,28 @@ kubectl exec -n "${NAMESPACE}" "${POD}" -- env \
   /opt/keycloak/bin/kc.sh export \
     --realm "${REALM}" \
     --dir "${REMOTE_DIR}" \
-    --users realm_file >/dev/null
+    --users skip >/dev/null
 
-kubectl exec -n "${NAMESPACE}" "${POD}" -- cat "${REMOTE_FILE}" > "${OUTPUT}"
+# The chart ships this file in a public repo and a public image, so the export
+# must carry no key material. Keycloak generates fresh realm keys on import
+# when the KeyProvider components are absent. This export once leaked the
+# realm's RSA/HMAC/AES keys into every install.
+command -v jq >/dev/null 2>&1 || { echo "jq is required to sanitise the export" >&2; exit 3; }
+RAW=$(mktemp)
+trap 'cleanup_remote; rm -f "${RAW}"' EXIT
+kubectl exec -n "${NAMESPACE}" "${POD}" -- cat "${REMOTE_FILE}" > "${RAW}"
 
-echo "Realm '${REALM}' exported to ${OUTPUT}" >&2
+jq '
+  del(.users)
+  | del(.components["org.keycloak.keys.KeyProvider"])
+  | if .clients then .clients |= map(del(.secret)) else . end
+' "${RAW}" > "${OUTPUT}"
+
+if grep -Eq '"(privateKey|hashedSaltedValue|secretData)"' "${OUTPUT}" \
+  || jq -e '[.. | objects | select(has("secret")) | .secret | select(type == "string" and . != "" and . != "**********")] | length > 0' "${OUTPUT}" >/dev/null; then
+  echo "Export still contains key material or secrets; refusing to leave it at ${OUTPUT}." >&2
+  rm -f "${OUTPUT}"
+  exit 4
+fi
+
+echo "Realm '${REALM}' exported to ${OUTPUT} (users, realm keys and client secrets stripped)" >&2

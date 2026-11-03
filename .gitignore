@@ -13,3 +13,6 @@ headers.txt
 operators/mas-iam-operator/database/index.db
 docs/_tmp_maxinst_*.log
 .tmp-bootstrap*/
+
+# Claude Code agent worktrees
+.claude/worktrees/
