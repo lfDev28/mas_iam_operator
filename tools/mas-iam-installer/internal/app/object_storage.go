@@ -289,7 +289,12 @@ func (o *minioInstallOptions) run(ctx context.Context) error {
 	if err := o.migrateDeploymentStrategy(ctx, client); err != nil {
 		return err
 	}
-	for _, manifest := range o.installManifests() {
+	// On a re-run the virtual-host alias Services already exist, so the
+	// Deployment goes out with its final env (MINIO_DOMAIN) straight away.
+	// Applying it without MINIO_DOMAIN and adding it back in
+	// enableVirtualHostStyle restarted MinIO twice on every re-run.
+	virtualHostReady := o.aliasServicesExist(ctx, client)
+	for _, manifest := range o.installManifests(virtualHostReady) {
 		if err := applyManifest(ctx, client, manifest); err != nil {
 			return err
 		}
@@ -514,11 +519,15 @@ func (o *objectStorageInstallOptions) installManifests() []map[string]any {
 	return manifests
 }
 
-func (o *minioInstallOptions) installManifests() []map[string]any {
+// installManifests is the first-pass MinIO object set. virtualHostReady
+// (the bucket alias Services exist from an earlier run) renders the
+// Deployment with MINIO_DOMAIN already set, so enableVirtualHostStyle's
+// re-apply is a no-op instead of a second rollout.
+func (o *minioInstallOptions) installManifests(virtualHostReady bool) []map[string]any {
 	return []map[string]any{
 		minioPVCManifest(o),
 		minioServiceManifest(o),
-		minioDeploymentManifest(o, false),
+		minioDeploymentManifest(o, virtualHostReady),
 		minioRouteManifest(o, o.name+"-api", o.apiRouteHost, "api"),
 		minioRouteManifest(o, o.name+"-console", o.consoleRouteHost, "console"),
 	}
@@ -631,6 +640,18 @@ func printJobLogs(ctx context.Context, client *oc.Client, namespace, name string
 	if err := client.Logs(ctx, namespace, []string{"job/" + name, "--all-containers", "--tail=80"}, os.Stderr, os.Stderr); err != nil {
 		fmt.Fprintf(os.Stderr, "[object-storage] could not read logs of job/%s: %v\n", name, err)
 	}
+}
+
+// aliasServicesExist reports whether every bucket alias Service from
+// enableVirtualHostStyle is already present (i.e. this is a re-run).
+func (o *minioInstallOptions) aliasServicesExist(ctx context.Context, client *oc.Client) bool {
+	for _, bucket := range o.manageBucketNames() {
+		exists, err := client.Exists(ctx, o.namespace, "service/"+bucket)
+		if err != nil || !exists {
+			return false
+		}
+	}
+	return true
 }
 
 func (o *minioInstallOptions) enableVirtualHostStyle(ctx context.Context, client *oc.Client) error {

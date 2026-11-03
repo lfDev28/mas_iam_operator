@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -43,6 +44,37 @@ func TestReconcileStorageClass(t *testing.T) {
 			t.Fatalf("got %q", class)
 		}
 	})
+}
+
+// Regression: every re-run applied the Deployment without MINIO_DOMAIN and
+// then re-added it, restarting MinIO twice. When the alias Services already
+// exist, the first-pass Deployment must be identical to the one
+// enableVirtualHostStyle applies, so the second apply is a no-op.
+func TestMinIOFirstPassMatchesVirtualHostDeploymentOnReRun(t *testing.T) {
+	opts := &minioInstallOptions{
+		namespace:      "mas-est",
+		name:           "mas-minio",
+		image:          "img",
+		rootSecretName: "mas-minio-root",
+	}
+	deploymentOf := func(manifests []map[string]any) map[string]any {
+		for _, manifest := range manifests {
+			if manifest["kind"] == "Deployment" {
+				return manifest
+			}
+		}
+		t.Fatal("no Deployment in installManifests")
+		return nil
+	}
+	rerun, _ := json.Marshal(deploymentOf(opts.installManifests(true)))
+	final, _ := json.Marshal(minioDeploymentManifest(opts, true))
+	if string(rerun) != string(final) {
+		t.Fatalf("re-run first pass differs from the virtual-host Deployment; MinIO would roll twice\nfirst: %s\nfinal: %s", rerun, final)
+	}
+	fresh, _ := json.Marshal(deploymentOf(opts.installManifests(false)))
+	if strings.Contains(string(fresh), "MINIO_DOMAIN") {
+		t.Fatal("a fresh install keeps the original two-step: no MINIO_DOMAIN before the alias Services exist")
+	}
 }
 
 func TestPickPVCStorageClassSkipsStatic(t *testing.T) {

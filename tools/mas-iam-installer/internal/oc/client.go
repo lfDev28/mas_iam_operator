@@ -887,6 +887,21 @@ func (c *Client) Apply(ctx context.Context, manifest []byte) (string, error) {
 	}, bytes.NewReader(manifest))
 }
 
+// Exists reports whether target (e.g. "service/name") exists in namespace.
+func (c *Client) Exists(ctx context.Context, namespace, target string) (bool, error) {
+	_, err := c.runner.Output(ctx, executil.Options{
+		Name: "oc",
+		Args: []string{"get", target, "-n", namespace, "-o", "name"},
+	})
+	if err == nil {
+		return true, nil
+	}
+	if IsNotFound(err) {
+		return false, nil
+	}
+	return false, err
+}
+
 func (c *Client) DeleteIgnoreNotFound(ctx context.Context, namespace, target string) (string, error) {
 	return c.runner.Output(ctx, executil.Options{
 		Name: "oc",
