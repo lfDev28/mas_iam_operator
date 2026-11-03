@@ -43,8 +43,11 @@ type fakeKC struct {
 	err   error
 }
 
-func (f *fakeKC) ListUsers(ctx context.Context, params keycloak.ListUsersParams) ([]keycloak.User, error) {
-	return f.users, f.err
+func (f *fakeKC) ListUsersPage(ctx context.Context, first, max int) ([]keycloak.User, int, error) {
+	if f.err != nil || first > 0 {
+		return nil, 0, f.err
+	}
+	return f.users, len(f.users), nil
 }
 
 func (f *fakeKC) ListGroups(ctx context.Context, search string) ([]keycloak.Group, error) {

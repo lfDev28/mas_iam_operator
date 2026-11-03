@@ -67,11 +67,11 @@ func (p *Poller) RunOnce(ctx context.Context) error {
 			return fmt.Errorf("execute action: %w", err)
 		}
 	}
-	// Removal detection runs in group mode only: group membership is paged
-	// fully, so the scoped set is complete and safe to diff against state.
-	// The legacy ListUsers path fetches a single 50-user page — diffing state
-	// against that page would mass-deactivate every tracked user beyond page
-	// one, so it must never feed removal detection.
+	// Removal detection runs in group mode only. The realm-wide path now
+	// pages through every user too, but turning on deactivate-on-removal
+	// for prefix/allowlist scoping is a separate behaviour change (it was
+	// never enabled there, and a user dropping out of a prefix filter is
+	// not the same signal as leaving a group).
 	if len(p.scope.includeGroups) == 0 {
 		return nil
 	}

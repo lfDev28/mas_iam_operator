@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -122,12 +123,59 @@ func (c *Client) mapUsers(payload []userPayload) []User {
 	return users
 }
 
-// ListUsers fetches a single page of users from Keycloak.
+// ListUsers fetches one page of users (see ListUsersPage).
 func (c *Client) ListUsers(ctx context.Context, params ListUsersParams) ([]User, error) {
+	users, _, err := c.ListUsersPage(ctx, params.First, params.Max)
+	return users, err
+}
+
+// errUnparseablePage marks Keycloak's 400 "Cannot parse the JSON" on a
+// user listing: one user in the window cannot be serialised and poisons
+// the whole page.
+var errUnparseablePage = errors.New("keycloak could not serialise the user page")
+
+// ListUsersPage fetches one page of realm users. rawCount is the pre-filter
+// count (federated users are dropped after counting) so callers can page
+// without a filter-thinned page ending the loop early.
+//
+// If Keycloak answers the page with "Cannot parse the JSON", the window is
+// re-read one user at a time so only the unreadable user(s) are skipped
+// (and logged); every readable user in the window is still returned and
+// rawCount still covers the whole window, so paging continues.
+func (c *Client) ListUsersPage(ctx context.Context, first, max int) ([]User, int, error) {
 	token, err := c.clientCredentialsToken(ctx)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
+	payload, err := c.fetchUsers(ctx, token, first, max)
+	if err == nil {
+		return c.mapUsers(payload), len(payload), nil
+	}
+	if !errors.Is(err, errUnparseablePage) || max <= 1 {
+		return nil, 0, err
+	}
+	var users []User
+	raw := 0
+	for i := 0; i < max; i++ {
+		one, err := c.fetchUsers(ctx, token, first+i, 1)
+		if errors.Is(err, errUnparseablePage) {
+			log.Printf("keycloak user at position %d cannot be serialised by Keycloak; skipping it", first+i)
+			raw++
+			continue
+		}
+		if err != nil {
+			return nil, 0, err
+		}
+		if len(one) == 0 {
+			break
+		}
+		raw += len(one)
+		users = append(users, c.mapUsers(one)...)
+	}
+	return users, raw, nil
+}
+
+func (c *Client) fetchUsers(ctx context.Context, token string, first, max int) ([]userPayload, error) {
 	endpoint, err := url.JoinPath(c.base, "admin", "realms", c.cfg.Realm, "users")
 	if err != nil {
 		return nil, err
@@ -137,11 +185,11 @@ func (c *Client) ListUsers(ctx context.Context, params ListUsersParams) ([]User,
 		return nil, err
 	}
 	q := req.URL.Query()
-	if params.First > 0 {
-		q.Set("first", strconv.Itoa(params.First))
+	if first > 0 {
+		q.Set("first", strconv.Itoa(first))
 	}
-	if params.Max > 0 {
-		q.Set("max", strconv.Itoa(params.Max))
+	if max > 0 {
+		q.Set("max", strconv.Itoa(max))
 	}
 	req.URL.RawQuery = q.Encode()
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -153,10 +201,8 @@ func (c *Client) ListUsers(ctx context.Context, params ListUsersParams) ([]User,
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		bodyText := strings.TrimSpace(string(body))
-		if resp.StatusCode == http.StatusBadRequest && params.Max > 1 && strings.Contains(bodyText, "Cannot parse the JSON") {
-			fallback := params
-			fallback.Max = 1
-			return c.ListUsers(ctx, fallback)
+		if resp.StatusCode == http.StatusBadRequest && strings.Contains(bodyText, "Cannot parse the JSON") {
+			return nil, fmt.Errorf("keycloak list users: %s: %s: %w", resp.Status, bodyText, errUnparseablePage)
 		}
 		return nil, fmt.Errorf("keycloak list users: %s: %s", resp.Status, bodyText)
 	}
@@ -164,7 +210,7 @@ func (c *Client) ListUsers(ctx context.Context, params ListUsersParams) ([]User,
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
 		return nil, fmt.Errorf("decode users: %w", err)
 	}
-	return c.mapUsers(payload), nil
+	return payload, nil
 }
 
 // Group identifies a Keycloak group for membership-based scoping.

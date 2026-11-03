@@ -20,9 +20,17 @@ type fakeScopeKC struct {
 	listUsersCalls int
 }
 
-func (f *fakeScopeKC) ListUsers(ctx context.Context, params keycloak.ListUsersParams) ([]keycloak.User, error) {
+func (f *fakeScopeKC) ListUsersPage(ctx context.Context, first, max int) ([]keycloak.User, int, error) {
 	f.listUsersCalls++
-	return f.users, nil
+	if first >= len(f.users) {
+		return nil, 0, nil
+	}
+	end := first + max
+	if end > len(f.users) {
+		end = len(f.users)
+	}
+	page := f.users[first:end]
+	return page, len(page), nil
 }
 
 func (f *fakeScopeKC) ListGroups(ctx context.Context, search string) ([]keycloak.Group, error) {
