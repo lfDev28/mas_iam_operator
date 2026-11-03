@@ -58,12 +58,35 @@ fi
 admin_user=$(oc get secret "${bootstrap_secret}" -n "${namespace}" -o jsonpath='{.data.username}' | base64 -d)
 admin_pass=$(oc get secret "${bootstrap_secret}" -n "${namespace}" -o jsonpath='{.data.password}' | base64 -d)
 
-pod=$(oc get pod -n "${namespace}" \
-  -l app.kubernetes.io/component=keycloak,app.kubernetes.io/instance="${release}" \
-  -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+# Pick a Running + Ready Keycloak pod that is not terminating. `.items[0]`
+# took whatever the API listed first, which mid-rollout is often a pod still
+# starting or already shutting down, so the exec below failed.
+ready_keycloak_pod() {
+  local name phase deleting ready
+  # '|' rather than a tab: tabs are IFS whitespace, so an empty
+  # deletionTimestamp field would collapse and shift the Ready status left.
+  while IFS='|' read -r name phase deleting ready; do
+    if [[ -n "${name}" && "${phase}" == "Running" && -z "${deleting}" && "${ready}" == "True" ]]; then
+      printf '%s' "${name}"
+      return 0
+    fi
+  done < <(oc get pod -n "${namespace}" \
+    -l app.kubernetes.io/component=keycloak,app.kubernetes.io/instance="${release}" \
+    -o jsonpath='{range .items[*]}{.metadata.name}{"|"}{.status.phase}{"|"}{.metadata.deletionTimestamp}{"|"}{range .status.conditions[?(@.type=="Ready")]}{.status}{end}{"\n"}{end}' 2>/dev/null || true)
+  return 1
+}
+
+pod=""
+for _ in $(seq 1 24); do
+  if pod="$(ready_keycloak_pod)"; then
+    break
+  fi
+  pod=""
+  sleep 5
+done
 
 if [[ -z "${pod}" ]]; then
-  echo "error: unable to locate Keycloak pod for release ${release} in ${namespace}" >&2
+  echo "error: no Running and Ready Keycloak pod for release ${release} in ${namespace} after 2 minutes; check: oc get pods -n ${namespace} -l app.kubernetes.io/component=keycloak" >&2
   exit 1
 fi
 

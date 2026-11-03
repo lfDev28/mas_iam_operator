@@ -497,7 +497,7 @@ func (o *masAuthApplyOptions) configureKeycloak(ctx context.Context, runner *exe
 	if err != nil {
 		return keycloakMASClients{}, err
 	}
-	pod, err := o.keycloakPod(ctx, runner)
+	pod, err := o.keycloakPod(ctx, client)
 	if err != nil {
 		return keycloakMASClients{}, err
 	}
@@ -877,19 +877,34 @@ func (o *masAuthApplyOptions) keycloakService(ctx context.Context, runner *execu
 	return "", fmt.Errorf("unable to find Keycloak service in namespace %s; tried %s, %s-keycloak, scim-bridge-keycloak", o.namespace, o.release, o.release)
 }
 
-func (o *masAuthApplyOptions) keycloakPod(ctx context.Context, runner *executil.Runner) (string, error) {
-	output, err := runner.Output(ctx, executil.Options{
-		Name: "oc",
-		Args: []string{"get", "pod", "-n", o.namespace, "-l", "app.kubernetes.io/component=keycloak,app.kubernetes.io/instance=" + o.release, "-o", "jsonpath={.items[0].metadata.name}"},
-	})
-	if err != nil {
-		return "", err
+// keycloakPodSelector selects the Keycloak pods of a mas-est IAM release.
+// The Keycloak Deployment's own selector (name + instance) also matches the
+// OpenLDAP pods, so anything that needs a Keycloak pod must add the component
+// label (operators/mas-iam-operator/helm-charts/mas-iam-stack deployment.yaml).
+func keycloakPodSelector(release string) string {
+	return "app.kubernetes.io/component=keycloak,app.kubernetes.io/instance=" + release
+}
+
+// keycloakPod returns a Running and Ready Keycloak pod, waiting up to two
+// minutes for one (a re-run often lands mid-rollout).
+func (o *masAuthApplyOptions) keycloakPod(ctx context.Context, client *oc.Client) (string, error) {
+	deadline := time.Now().Add(2 * time.Minute)
+	for {
+		pod, err := client.ReadyPodName(ctx, o.namespace, keycloakPodSelector(o.release))
+		if err == nil && pod != "" {
+			return pod, nil
+		}
+		if time.Now().After(deadline) {
+			if err != nil {
+				return "", fmt.Errorf("find a Ready Keycloak pod in namespace %s for release %s: %w", o.namespace, o.release, err)
+			}
+			return "", fmt.Errorf("no Running and Ready Keycloak pod in namespace %s for release %s (selector %s); check: oc get pods -n %s -l %s",
+				o.namespace, o.release, keycloakPodSelector(o.release), o.namespace, keycloakPodSelector(o.release))
+		}
+		if err := sleepCtx(ctx, 5*time.Second); err != nil {
+			return "", err
+		}
 	}
-	pod := strings.TrimSpace(output)
-	if pod == "" {
-		return "", fmt.Errorf("Keycloak pod not found in namespace %s for release %s", o.namespace, o.release)
-	}
-	return pod, nil
 }
 
 func fetchKeycloakSAMLMetadata(ctx context.Context, routeHost, realm string) (string, error) {

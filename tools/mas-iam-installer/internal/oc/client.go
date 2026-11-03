@@ -887,6 +887,55 @@ func (c *Client) Apply(ctx context.Context, manifest []byte) (string, error) {
 	}, bytes.NewReader(manifest))
 }
 
+// ReadyPodName returns a Running, Ready, not-terminating pod matching
+// selector in namespace, or "" when there is none. Taking .items[0] picked
+// whatever the API listed first — during a rollout that is often a pod that
+// is still starting or already terminating, and exec into it fails.
+func (c *Client) ReadyPodName(ctx context.Context, namespace, selector string) (string, error) {
+	output, err := c.runner.Output(ctx, executil.Options{
+		Name: "oc",
+		Args: []string{"get", "pod", "-n", namespace, "-l", selector, "-o", "json"},
+	})
+	if err != nil {
+		return "", err
+	}
+	return PickReadyPod([]byte(output))
+}
+
+// PickReadyPod picks the first Running + Ready pod without a
+// deletionTimestamp from `oc get pod -o json` output.
+func PickReadyPod(raw []byte) (string, error) {
+	var payload struct {
+		Items []struct {
+			Metadata struct {
+				Name              string `json:"name"`
+				DeletionTimestamp string `json:"deletionTimestamp"`
+			} `json:"metadata"`
+			Status struct {
+				Phase      string `json:"phase"`
+				Conditions []struct {
+					Type   string `json:"type"`
+					Status string `json:"status"`
+				} `json:"conditions"`
+			} `json:"status"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return "", fmt.Errorf("decode pod list: %w", err)
+	}
+	for _, item := range payload.Items {
+		if item.Status.Phase != "Running" || item.Metadata.DeletionTimestamp != "" {
+			continue
+		}
+		for _, condition := range item.Status.Conditions {
+			if condition.Type == "Ready" && condition.Status == "True" {
+				return item.Metadata.Name, nil
+			}
+		}
+	}
+	return "", nil
+}
+
 // Exists reports whether target (e.g. "service/name") exists in namespace.
 func (c *Client) Exists(ctx context.Context, namespace, target string) (bool, error) {
 	_, err := c.runner.Output(ctx, executil.Options{

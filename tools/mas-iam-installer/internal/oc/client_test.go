@@ -5,6 +5,23 @@ import (
 	"testing"
 )
 
+func TestPickReadyPod(t *testing.T) {
+	raw := []byte(`{"items":[
+		{"metadata":{"name":"kc-terminating","deletionTimestamp":"2026-11-04T10:00:00Z"},"status":{"phase":"Running","conditions":[{"type":"Ready","status":"True"}]}},
+		{"metadata":{"name":"kc-starting"},"status":{"phase":"Running","conditions":[{"type":"Ready","status":"False"}]}},
+		{"metadata":{"name":"kc-pending"},"status":{"phase":"Pending"}},
+		{"metadata":{"name":"kc-ready"},"status":{"phase":"Running","conditions":[{"type":"Ready","status":"True"}]}}
+	]}`)
+	got, err := PickReadyPod(raw)
+	if err != nil || got != "kc-ready" {
+		t.Fatalf("PickReadyPod = %q, %v; want kc-ready", got, err)
+	}
+	got, err = PickReadyPod([]byte(`{"items":[{"metadata":{"name":"kc-starting"},"status":{"phase":"Running"}}]}`))
+	if err != nil || got != "" {
+		t.Fatalf("no ready pod: got %q, %v", got, err)
+	}
+}
+
 func TestParseCanI(t *testing.T) {
 	cases := []struct {
 		name    string
