@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -34,6 +35,9 @@ type installOptions struct {
 type installDiscovery struct {
 	MASRoutes  []oc.MASRoute
 	Workspaces []oc.ManageWorkspace
+	// WorkspacesListed is false when listing ManageWorkspaces failed (no
+	// RBAC, no Manage CRD), in which case a workspace id cannot be verified.
+	WorkspacesListed bool
 }
 
 func newInstallCommand(root *RootOptions) *cobra.Command {
@@ -157,6 +161,16 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 	cfg.DefaultMASAuthTarget()
 	if err := cfg.Validate(); err != nil {
 		return err
+	}
+	if cfg.HasComponent(config.InstallComponentSCIM) || cfg.ConfigureMASAuth {
+		if err := checkWorkspaceExists(cfg.WorkspaceID, workspaceInstanceID(cfg, discovery.MASRoutes), discovery.Workspaces); err != nil {
+			if !interactive {
+				return err
+			}
+			fmt.Fprintf(os.Stderr, "[warn] %v\n", err)
+		} else if !discovery.WorkspacesListed && strings.TrimSpace(cfg.WorkspaceID) != "" {
+			fmt.Fprintf(os.Stderr, "[warn] could not list ManageWorkspaces; --workspace-id %q is not verified\n", cfg.WorkspaceID)
+		}
 	}
 	// The installer Job lives in the namespace the uninstall would delete, so
 	// combining the two would have the Job delete itself mid-run. In-cluster is
@@ -464,7 +478,61 @@ func discoverInstallDiscovery(ctx context.Context, client *oc.Client) installDis
 	}
 	if workspaces, err := client.ManageWorkspaces(ctx); err == nil {
 		discovery.Workspaces = workspaces
+		discovery.WorkspacesListed = true
 	}
 
 	return discovery
+}
+
+// workspaceInstanceID is the MAS instance whose workspaces --workspace-id must
+// belong to: the MAS auth instance when --configure-mas-auth is on, else the
+// instance whose API route matches --mas-base-url.
+func workspaceInstanceID(cfg config.InstallConfig, routes []oc.MASRoute) string {
+	if cfg.ConfigureMASAuth && strings.TrimSpace(cfg.MASAuthInstanceID) != "" {
+		return strings.TrimSpace(cfg.MASAuthInstanceID)
+	}
+	if host, err := preflight.ParseMASHost(cfg.MASBaseURL); err == nil {
+		for _, route := range routes {
+			if route.Host == host {
+				return route.InstanceID
+			}
+		}
+	}
+	return strings.TrimSpace(cfg.MASInstanceID)
+}
+
+// checkWorkspaceExists verifies --workspace-id names a ManageWorkspace of the
+// target instance. A typo otherwise surfaces much later: SCIM users land in a
+// workspace that does not exist, and the selfreg ConfigMap sends first-time
+// IDP users there. Returns nil when there is nothing to check against (no
+// workspace id, or no ManageWorkspaces visible at all).
+func checkWorkspaceExists(workspaceID, instanceID string, workspaces []oc.ManageWorkspace) error {
+	workspaceID = strings.TrimSpace(workspaceID)
+	if workspaceID == "" || len(workspaces) == 0 {
+		return nil
+	}
+	candidates := workspaces
+	if instanceID != "" {
+		scoped := []oc.ManageWorkspace{}
+		for _, workspace := range workspaces {
+			if workspace.InstanceID == instanceID {
+				scoped = append(scoped, workspace)
+			}
+		}
+		if len(scoped) > 0 {
+			candidates = scoped
+		}
+	}
+	available := make([]string, 0, len(candidates))
+	for _, workspace := range candidates {
+		if workspace.WorkspaceID == workspaceID {
+			return nil
+		}
+		available = append(available, fmt.Sprintf("%s (instance %s, ManageWorkspace %s/%s)", workspace.WorkspaceID, workspace.InstanceID, workspace.Namespace, workspace.Name))
+	}
+	scope := "on this cluster"
+	if instanceID != "" {
+		scope = "for MAS instance " + instanceID
+	}
+	return fmt.Errorf("--workspace-id %q does not match any ManageWorkspace %s; available: %s", workspaceID, scope, strings.Join(available, ", "))
 }

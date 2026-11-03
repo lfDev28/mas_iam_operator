@@ -272,22 +272,39 @@ func (c *Client) ManageWorkspaces(ctx context.Context) ([]ManageWorkspace, error
 		}
 	}
 
+	return ParseManageWorkspaces([]byte(output))
+}
+
+// MAS labels every ManageWorkspace with the instance and workspace it
+// belongs to; they are the authoritative split of the
+// {instanceId}-{workspaceId} object name, which is ambiguous as soon as
+// either id contains a dash (instance "mas-dev" + workspace "ws1").
+const (
+	masInstanceIDLabel  = "mas.ibm.com/instanceId"
+	masWorkspaceIDLabel = "mas.ibm.com/workspaceId"
+)
+
+var masManageNamespacePattern = regexp.MustCompile(`^mas-(.+)-manage$`)
+
+// ParseManageWorkspaces decodes `oc get manageworkspaces -A -o json`.
+func ParseManageWorkspaces(raw []byte) ([]ManageWorkspace, error) {
 	var payload struct {
 		Items []struct {
 			Metadata struct {
-				Name      string `json:"name"`
-				Namespace string `json:"namespace"`
+				Name      string            `json:"name"`
+				Namespace string            `json:"namespace"`
+				Labels    map[string]string `json:"labels"`
 			} `json:"metadata"`
 		} `json:"items"`
 	}
-	if err := json.Unmarshal([]byte(output), &payload); err != nil {
+	if err := json.Unmarshal(raw, &payload); err != nil {
 		return nil, fmt.Errorf("decode manageworkspaces: %w", err)
 	}
 
 	workspaces := []ManageWorkspace{}
 	for _, item := range payload.Items {
-		instanceID, workspaceID, ok := strings.Cut(item.Metadata.Name, "-")
-		if !ok || strings.TrimSpace(instanceID) == "" || strings.TrimSpace(workspaceID) == "" {
+		instanceID, workspaceID, ok := SplitManageWorkspaceName(item.Metadata.Name, item.Metadata.Namespace, item.Metadata.Labels)
+		if !ok {
 			continue
 		}
 		workspaces = append(workspaces, ManageWorkspace{
@@ -309,6 +326,46 @@ func (c *Client) ManageWorkspaces(ctx context.Context) ([]ManageWorkspace, error
 	})
 
 	return workspaces, nil
+}
+
+// SplitManageWorkspaceName works out (instanceId, workspaceId) for a
+// ManageWorkspace named {instanceId}-{workspaceId}. In order of preference:
+//
+//  1. the mas.ibm.com/instanceId and mas.ibm.com/workspaceId labels;
+//  2. the instance id from one label, or from the mas-{instance}-manage
+//     namespace, stripped off the front of the name;
+//  3. a split on the first dash (only right when the instance id has none).
+func SplitManageWorkspaceName(name, namespace string, labels map[string]string) (string, string, bool) {
+	name = strings.TrimSpace(name)
+	instanceLabel := strings.TrimSpace(labels[masInstanceIDLabel])
+	workspaceLabel := strings.TrimSpace(labels[masWorkspaceIDLabel])
+	if instanceLabel != "" && workspaceLabel != "" {
+		return instanceLabel, workspaceLabel, true
+	}
+	if workspaceLabel != "" {
+		if instance := strings.TrimSuffix(name, "-"+workspaceLabel); instance != name && instance != "" {
+			return instance, workspaceLabel, true
+		}
+	}
+
+	candidates := []string{}
+	if instanceLabel != "" {
+		candidates = append(candidates, instanceLabel)
+	}
+	if matches := masManageNamespacePattern.FindStringSubmatch(strings.TrimSpace(namespace)); len(matches) == 2 {
+		candidates = append(candidates, matches[1])
+	}
+	for _, instance := range candidates {
+		if workspace := strings.TrimPrefix(name, instance+"-"); workspace != name && workspace != "" {
+			return instance, workspace, true
+		}
+	}
+
+	instance, workspace, ok := strings.Cut(name, "-")
+	if !ok || strings.TrimSpace(instance) == "" || strings.TrimSpace(workspace) == "" {
+		return "", "", false
+	}
+	return instance, workspace, true
 }
 
 // IDPCfgs lists the IDPCfg objects in a MAS core namespace. Used by the
