@@ -39,6 +39,10 @@ type Input struct {
 	// silent 13-minute timeout in the scim profile-bootstrap Job.
 	APITokenName  string
 	APITokenValue string
+	// SkipSCIMAuthorization limits the API key check to authentication. Set
+	// when the key is only used for the MAS auth Admin API (no scim
+	// component), which does not need SCIM permissions.
+	SkipSCIMAuthorization bool
 	// CheckIDPCfgOverwrite lists the IDPCfgs already present in the MAS core
 	// namespace and warns about the ones this install would rewrite in place.
 	// Only meaningful when --configure-mas-auth is set, which is also the only
@@ -219,7 +223,11 @@ func Run(ctx context.Context, client *oc.Client, input Input) Report {
 		report.Results = append(report.Results, CheckOIDCEndpoint(ctx, masHTTPClient(), input.MASBaseURL))
 	}
 	if input.APITokenName != "" && input.APITokenValue != "" {
-		report.Results = append(report.Results, CheckAPIKey(ctx, masHTTPClient(), input.MASBaseURL, input.APITokenName, input.APITokenValue))
+		if input.SkipSCIMAuthorization {
+			report.Results = append(report.Results, CheckAPIKeyAuthenticates(ctx, masHTTPClient(), input.MASBaseURL, input.APITokenName, input.APITokenValue))
+		} else {
+			report.Results = append(report.Results, CheckAPIKey(ctx, masHTTPClient(), input.MASBaseURL, input.APITokenName, input.APITokenValue))
+		}
 	}
 
 	routes, err := client.RoutesByHost(ctx, masHost)
@@ -430,6 +438,17 @@ func CheckOIDCEndpoint(ctx context.Context, httpClient *http.Client, masBaseURL 
 // permission flags authenticates but gets 403 AIUCO1003E on SCIM endpoints;
 // the SCIM API requires userAdmin + systemAdmin. Network errors only warn.
 func CheckAPIKey(ctx context.Context, httpClient *http.Client, masBaseURL, tokenName, tokenValue string) Result {
+	return checkAPIKey(ctx, httpClient, masBaseURL, tokenName, tokenValue, true)
+}
+
+// CheckAPIKeyAuthenticates is CheckAPIKey without the SCIM authorization
+// probe: --configure-mas-auth without the scim component only needs the key
+// to authenticate for the /config Admin APIs.
+func CheckAPIKeyAuthenticates(ctx context.Context, httpClient *http.Client, masBaseURL, tokenName, tokenValue string) Result {
+	return checkAPIKey(ctx, httpClient, masBaseURL, tokenName, tokenValue, false)
+}
+
+func checkAPIKey(ctx context.Context, httpClient *http.Client, masBaseURL, tokenName, tokenValue string, checkSCIM bool) Result {
 	const name = "mas-api-key"
 	authURL := masadmin.StripSCIMSuffix(masBaseURL) + "/v1/authenticate"
 
@@ -457,6 +476,9 @@ func CheckAPIKey(ctx context.Context, httpClient *http.Client, masBaseURL, token
 	}
 	if err := json.Unmarshal(body, &payload); err != nil || payload.Token == "" {
 		return Result{Name: name, Status: StatusWarn, Message: fmt.Sprintf("authenticate response from %s contained no token; cannot verify SCIM authorization", authURL)}
+	}
+	if !checkSCIM {
+		return Result{Name: name, Status: StatusOK, Message: fmt.Sprintf("MAS API key %s authenticated", tokenName)}
 	}
 
 	profilesURL := strings.TrimRight(strings.TrimSpace(masBaseURL), "/") + "/Profiles"

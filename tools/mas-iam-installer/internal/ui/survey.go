@@ -187,6 +187,15 @@ func PromptInstall(cfg config.InstallConfig, hints InstallDiscoveryHints, storag
 				return cfg, err
 			}
 		}
+		// The default MAS auth path PUTs to the MAS Admin API with the API
+		// key. With SCIM selected the URL and key were asked for above;
+		// without it they were never asked for, and a missing key surfaced
+		// only after the IAM stack had installed.
+		if !cfg.HasComponent(config.InstallComponentSCIM) && !cfg.MASAuthUseCRApply {
+			if cfg, err = askMASAuthAPIAccess(cfg, hints.MASRoutes); err != nil {
+				return cfg, err
+			}
+		}
 	}
 
 	if len(storageChoices) > 0 && (cfg.HasComponent(config.InstallComponentKeycloak) || cfg.HasComponent(config.InstallComponentS3)) {
@@ -237,6 +246,50 @@ func PromptInstall(cfg config.InstallConfig, hints InstallDiscoveryHints, storag
 		return cfg, err
 	}
 
+	return cfg, nil
+}
+
+// askMASAuthAPIAccess fills the MAS API URL and key for an install that
+// configures MAS auth without the SCIM component. The URL is derived from
+// the MAS auth instance's API route when possible; values already set (flag,
+// env, or an existing scim-bridge-secret) are not asked for again.
+func askMASAuthAPIAccess(cfg config.InstallConfig, routes []oc.MASRoute) (config.InstallConfig, error) {
+	var err error
+	if strings.TrimSpace(cfg.MASBaseURL) == "" {
+		for _, route := range routes {
+			if route.InstanceID == cfg.MASAuthInstanceID {
+				cfg.MASBaseURL = route.SCIMBaseURL()
+				PrintDerived("MAS API URL", cfg.MASBaseURL, "--mas-base-url")
+				break
+			}
+		}
+	}
+	if strings.TrimSpace(cfg.MASBaseURL) == "" {
+		if cfg.MASBaseURL, err = askRequiredInput(
+			"MAS API URL",
+			cfg.MASBaseURL,
+			"MAS API route used to configure LDAP/OIDC/SAML, for example https://api.<mas-host>/scim/v2.",
+		); err != nil {
+			return cfg, err
+		}
+	}
+	if strings.TrimSpace(cfg.MASAPITokenName) == "" {
+		if cfg.MASAPITokenName, err = askRequiredInput(
+			"MAS API key name",
+			cfg.MASAPITokenName,
+			"MAS API key used to configure the MAS auth providers through the MAS Admin API.",
+		); err != nil {
+			return cfg, err
+		}
+	}
+	if strings.TrimSpace(cfg.MASAPITokenValue) == "" {
+		if cfg.MASAPITokenValue, err = askRequiredSecret(
+			"MAS API key value",
+			"Secret value paired with the MAS API key name.",
+		); err != nil {
+			return cfg, err
+		}
+	}
 	return cfg, nil
 }
 
@@ -673,6 +726,11 @@ func PrintInstallSummary(cfg config.InstallConfig) {
 		fmt.Printf("[config] mas_auth_instance_id=%s\n", cfg.MASAuthInstanceID)
 		fmt.Printf("[config] mas_auth_core_namespace=%s\n", cfg.MASAuthCoreNamespace)
 		fmt.Printf("[config] mas_auth_host=%s\n", cfg.MASAuthHost)
+		if !cfg.HasComponent(config.InstallComponentSCIM) && !cfg.MASAuthUseCRApply {
+			fmt.Printf("[config] mas_api_url=%s\n", cfg.MASBaseURL)
+			fmt.Printf("[config] mas_api_token_name=%s\n", cfg.MASAPITokenName)
+			fmt.Printf("[config] mas_api_token_value=%s\n", config.MaskSecret(cfg.MASAPITokenValue))
+		}
 	}
 	if cfg.StorageClass != "" {
 		fmt.Printf("[config] primary_storage_class=%s\n", cfg.StorageClass)

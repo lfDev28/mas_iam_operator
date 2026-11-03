@@ -134,8 +134,25 @@ func TestValidateConfigureMASAuthRequiresIAMAndMASTarget(t *testing.T) {
 	}
 
 	cfg.WorkspaceID = "masdev"
+	err := cfg.Validate()
+	for _, flag := range []string{"--mas-base-url", "--mas-api-token-name", "--mas-api-token-value"} {
+		if err == nil || !strings.Contains(err.Error(), flag) {
+			t.Fatalf("Validate() auth-only without MAS API values error = %v, want %s (the Admin API path needs it)", err, flag)
+		}
+	}
+
+	cfg.MASBaseURL = "https://api.demo.example.com/scim/v2"
+	cfg.MASAPITokenName = "key"
+	cfg.MASAPITokenValue = "value"
 	if err := cfg.Validate(); err != nil {
-		t.Fatalf("Validate() with MAS auth target and workspace error = %v", err)
+		t.Fatalf("Validate() with MAS auth target, workspace and API key error = %v", err)
+	}
+
+	// The CR path never calls the Admin API.
+	cfg.MASBaseURL, cfg.MASAPITokenName, cfg.MASAPITokenValue = "", "", ""
+	cfg.MASAuthUseCRApply = true
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() with --mas-auth-use-cr-apply error = %v, want no MAS API requirement", err)
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 	executil "github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/exec"
 	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/installer"
 	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/logging"
+	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/masadmin"
 	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/oc"
 	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/preflight"
 	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/ui"
@@ -128,6 +129,7 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 	}
 
 	discovery := discoverInstallDiscovery(ctx, client)
+	fillMASAPICredentialsFromSecret(ctx, client, &cfg)
 
 	var storageRanking preflight.StorageRanking
 	if classes, err := client.StorageClasses(ctx); err == nil && len(classes) > 0 {
@@ -159,6 +161,9 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 	}
 	cfg.DefaultMASCoreNamespace()
 	cfg.DefaultMASAuthTarget()
+	// The prompt may have changed the namespace or switched MAS auth on.
+	fillMASAPICredentialsFromSecret(ctx, client, &cfg)
+	resolveMASAuthAPITarget(&cfg, discovery.MASRoutes)
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
@@ -185,7 +190,10 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 	masBaseURLForPreflight := ""
 	apiTokenName := ""
 	apiTokenValue := ""
-	if cfg.HasComponent(config.InstallComponentSCIM) {
+	// The MAS API key is used by the SCIM bridge AND by the default (Admin
+	// API) --configure-mas-auth path; check it up front for both, so a bad
+	// key or URL fails here instead of ~20 minutes into the install.
+	if usesMASAdminAPI(cfg) {
 		masBaseURLForPreflight = cfg.MASBaseURL
 		apiTokenName = cfg.MASAPITokenName
 		apiTokenValue = cfg.MASAPITokenValue
@@ -202,12 +210,15 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 	// The provider ids are the fixed defaults the install path passes to
 	// masAuthApplyOptions below; install exposes no flag to override them.
 	report := preflight.Run(ctx, client, preflight.Input{
-		Namespace:            cfg.Namespace,
-		MASBaseURL:           masBaseURLForPreflight,
-		CheckOIDCEndpoint:    checkOIDCEndpoint,
-		APITokenName:         apiTokenName,
-		APITokenValue:        apiTokenValue,
-		CheckIDPCfgOverwrite: cfg.ConfigureMASAuth,
+		Namespace:         cfg.Namespace,
+		MASBaseURL:        masBaseURLForPreflight,
+		CheckOIDCEndpoint: checkOIDCEndpoint,
+		APITokenName:      apiTokenName,
+		APITokenValue:     apiTokenValue,
+		// Without scim the key only drives the MAS auth Admin API, which
+		// needs no SCIM permissions.
+		SkipSCIMAuthorization: !cfg.HasComponent(config.InstallComponentSCIM),
+		CheckIDPCfgOverwrite:  cfg.ConfigureMASAuth,
 		IDPCfgPlan: preflight.IDPCfgPlan{
 			CoreNamespace:  cfg.MASAuthCoreNamespace,
 			InstanceID:     cfg.MASAuthInstanceID,
@@ -249,6 +260,7 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 			image:       o.installerImage,
 			interactive: interactive,
 			out:         os.Stdout,
+			env:         collectInstallerPassthroughEnv(os.LookupEnv),
 		}
 		return inCluster.run(ctx, client)
 	}
@@ -482,6 +494,73 @@ func discoverInstallDiscovery(ctx context.Context, client *oc.Client) installDis
 	}
 
 	return discovery
+}
+
+// usesMASAdminAPI reports whether this install talks to the MAS API with the
+// API key: the SCIM bridge does, and so does --configure-mas-auth unless it
+// falls back to applying IDPCfg CRs.
+func usesMASAdminAPI(cfg config.InstallConfig) bool {
+	return cfg.HasComponent(config.InstallComponentSCIM) || (cfg.ConfigureMASAuth && !cfg.MASAuthUseCRApply)
+}
+
+// fillMASAPICredentialsFromSecret fills an unset MAS API key (and base URL)
+// from the scim-bridge-secret an earlier SCIM install left in the target
+// namespace — the same fallback `mas-est mas-auth apply` uses — so a re-run
+// with --configure-mas-auth does not have to repeat them. Values given by
+// flag or env always win. Silent when the secret does not exist.
+func fillMASAPICredentialsFromSecret(ctx context.Context, client *oc.Client, cfg *config.InstallConfig) {
+	if strings.TrimSpace(cfg.MASAPITokenName) != "" && strings.TrimSpace(cfg.MASAPITokenValue) != "" && strings.TrimSpace(cfg.MASBaseURL) != "" {
+		return
+	}
+	if strings.TrimSpace(cfg.Namespace) == "" {
+		return
+	}
+	data, err := client.SecretData(ctx, cfg.Namespace, scimBridgeSecretName)
+	if err != nil {
+		return
+	}
+	if applyStoredMASAPICredentials(cfg, data) {
+		fmt.Fprintf(os.Stdout, "[config] using MAS API settings stored in secret/%s in namespace %s for values not given by flag or env\n", scimBridgeSecretName, cfg.Namespace)
+	}
+}
+
+// applyStoredMASAPICredentials copies MAS API values from secret data into
+// the fields cfg leaves empty; reports whether anything was copied.
+func applyStoredMASAPICredentials(cfg *config.InstallConfig, data map[string]string) bool {
+	changed := false
+	fill := func(target *string, key string) {
+		if strings.TrimSpace(*target) == "" && strings.TrimSpace(data[key]) != "" {
+			*target = strings.TrimSpace(data[key])
+			changed = true
+		}
+	}
+	fill(&cfg.MASAPITokenName, config.EnvMASAPITokenName)
+	fill(&cfg.MASAPITokenValue, config.EnvMASAPITokenValue)
+	fill(&cfg.MASBaseURL, config.EnvMASBaseURL)
+	return changed
+}
+
+// resolveMASAuthAPITarget gives the Admin API --configure-mas-auth path a MAS
+// API URL when no SCIM component supplied one: the API route of the MAS auth
+// instance, as `mas-est mas-auth apply` would discover it. The URL is
+// normalised to carry /scim/v2 (stripped again by the Admin API client) so
+// preflight and the in-cluster Job treat it like a SCIM base URL.
+func resolveMASAuthAPITarget(cfg *config.InstallConfig, routes []oc.MASRoute) {
+	if !cfg.ConfigureMASAuth || cfg.MASAuthUseCRApply || cfg.HasComponent(config.InstallComponentSCIM) {
+		return
+	}
+	if strings.TrimSpace(cfg.MASBaseURL) == "" {
+		for _, route := range routes {
+			if route.InstanceID == cfg.MASAuthInstanceID {
+				cfg.MASBaseURL = route.SCIMBaseURL()
+				fmt.Fprintf(os.Stdout, "[config] MAS API URL for MAS auth configuration: %s (from route %s/%s; override with --mas-base-url)\n", cfg.MASBaseURL, route.Namespace, route.Name)
+				break
+			}
+		}
+	}
+	if raw := strings.TrimSpace(cfg.MASBaseURL); raw != "" && !strings.Contains(raw, "/scim/v2") {
+		cfg.MASBaseURL = masadmin.StripSCIMSuffix(raw) + "/scim/v2"
+	}
 }
 
 // workspaceInstanceID is the MAS instance whose workspaces --workspace-id must

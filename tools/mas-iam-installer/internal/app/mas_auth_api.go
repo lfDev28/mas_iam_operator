@@ -409,6 +409,13 @@ func (o *masAuthApplyOptions) linkSCIMUsersToIDP(ctx context.Context, providerTy
 	return err
 }
 
+// Env overrides for where link-scim-users-oidc.sh finds the MAS Mongo
+// replica set (defaults: namespace mongoce, instance mas-mongo-ce).
+const (
+	envMongoNamespace = "MAS_EST_MONGO_NAMESPACE"
+	envMongoInstance  = "MAS_EST_MONGO_INSTANCE"
+)
+
 // linkSCIMUsersArgs builds the argv for link-scim-users-oidc.sh. Extracted
 // so the IDPCfg-rename / reserved-word translation can be unit-tested without
 // shelling out.
