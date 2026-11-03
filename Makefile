@@ -18,6 +18,72 @@ TLS_CONTEXT   ?= images/openldap-tls-generator
 VALUES_FLAGS := -f $(CHART)/values.yaml
 
 .PHONY: lint deps deploy status health teardown redeploy tls-image tls-push scim-keycloak-image scim-keycloak-push scim-bridge-build doc-pdf docs-pdf doc-pdf-clean docs-pdf-clean user-guide-pdf user-guide-clean
+.PHONY: check check-go check-scripts check-helm check-images check-images-scan release-check bump release-images release-verify release-tag smoke
+
+# ---- Checks ------------------------------------------------------------------
+# `make check` is the definition of done: the same checks CI runs
+# (.github/workflows/go.yml), stopping on the first red.
+GO_MODULES    ?= tools/mas-iam-installer services/scim-bridge
+GO_TEST_FLAGS ?= -race
+HELM_CHART    ?= operators/mas-iam-operator/helm-charts/mas-iam-stack
+
+check: check-go check-scripts check-helm lint check-images-scan
+	@echo "make check: all green"
+
+check-go:
+	@set -e; for m in $(GO_MODULES); do \
+		echo "== go vet/test/build: $$m"; \
+		(cd $$m && go vet ./... && go test $(GO_TEST_FLAGS) ./... && go build ./...); \
+	done
+
+check-scripts:
+	@echo "== bash -n scripts/*.sh"
+	@set -e; for f in scripts/*.sh; do bash -n "$$f"; done
+
+check-helm:
+	@echo "== helm lint $(HELM_CHART)"
+	@helm lint $(HELM_CHART)
+
+# Every image ref in the tree is listed in images.yaml (offline).
+check-images-scan:
+	@./scripts/check-images.sh --scan-only
+
+# Every images.yaml ref exists on its registry with its archs (network).
+check-images:
+	@./scripts/check-images.sh
+
+# ---- Release -----------------------------------------------------------------
+# Order and approvals: .claude/skills/mas-est-release/SKILL.md. Nothing here
+# pushes unless the script is given --push / PUSH=1.
+VERSION          ?=
+OPERATOR_VERSION ?=
+BRIDGE_VERSION   ?=
+ARTIFACT         ?= cli
+PUSH             ?=
+
+release-check:
+	@./scripts/release-check.sh --version "$(VERSION)" \
+		$(if $(OPERATOR_VERSION),--operator-version "$(OPERATOR_VERSION)") \
+		$(if $(BRIDGE_VERSION),--bridge-version "$(BRIDGE_VERSION)")
+
+bump:
+	@./scripts/bump-version.sh $(ARTIFACT) "$(VERSION)"
+
+release-images:
+	@./scripts/release-images.sh $(ARTIFACT) "$(VERSION)" $(if $(PUSH),--push)
+
+release-verify:
+	@./scripts/release-images.sh $(ARTIFACT) "$(VERSION)" --verify
+
+release-tag:
+	@./scripts/release-tag.sh --version "$(VERSION)" \
+		$(if $(OPERATOR_VERSION),--operator-version "$(OPERATOR_VERSION)") \
+		$(if $(BRIDGE_VERSION),--bridge-version "$(BRIDGE_VERSION)") \
+		$(if $(PUSH),--push)
+
+SMOKE_ARGS ?= --help
+smoke:
+	@./scripts/smoke.sh $(SMOKE_ARGS)
 
 lint:
 	./scripts/verify-helm-chart.sh
