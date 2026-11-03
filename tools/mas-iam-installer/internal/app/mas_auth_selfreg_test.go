@@ -2,6 +2,7 @@ package app
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -34,6 +35,20 @@ func TestMergeSelfRegDataPreservesProvidersOutsideThisRun(t *testing.T) {
 	}
 	if existing["default-ldap"] != "old ldap" {
 		t.Fatal("mergeSelfRegData must not mutate the existing map")
+	}
+}
+
+func TestLinkSCIMUsersArgsForwardsMongoLocation(t *testing.T) {
+	opts := &masAuthApplyOptions{
+		masInstanceID:  "lfmas",
+		oidcProviderID: "default",
+		mongoNamespace: "mas-mongo",
+		mongoInstance:  "my-mongo",
+	}
+	got := strings.Join(opts.linkSCIMUsersArgs("oidc"), " ")
+	want := "--instance lfmas --idp default-oidc --idp-type oidc --mongo-namespace mas-mongo --mongo-instance my-mongo"
+	if got != want {
+		t.Fatalf("linkSCIMUsersArgs = %q, want %q", got, want)
 	}
 }
 

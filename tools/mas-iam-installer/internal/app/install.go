@@ -415,6 +415,9 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 			insecureTLS:        true,
 			selfRegWorkspaceID: cfg.WorkspaceID,
 			idpcfgMemoryLimit:  cfg.IDPCfgMemoryLimit,
+			// Env-only (forwarded to the in-cluster Job when set).
+			mongoNamespace: os.Getenv(envMongoNamespace),
+			mongoInstance:  os.Getenv(envMongoInstance),
 		}
 		if err := phases.run("Configure MAS LDAP / OIDC / SAML", func() error { return opts.run(ctx) }); err != nil {
 			if logPath != "" {

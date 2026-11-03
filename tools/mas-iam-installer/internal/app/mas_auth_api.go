@@ -219,7 +219,15 @@ func (o *masAuthApplyOptions) applyViaAdminAPI(ctx context.Context, client *oc.C
 	}
 	if linkType != "" {
 		if err := o.linkSCIMUsersToIDP(ctx, linkType); err != nil {
-			fmt.Fprintf(os.Stderr, "[mas-auth] WARN: link-scim-users-oidc step failed (non-fatal): %v\n", err)
+			// Re-running mas-auth apply does not help when Mongo lives
+			// somewhere the linker did not look; say what is affected and how
+			// to finish the step (the script's own output, printed above,
+			// carries the details).
+			fmt.Fprintf(os.Stderr, "[mas-auth] WARN: linking SCIM users to %s failed (non-fatal; the providers themselves are configured): %v\n"+
+				"[mas-auth]   SCIM-synced users cannot sign in through %s until linked. If MAS Mongo is not in namespace mongoce,\n"+
+				"[mas-auth]   pass --mongo-namespace / --mongo-instance (or set %s / %s) and re-run, or run:\n"+
+				"[mas-auth]     scripts/link-scim-users-oidc.sh %s\n",
+				linkType, err, linkType, envMongoNamespace, envMongoInstance, strings.Join(o.linkSCIMUsersArgs(linkType), " "))
 		}
 	}
 	return nil
@@ -424,11 +432,18 @@ func (o *masAuthApplyOptions) linkSCIMUsersArgs(providerType string) []string {
 	if providerType == "saml" {
 		providerID = o.samlProviderID
 	}
-	return []string{
+	args := []string{
 		"--instance", o.masInstanceID,
 		"--idp", providerKeyWithSuffix(providerID, providerType),
 		"--idp-type", providerType,
 	}
+	if ns := strings.TrimSpace(o.mongoNamespace); ns != "" {
+		args = append(args, "--mongo-namespace", ns)
+	}
+	if name := strings.TrimSpace(o.mongoInstance); name != "" {
+		args = append(args, "--mongo-instance", name)
+	}
+	return args
 }
 
 // repoScriptPath locates a script under <repo>/scripts. Order of resolution

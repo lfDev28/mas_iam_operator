@@ -88,6 +88,12 @@ type masAuthApplyOptions struct {
 	// skip the bump (e.g. customers running their own Suite-level override).
 	// See memory: mas-entitymgr-idpcfg-oom.
 	idpcfgMemoryLimit string
+
+	// mongoNamespace / mongoInstance tell link-scim-users-oidc.sh where the
+	// MAS Mongo replica set runs. Empty = the script's defaults (env, then
+	// mongoce / mas-mongo-ce, then auto-detection).
+	mongoNamespace string
+	mongoInstance  string
 }
 
 type keycloakMASClients struct {
@@ -122,6 +128,9 @@ func newMASAuthCommand() *cobra.Command {
 		apiTokenName:  defaults.MASAPITokenName,
 		apiTokenValue: defaults.MASAPITokenValue,
 		insecureTLS:   true,
+
+		mongoNamespace: os.Getenv(envMongoNamespace),
+		mongoInstance:  os.Getenv(envMongoInstance),
 	}
 
 	command := &cobra.Command{
@@ -156,6 +165,8 @@ func newMASAuthCommand() *cobra.Command {
 	flags.BoolVar(&opts.insecureTLS, "insecure-tls", opts.insecureTLS, "Skip TLS verification when talking to the MAS API (cluster routes commonly use cluster-local CAs)")
 	flags.StringVar(&opts.selfRegWorkspaceID, "self-reg-workspace", opts.selfRegWorkspaceID, "Workspace id assigned to self-registered users in the {instance}-selfreg ConfigMap (default: workspace)")
 	flags.StringVar(&opts.idpcfgMemoryLimit, "idpcfg-memory-limit", opts.idpcfgMemoryLimit, "Memory limit applied to {instance}-entitymgr-idpcfg via Suite CR podTemplates (default 2Gi). The MAS default 512Mi OOMKills the finalizer playbook; set to 'off' to skip the bump.")
+	flags.StringVar(&opts.mongoNamespace, "mongo-namespace", opts.mongoNamespace, "Namespace of the MAS Mongo replica set used to link SCIM users to the OIDC/SAML provider (env "+envMongoNamespace+"; default mongoce, auto-detected when absent)")
+	flags.StringVar(&opts.mongoInstance, "mongo-instance", opts.mongoInstance, "MAS Mongo CR instance name (env "+envMongoInstance+"; default mas-mongo-ce)")
 	command.AddCommand(applyCommand)
 	command.AddCommand(newMASAuthDeleteCommand())
 	return command
