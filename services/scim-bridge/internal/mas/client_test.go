@@ -213,6 +213,23 @@ func TestFetchTokenUsesConfiguredClientAndContext(t *testing.T) {
 	}
 }
 
+func TestEmptyMASIDNeverAddressesTheCollection(t *testing.T) {
+	calls := 0
+	client := newTestClient(roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		calls++
+		return resp(204, "", nil), nil
+	}))
+	if err := client.DeleteUser(context.Background(), "p", ""); err == nil {
+		t.Fatalf("expected error for empty MAS ID")
+	}
+	if err := client.PatchUser(context.Background(), "p", " ", []PatchOperation{{Op: "replace", Path: "active", Value: false}}); err == nil {
+		t.Fatalf("expected error for blank MAS ID")
+	}
+	if calls != 0 {
+		t.Fatalf("no request may be sent for an empty MAS ID, got %d", calls)
+	}
+}
+
 func TestFetchTokenRejectsUnreadableCAFile(t *testing.T) {
 	_, err := FetchToken(context.Background(), config.MASConfig{BaseURL: "https://mas.example", CAFile: "/nonexistent/ca.crt"}, "a", "b")
 	if err == nil || !strings.Contains(err.Error(), "CA") {

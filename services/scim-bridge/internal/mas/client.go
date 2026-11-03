@@ -249,6 +249,10 @@ func (c *Client) userEndpoint(profileID, id string) (string, error) {
 	if profileID == "" {
 		return "", fmt.Errorf("profile ID required for MAS SCIM call")
 	}
+	if strings.TrimSpace(id) == "" {
+		// An empty ID would address the Users collection itself.
+		return "", fmt.Errorf("MAS user ID required for MAS SCIM call")
+	}
 	return url.JoinPath(c.base, profileID, "Users", id)
 }
 
