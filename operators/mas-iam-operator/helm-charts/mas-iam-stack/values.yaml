@@ -151,10 +151,19 @@ openldap:
     port: 389
     tlsPort: 636
     type: ClusterIP
+  # One volume holds the database (subPath data -> /var/lib/ldap) and cn=config
+  # (subPath config -> /etc/ldap/slapd.d). The openldap-storage init container
+  # migrates volumes from chart <= 0.1.7, which kept the database at the volume
+  # root and cn=config on an emptyDir.
   persistence:
     enabled: true
     size: 2Gi
     storageClass: ""
+  # tcpSocket probes on the LDAPS port (LDAP when TLS is off). The startup
+  # probe allows startupFailureThreshold x 10s for the first boot.
+  probes:
+    enabled: true
+    startupFailureThreshold: 60
   config:
     organisation: "Demo Org"
     domain: "demo.local"
@@ -173,7 +182,6 @@ openldap:
     enabled: false
     runAsNonRoot: false
     runAsUser: 0
-  extraEnv: []
   userPasswords:
     createSecret: false
     secretName: ""
