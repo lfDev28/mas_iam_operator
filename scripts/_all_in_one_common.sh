@@ -604,6 +604,32 @@ list_storage_classes() {
   oc get sc -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true
 }
 
+# Provisioner of statically provisioned classes such as ODF's `localblock`:
+# their PersistentVolumes are pre-created, so a new PVC never binds. Mirrors
+# oc.StaticProvisioner / StorageClass.IsStatic in the Go installer.
+STATIC_STORAGE_PROVISIONER="kubernetes.io/no-provisioner"
+
+# list_static_storage_classes prints the classes whose provisioner is static.
+list_static_storage_classes() {
+  local name provisioner
+  while IFS=$'\t' read -r name provisioner; do
+    if [[ -n "${name}" && "${provisioner}" == "${STATIC_STORAGE_PROVISIONER}" ]]; then
+      printf '%s\n' "${name}"
+    fi
+  done < <(oc get sc -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.provisioner}{"\n"}{end}' 2>/dev/null || true)
+}
+
+is_static_storage_class() {
+  local candidate="$1"
+  local existing
+  for existing in "${STATIC_STORAGE_CLASSES[@]:-}"; do
+    if [[ -n "${existing}" && "${existing}" == "${candidate}" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 get_default_storage_class() {
   local name stable_default beta_default
 
@@ -651,6 +677,7 @@ discover_storage_classes() {
   )
 
   ALL_STORAGE_CLASSES=()
+  STATIC_STORAGE_CLASSES=()
   DEFAULT_STORAGE_CLASS=""
   PREFERRED_BLOCK_STORAGE_CLASS=""
   REGEX_BLOCK_STORAGE_CLASS=""
@@ -665,16 +692,27 @@ discover_storage_classes() {
     return 1
   fi
 
+  while IFS= read -r existing; do
+    if [[ -n "${existing}" ]]; then
+      STATIC_STORAGE_CLASSES+=("${existing}")
+    fi
+  done < <(list_static_storage_classes)
+
   DEFAULT_STORAGE_CLASS="$(get_default_storage_class || true)"
 
+  # Static (no-provisioner) classes are never auto-selected: `localblock`
+  # matches the block regex below, yet a PVC against it stays Pending forever.
   for existing in "${preferred_names[@]}"; do
-    if storage_class_exists "${existing}"; then
+    if storage_class_exists "${existing}" && ! is_static_storage_class "${existing}"; then
       PREFERRED_BLOCK_STORAGE_CLASS="${existing}"
       break
     fi
   done
 
   for existing in "${ALL_STORAGE_CLASSES[@]}"; do
+    if is_static_storage_class "${existing}"; then
+      continue
+    fi
     lower_name="$(to_lower "${existing}")"
     if [[ "${lower_name}" =~ (rbd|block) ]]; then
       REGEX_BLOCK_STORAGE_CLASS="${existing}"
@@ -725,14 +763,25 @@ select_postgres_storage_class() {
     return 0
   fi
 
-  if [[ -n "${DEFAULT_STORAGE_CLASS}" ]]; then
+  if [[ -n "${DEFAULT_STORAGE_CLASS}" ]] && ! is_static_storage_class "${DEFAULT_STORAGE_CLASS}"; then
     SELECTED_STORAGE_CLASS="${DEFAULT_STORAGE_CLASS}"
     SELECTED_STORAGE_REASON="cluster-default"
     return 0
   fi
 
+  local candidate
+  for candidate in "${ALL_STORAGE_CLASSES[@]}"; do
+    if ! is_static_storage_class "${candidate}"; then
+      SELECTED_STORAGE_CLASS="${candidate}"
+      SELECTED_STORAGE_REASON="first-available"
+      return 0
+    fi
+  done
+
+  # Only static classes exist: nothing will bind; say so instead of guessing.
   SELECTED_STORAGE_CLASS="${ALL_STORAGE_CLASSES[0]}"
-  SELECTED_STORAGE_REASON="first-available"
+  SELECTED_STORAGE_REASON="first-available-static-will-not-bind"
+  log_warn "every StorageClass uses ${STATIC_STORAGE_PROVISIONER}; new PVCs will not bind. Set POSTGRES_STORAGE_CLASS / --storage-class to a dynamically provisioned class"
 }
 
 warn_if_cephfs_default_has_block_candidate() {

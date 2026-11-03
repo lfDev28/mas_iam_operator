@@ -30,6 +30,12 @@ func commonScriptPath(t *testing.T) string {
 const fakeOC = `#!/usr/bin/env bash
 args="$*"
 case "$args" in
+  "get sc "*'.provisioner'*)
+    printf '%b' "${FAKE_SC_PROVISIONERS:-}" ;;
+  "get sc "*'is-default-class'*)
+    printf '%b' "${FAKE_SC_DEFAULTS:-}" ;;
+  "get sc "*)
+    printf '%b' "${FAKE_SC_NAMES:-}" ;;
   *'lastObservedState'*)
     printf '%s' "${FAKE_CATALOG_STATE:-}" ;;
   *'get catalogsource'*'.spec.image'*)
@@ -196,6 +202,37 @@ func TestDeleteJobIfFailed(t *testing.T) {
 	run = runCommonHelper(t, `delete_job_if_failed ns myjob`, map[string]string{"FAKE_SEQ": "Complete"})
 	if run.err != nil || run.deletes != "" {
 		t.Fatalf("completed job must be kept: err=%v deletes=%q", run.err, run.deletes)
+	}
+}
+
+func TestSelectPostgresStorageClassSkipsStaticClasses(t *testing.T) {
+	// ODF clusters: `localblock` (no-provisioner) matches the block regex and
+	// is often listed first; a PVC against it never binds.
+	env := map[string]string{
+		"FAKE_SC_NAMES":        `localblock\nocs-storagecluster-cephfs\nthin-block-csi\n`,
+		"FAKE_SC_PROVISIONERS": `localblock\tkubernetes.io/no-provisioner\nocs-storagecluster-cephfs\topenshift-storage.cephfs.csi.ceph.com\nthin-block-csi\tcsi.vsphere.vmware.com\n`,
+		"FAKE_SC_DEFAULTS":     `localblock\t\t\nocs-storagecluster-cephfs\ttrue\t\nthin-block-csi\t\t\n`,
+	}
+	run := runCommonHelper(t, `select_postgres_storage_class ""; echo "SELECTED=${SELECTED_STORAGE_CLASS} REASON=${SELECTED_STORAGE_REASON}"`, env)
+	if run.err != nil || !strings.Contains(run.out, "SELECTED=thin-block-csi REASON=regex-block-match") {
+		t.Fatalf("want the dynamic block class, err=%v:\n%s", run.err, run.out)
+	}
+
+	// Static default + no block match: fall through to the first dynamic class.
+	env = map[string]string{
+		"FAKE_SC_NAMES":        `localblock\ngp3\n`,
+		"FAKE_SC_PROVISIONERS": `localblock\tkubernetes.io/no-provisioner\ngp3\tebs.csi.aws.com\n`,
+		"FAKE_SC_DEFAULTS":     `localblock\ttrue\t\ngp3\t\t\n`,
+	}
+	run = runCommonHelper(t, `select_postgres_storage_class ""; echo "SELECTED=${SELECTED_STORAGE_CLASS}"`, env)
+	if run.err != nil || !strings.Contains(run.out, "SELECTED=gp3") {
+		t.Fatalf("static default must be skipped, err=%v:\n%s", run.err, run.out)
+	}
+
+	// An explicit override is still honoured.
+	run = runCommonHelper(t, `select_postgres_storage_class localblock; echo "SELECTED=${SELECTED_STORAGE_CLASS}"`, env)
+	if run.err != nil || !strings.Contains(run.out, "SELECTED=localblock") {
+		t.Fatalf("explicit override must win, err=%v:\n%s", run.err, run.out)
 	}
 }
 
