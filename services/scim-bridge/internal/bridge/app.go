@@ -63,20 +63,28 @@ func (a *App) Run(ctx context.Context) error {
 		return fmt.Errorf("init state backend: %w", err)
 	}
 	defer store.Close(ctx)
+	if a.cfg.Bridge.DryRun {
+		// Dry-run reads real state but must never write it: a fabricated
+		// correlation would make a later live run skip the real create.
+		store = state.ReadOnly(store)
+	}
+	fingerprint := ConfigFingerprint(a.cfg)
 
 	a.logger.Info("SCIM bridge configuration",
 		"mode", a.cfg.Bridge.Mode,
 		"poll_interval", a.cfg.Bridge.PollInterval.String(),
 		"state_backend", a.cfg.Bridge.StateBackend,
+		"dry_run", a.cfg.Bridge.DryRun,
 		"allow_updates", a.cfg.Bridge.AllowUpdates,
 		"log_level", a.cfg.Bridge.LogLevel,
 		"payload_logging", a.cfg.Bridge.PayloadLogging,
 		"keycloak_realm", kc.Realm(),
 		"mas_profile_default", resolver.DefaultProfileID(),
+		"config_fingerprint", fingerprint,
 	)
 
 	planner := NewPlanner(store, resolver, a.logger)
-	executor := NewExecutor(masClient, store, a.cfg.Bridge.DryRun, a.cfg.Bridge.AllowUpdates, a.logger)
+	executor := NewExecutor(masClient, store, a.cfg.Bridge.DryRun, a.cfg.Bridge.AllowUpdates, a.logger).WithConfigFingerprint(fingerprint)
 	poller := NewPoller(kc, planner, executor, a.cfg.Bridge.IncludeUsernames, a.cfg.Bridge.IncludeUsernamePrefix, a.cfg.Bridge.IncludeGroups, a.logger)
 	switch a.cfg.Bridge.Mode {
 	case "poll", "hybrid":

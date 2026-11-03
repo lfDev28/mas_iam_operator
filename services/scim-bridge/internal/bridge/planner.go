@@ -40,9 +40,15 @@ type Action struct {
 	StateLastApplied state.Snapshot
 	ProfileLabel     string
 	ProfileID        string
+	// Prior is the full state entry when HasPrior; the executor uses it for
+	// retry gating and to carry ownership/snapshot through outcomes.
+	Prior    state.Entry
+	HasPrior bool
 }
 
-// Plan currently emits create for unseen IDs and update for known IDs.
+// Plan emits create for users with no MAS user yet (unseen, failed create,
+// or a pre-v0.1.16 dry-run ID) and update for users correlated to a MAS ID.
+// Retry gating for failed entries happens in the executor.
 func (p *Planner) Plan(ctx context.Context, users []keycloak.User) []Action {
 	actions := make([]Action, 0, len(users))
 	for _, u := range users {
@@ -53,16 +59,8 @@ func (p *Planner) Plan(ctx context.Context, users []keycloak.User) []Action {
 		}
 
 		entry, hasEntry, _ := p.store.Lookup(ctx, u.ID)
-		if hasEntry && entry.ProfileID != "" && entry.ProfileID != profileResolution.ProfileID {
-			msg := fmt.Sprintf("mas profile mismatch: stored=%s derived=%s", entry.ProfileID, profileResolution.ProfileID)
-			p.logger.Error("profile mismatch; skipping user", "username", u.Username, "id", u.ID, "stored_profile", entry.ProfileID, "derived_profile", profileResolution.ProfileID, "mas_profile_label", profileResolution.Label)
-			_ = p.store.Save(ctx, u.ID, state.Entry{
-				MASID:     entry.MASID,
-				ProfileID: entry.ProfileID,
-				Status:    state.StatusError,
-				LastError: msg,
-				Username:  u.Username,
-			})
+		if hasEntry && entry.HasMASUser() && entry.ProfileID != "" && entry.ProfileID != profileResolution.ProfileID {
+			p.recordProfileMismatch(ctx, u, entry, profileResolution)
 			continue
 		}
 		if hasEntry && entry.ProfileID == "" {
@@ -74,20 +72,47 @@ func (p *Planner) Plan(ctx context.Context, users []keycloak.User) []Action {
 			User:         u,
 			ProfileLabel: profileResolution.Label,
 			ProfileID:    profileResolution.ProfileID,
+			Prior:        entry,
+			HasPrior:     hasEntry,
 		}
-
 		if hasEntry {
-			action.Type = ActionUpdate
-			action.ExistingMAS = entry.MASID
 			action.StateStatus = entry.Status
 			action.StateLastError = entry.LastError
 			action.StateLastApplied = entry.LastApplied
+		}
+		if hasEntry && entry.HasMASUser() {
+			action.Type = ActionUpdate
+			action.ExistingMAS = entry.MASID
 		} else {
 			action.Type = ActionCreate
 		}
 		actions = append(actions, action)
 	}
 	return actions
+}
+
+// recordProfileMismatch parks a user whose masProfile label now maps to a
+// different MAS profile than the one its MAS user lives in. Moving users
+// between profiles is not supported, so retrying cannot help; the entry
+// keeps its MAS ID, snapshot and ownership, and syncs again as soon as the
+// label (or the profile map) resolves back to the stored profile. Logged
+// once per distinct mismatch rather than every cycle.
+func (p *Planner) recordProfileMismatch(ctx context.Context, u keycloak.User, entry state.Entry, res ProfileResolution) {
+	marker := "profile-mismatch:" + res.ProfileID
+	if entry.Status == state.StatusError && entry.Parked && entry.DesiredHash == marker {
+		return
+	}
+	msg := fmt.Sprintf("mas profile mismatch: stored=%s derived=%s", entry.ProfileID, res.ProfileID)
+	p.logger.Error("profile mismatch; parking user until its masProfile label maps back to the stored profile",
+		"username", u.Username, "id", u.ID, "stored_profile", entry.ProfileID, "derived_profile", res.ProfileID, "mas_profile_label", res.Label)
+	entry.Status = state.StatusError
+	entry.LastError = msg
+	entry.ErrorClass = state.ErrorClassProfileMismatch
+	entry.Parked = true
+	entry.DesiredHash = marker
+	entry.Attempts = 1
+	entry.Username = u.Username
+	_ = p.store.Save(ctx, u.ID, entry)
 }
 
 // PlanRemovals emits deactivate actions for users tracked in state but absent
@@ -119,8 +144,9 @@ func (p *Planner) PlanRemovals(ctx context.Context, scoped []keycloak.User) ([]A
 		if entry.Status == state.StatusDeactivated {
 			continue
 		}
-		// Never materialized in MAS (e.g. failed create); nothing to deactivate.
-		if entry.MASID == "" {
+		// Never materialized in MAS (failed or dry-run create); nothing to
+		// deactivate.
+		if !entry.HasMASUser() {
 			continue
 		}
 		actions = append(actions, Action{
@@ -131,6 +157,8 @@ func (p *Planner) PlanRemovals(ctx context.Context, scoped []keycloak.User) ([]A
 			StateLastError:   entry.LastError,
 			StateLastApplied: entry.LastApplied,
 			ProfileID:        entry.ProfileID,
+			Prior:            entry,
+			HasPrior:         true,
 		})
 	}
 	return actions, nil

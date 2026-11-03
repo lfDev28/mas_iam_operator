@@ -7,10 +7,18 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
+	"time"
 )
 
 // Entry captures the persisted correlation and its status.
+//
+// The retry fields (Attempts, NextRetryAt, ErrorClass, Parked, DesiredHash)
+// and CreatedByBridge were added after state.json files were already in the
+// field. They are all optional: an old status=error entry loads with zero
+// values, which reads as "retry now", so upgrading the bridge un-sticks
+// entries the old code had given up on.
 type Entry struct {
 	MASID       string   `json:"masID"`
 	ProfileID   string   `json:"profileID,omitempty"`
@@ -18,6 +26,60 @@ type Entry struct {
 	LastError   string   `json:"lastError,omitempty"`
 	Username    string   `json:"username,omitempty"`
 	LastApplied Snapshot `json:"lastApplied,omitempty"`
+
+	// Attempts counts consecutive failures of the same error class.
+	Attempts int `json:"attempts,omitempty"`
+	// NextRetryAt is the earliest time the bridge retries a failed entry.
+	NextRetryAt time.Time `json:"nextRetryAt,omitzero"`
+	// ErrorClass is the class of the last failure (see ErrorClass* consts).
+	ErrorClass string `json:"errorClass,omitempty"`
+	// Parked entries are not retried until DesiredHash changes (the
+	// Keycloak user, the target profile or the bridge config changed) or an
+	// operator runs scim-bridge-cleanup --reset-state.
+	Parked bool `json:"parked,omitempty"`
+	// DesiredHash fingerprints the desired MAS state at the last failure.
+	DesiredHash string `json:"desiredHash,omitempty"`
+	// CreatedByBridge is true when this bridge POSTed the MAS user, or
+	// adopted one already carrying this Keycloak ID as its externalId.
+	// Cleanup only ever deletes MAS users with this flag set. Entries
+	// written before the flag existed read as false: the safe direction.
+	CreatedByBridge bool `json:"createdByBridge,omitempty"`
+}
+
+// Error classes recorded on failed entries.
+const (
+	// ErrorClassTransient covers 5xx, 429, 403, transport errors, timeouts
+	// and anything else a retry can plausibly fix. Retried with backoff and
+	// never parked.
+	ErrorClassTransient = "transient"
+	// ErrorClassPermanent covers 400/404/422 and unresolvable 409s. Parked
+	// after repeated failures for the same desired state.
+	ErrorClassPermanent = "permanent"
+	// ErrorClassConflict: a MAS user with this userName exists but is not
+	// owned by this bridge. Parked at once; never adopted.
+	ErrorClassConflict = "conflict"
+	// ErrorClassProfileMismatch: the user's masProfile label now maps to a
+	// different MAS profile than the one the MAS user was created in.
+	ErrorClassProfileMismatch = "profile-mismatch"
+)
+
+// DryRunIDPrefix marks MAS IDs that dry-run builds before v0.1.16 wrote into
+// state. Those users never existed in MAS and are treated as not created.
+const DryRunIDPrefix = "dryrun-"
+
+// HasMASUser reports whether the entry points at a real MAS resource.
+func (e Entry) HasMASUser() bool {
+	return e.MASID != "" && !strings.HasPrefix(e.MASID, DryRunIDPrefix)
+}
+
+// ClearRetry drops the failure bookkeeping, e.g. after a success.
+func (e *Entry) ClearRetry() {
+	e.LastError = ""
+	e.Attempts = 0
+	e.NextRetryAt = time.Time{}
+	e.ErrorClass = ""
+	e.Parked = false
+	e.DesiredHash = ""
 }
 
 const (
@@ -28,6 +90,14 @@ const (
 	// when the user re-enters scope and syncs successfully.
 	StatusDeactivated = "deactivated"
 )
+
+// ReadOnly wraps a store so Save is a no-op. Dry-run uses it: a dry run must
+// not leave anything behind that a later live run would trust.
+func ReadOnly(s Store) Store { return readOnlyStore{s} }
+
+type readOnlyStore struct{ Store }
+
+func (readOnlyStore) Save(context.Context, string, Entry) error { return nil }
 
 // Store tracks Keycloak ↔ MAS correlations.
 type Store interface {
@@ -153,8 +223,8 @@ func normalizeEntry(entry Entry, defaultProfileID string) Entry {
 	if entry.Status == "" {
 		entry.Status = StatusOK
 	}
-	if entry.Status == StatusOK {
-		entry.LastError = ""
+	if entry.Status != StatusError {
+		entry.ClearRetry()
 	}
 	if entry.ProfileID == "" {
 		entry.ProfileID = defaultProfileID

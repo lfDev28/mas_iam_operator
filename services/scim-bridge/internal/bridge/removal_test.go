@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lfDev28/mas-iam/services/scim-bridge/internal/keycloak"
 	"github.com/lfDev28/mas-iam/services/scim-bridge/internal/mas"
@@ -179,7 +180,20 @@ func TestPollerDeactivateFailureRetriesNextCycle(t *testing.T) {
 		t.Fatalf("expected error state retaining MAS ID for retry, got %+v", entry)
 	}
 
+	if entry.ErrorClass != state.ErrorClassTransient || entry.NextRetryAt.IsZero() {
+		t.Fatalf("expected transient failure with a scheduled retry, got %+v", entry)
+	}
+
 	masClient.patchErr = nil
+	// Still inside the backoff window: no retry yet.
+	if err := p.RunOnce(context.Background()); err != nil {
+		t.Fatalf("RunOnce in backoff: %v", err)
+	}
+	if len(masClient.patches) != 0 {
+		t.Fatalf("expected no retry before backoff elapses, got %+v", masClient.patches)
+	}
+	clock := entry.NextRetryAt.Add(time.Second)
+	p.executor.WithClock(func() time.Time { return clock })
 	if err := p.RunOnce(context.Background()); err != nil {
 		t.Fatalf("RunOnce retry: %v", err)
 	}
