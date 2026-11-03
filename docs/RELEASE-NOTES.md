@@ -8,6 +8,29 @@ Three artifacts are versioned separately:
 
 Each entry lists which versions it ships with.
 
+## v0.1.16
+
+CLI `v0.1.16` · bridge `scim-bridge-v0.1.3` · operator `0.0.16`
+
+A stability release, from a review of the whole repository. Most fixes stop a second `install` or `mas-auth apply` from breaking an install that was working.
+
+- **Security:** the Keycloak realm shipped with a fixed set of signing keys, published in this repository, so every install signed tokens with the same key. New installs generate their own keys. **Rotate the keys on existing installs**: see [Upgrading an install made before v0.1.16](GUIDE.md#upgrading-an-install-made-before-v0116).
+- **Fixed:** every OIDC login failed with `unauthorized_client` after a second `install` or `mas-auth apply`. Each run generated a new client secret. Re-runs now keep it.
+- **Fixed:** LDAP logins could fail TLS checks after a re-run. Each re-run more than 5 minutes after the last regenerated the OpenLDAP certificates. A valid certificate is now kept.
+- **Fixed:** `mas-auth apply --providers <subset>` deleted self-registration for the providers left out. Those entries are now kept.
+- **Fixed:** OpenLDAP crash-looped whenever its pod moved to a new node, because its configuration wasn't on its volume. On the first start after the upgrade it is migrated, and existing entries are kept. OpenLDAP now also uses the `Recreate` strategy, has health probes, and starts in seconds instead of generating DH parameters.
+- **Fixed (bridge):** a single MAS error stopped a user syncing permanently, even after MAS recovered. Errors now retry with backoff. A Keycloak outage no longer crash-loops the bridge, and without group scoping it now syncs every user, not only the first 50. It also gains health probes.
+- **Fixed:** the published SCIM bridge install manifest carried the build machine's home directory, and its Keycloak bootstrap Job could never pass its secret check.
+- **Fixed:** an instance ID with a dash, such as `mas-dev`, was read as the wrong workspace.
+- **New:** preflight checks for cluster-admin rights and validates `--workspace-id`. Auth-only installs now check the MAS API URL and key up front, which also catches the missing OIDC API on MAS 9.0.
+- **Changed:** failed Jobs, catalog pull errors and failed operator CSVs now stop the install within minutes and print the cause, instead of timing out after 20. An operator left over from an earlier version is replaced automatically.
+- **Changed:**
+  - Re-runs keep the storage class of existing volumes.
+  - `localblock`-style static classes are never picked automatically.
+  - MinIO no longer restarts on every re-run.
+  - MAS API calls retry temporary errors and honour `HTTPS_PROXY`.
+- **Changed:** the operator watches only its own namespace and needs fewer cluster-wide permissions. Keycloak and PostgreSQL get resource requests and limits.
+
 ## v0.1.15
 
 CLI `v0.1.15` · bridge `scim-bridge-v0.1.2` · operator `0.0.15`

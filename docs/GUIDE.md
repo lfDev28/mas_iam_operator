@@ -85,7 +85,7 @@ Install summary (total 17m27s)
   ✓ Configure MAS LDAP / OIDC / SAML         (9m53s)
 ```
 
-The Job's ServiceAccount gets a ClusterRole close to cluster-admin. The install reads secrets in the MAS namespaces and runs `pods/exec` on MongoDB to link the SCIM users. The permissions are applied by the CLI you run, not by the Job image, so re-bootstrap before installing after an upgrade. If your cluster's policy forbids this, use `--local`.
+The Job's ServiceAccount gets a ClusterRole close to cluster-admin. The install reads secrets in the MAS namespaces and runs `pods/exec` on MongoDB to link the SCIM users. The permissions are applied by the CLI you run, not by the Job image, so re-bootstrap before installing after an upgrade. `--local` needs the same cluster-admin rights, and preflight's `cluster-permissions` check names anything missing. The MAS API calls honour `HTTPS_PROXY` and `NO_PROXY`.
 
 Scripted install, with every value as a flag:
 
@@ -124,7 +124,36 @@ export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v<new-versi
 podman run -ti --rm -v "$HOME/mas-est:/tmp" --pull always "$MAS_EST_IMAGE" bootstrap --force
 ```
 
-Nothing in the cluster changes until you run `mas-est install` again.
+Nothing in the cluster changes until you run `mas-est install` again. Re-running `install` or `mas-auth apply` is safe: it keeps the Keycloak OIDC client secret, the OpenLDAP TLS certificates, the self-registration entries for other providers, and the existing storage classes.
+
+### Upgrading an install made before v0.1.16
+
+Operator 0.0.16 moves OpenLDAP's configuration onto its volume, so OpenLDAP survives a reschedule. On the first start after the upgrade, an init container rebuilds the configuration and checks that it opens the existing directory, keeping all entries. It writes an LDIF export to `backup-<timestamp>/` on the OpenLDAP volume. If the check fails, the log shows a block of `!!!` lines. OpenLDAP then starts a fresh directory and re-seeds the demo users, and the old database stays in the backup folder.
+
+Installs before v0.1.16 also share one set of Keycloak realm signing keys, which were published in this repository. Rotate them on every existing install:
+
+```bash
+KC=$(oc -n mas-est get pod -l app.kubernetes.io/component=keycloak -o name | head -1)
+oc -n mas-est exec -i "$KC" -- bash -s <<'SH'
+set -euo pipefail
+export HOME=/tmp
+k=/opt/keycloak/bin/kcadm.sh
+$k config credentials --server http://localhost:8080 --realm master --user "$KC_BOOTSTRAP_ADMIN_USERNAME" --password "$KC_BOOTSTRAP_ADMIN_PASSWORD"
+RID=$($k get realms/maximo --fields id --format csv --noquotes)
+for p in rsa-generated rsa-enc-generated hmac-generated aes-generated; do
+  $k create components -r maximo -s name="$p-rotated" -s providerId="$p" \
+    -s providerType=org.keycloak.keys.KeyProvider -s parentId="$RID" -s 'config.priority=["200"]'
+done
+for id in faa58d00-c7c1-408f-b4c0-f86e898d8008 4ceaa268-6821-46e7-a8a1-777325620fbc \
+          0260823f-687d-4917-8276-e935b3b21bfd 6252f6c5-b495-4ad4-9a4c-b1588f13338b; do
+  $k delete "components/$id" -r maximo || true
+done
+$k delete users/170c81a4-3988-47a2-ba5a-c4bc3da16a04 -r maximo || true
+SH
+mas-est mas-auth apply --mas-instance-id <instance> --self-reg-workspace <workspace> --providers saml
+```
+
+Users sign in again afterwards. OIDC picks up the new keys by itself. The last command re-uploads the SAML metadata, because MAS keeps a copy with the old signing certificate.
 
 ## What gets installed
 
@@ -302,6 +331,8 @@ The bridge syncs a user only if it is in the Keycloak group named by `SCIM_BRIDG
 
 Payload logging writes usernames, names and email addresses to the log. Turn it off when you're done.
 
+From bridge v0.1.3, MAS errors don't stop a user syncing. Temporary errors retry with backoff, from 30 seconds up to 30 minutes. A user MAS rejects three times with a 400, 404 or 422 is parked until the Keycloak user, its profile or the bridge config changes. To retry a parked user, change anything on it in Keycloak. The bridge serves `/healthz`, `/readyz` and `/status` on port 8081; `/status` reports the last successful cycle and how many users are retrying or parked.
+
 ### Re-apply or remove the MAS login providers
 
 ```bash
@@ -309,7 +340,7 @@ mas-est mas-auth apply --mas-instance-id <instance> --self-reg-workspace <worksp
 mas-est mas-auth delete --mas-instance-id <instance>                                   # remove all three; --providers to pick
 ```
 
-`apply` reads the API key from `secret/scim-bridge-secret`. Always pass `--self-reg-workspace`, or self-registration falls back to a workspace named `workspace`.
+`apply` reads the API key from `secret/scim-bridge-secret`. Always pass `--self-reg-workspace`, or self-registration falls back to a workspace named `workspace`. `--providers` limits the run to those providers and leaves the others' self-registration entries in place. If MongoDB isn't in namespace `mongoce`, pass `--mongo-namespace`.
 
 ### Report a problem
 

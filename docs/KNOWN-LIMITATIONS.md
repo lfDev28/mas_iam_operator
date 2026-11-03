@@ -10,7 +10,9 @@ One entry per limitation, with the workaround. `<instance>` is your MAS instance
 
 **MAS 9.1.20: the first SAML self-registration after the `<instance>-coreidp` pod starts fails once** with `AIUSC0019I`. This is a MAS bug in `samlresolver` 4.0.43, which loads the self-registration config lazily. Log in again. Don't restart the pod, because that resets the problem. MAS 9.1.19 and earlier, and OIDC, are unaffected.
 
-**SCIM users added after the install aren't linked to a login identity.** They can't log in or reach Manage until you run `mas-est mas-auth apply --mas-instance-id <instance> --self-reg-workspace <workspace>`.
+**SCIM users added after the install aren't linked to a login identity.** They can't log in or reach Manage until you run `mas-est mas-auth apply --mas-instance-id <instance> --self-reg-workspace <workspace>`. From v0.1.16 that re-run keeps the existing OIDC client secret, so it no longer breaks OIDC logins.
+
+**MAS 9.2: the SCIM identity linker does nothing.** MAS 9.2 keeps users in Manage, not in MongoDB, so the linker finds no users to link. Whether SCIM users can log in through OIDC on 9.2 is untested. LDAP, OIDC and SAML self-registration are unaffected.
 
 **Deactivating users removed from `mas-scim-users` is experimental.** The bridge sets them inactive in MAS, and reactivates them when they're added back. This has never been validated on a cluster. Check the user in MAS after relying on it.
 
@@ -22,4 +24,10 @@ One entry per limitation, with the workaround. `<instance>` is your MAS instance
 
 **`uninstall` leaves MAS-side state behind:** the login providers, the self-registration ConfigMap, user records in MongoDB and Manage, the installer's cluster-scoped RBAC, the operator CRD and the CatalogSource. The list and the cleanup commands are in the [Guide](GUIDE.md#uninstall).
 
-**The install Job needs permissions close to cluster-admin,** including reading secrets in the MAS namespaces and `pods/exec` on MongoDB. If your cluster's policy forbids this, install with `--local`.
+**The install needs cluster-admin or an equivalent role,** for both the in-cluster Job and `--local`. It creates a ClusterRole, a CatalogSource in `openshift-marketplace`, an SCC and `anyuid` bindings, reads secrets in the MAS namespaces, and runs `pods/exec` on MongoDB. From v0.1.16, preflight checks this and names any missing permission.
+
+**Re-running `mas-auth apply` with nothing to change can take up to 2 minutes longer per provider.** The install only trusts a provider's `Ready` status once it is newer than its own update. When MAS has nothing to reconcile, that status never changes, so the install waits 2 minutes before accepting it.
+
+**Proxies:** the MAS Admin API calls honour `HTTPS_PROXY` and `NO_PROXY`, but the Keycloak route-certificate probe connects directly. When the probe can't connect, it falls back to the route's own certificate secret.
+
+**The operator and the SCIM bridge are built for amd64 only.** From operator 0.0.16 the operator pod runs only on amd64 nodes. Keycloak, OpenLDAP, PostgreSQL, MinIO and the CLI are multi-arch.
