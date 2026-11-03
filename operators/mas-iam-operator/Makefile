@@ -200,21 +200,34 @@ bundle-build: ## Build the bundle image.
 bundle-push: ## Push the bundle image.
 	$(MAKE) docker-push IMG=$(BUNDLE_IMG)
 
-.PHONY: opm
+# opm is pinned. opm v2 (2026-10-28) drops the SQLite index that `opm index
+# add` builds, and the opm binary and the catalog's base image have to agree on
+# that format, so never use whichever opm is on PATH or the :latest image.
+OPM_VERSION ?= v1.74.0
+OPM_IMAGE ?= quay.io/operator-framework/opm:$(OPM_VERSION)
+OPM_VERSIONED = ./bin/opm-$(OPM_VERSION)
 OPM = ./bin/opm
-opm: ## Download opm locally if necessary.
-ifeq (,$(wildcard $(OPM)))
-ifeq (,$(shell which opm 2>/dev/null))
+
+.PHONY: opm
+opm: $(OPM_VERSIONED) ## Download the pinned opm into ./bin and point ./bin/opm at it.
+	@ln -sf $(notdir $(OPM_VERSIONED)) $(OPM)
+	@$(OPM) version
+
+$(OPM_VERSIONED):
 	@{ \
 	set -e ;\
-	mkdir -p $(dir $(OPM)) ;\
-	curl -sSLo $(OPM) https://github.com/operator-framework/operator-registry/releases/download/v1.23.0/$(OS)-$(ARCH)-opm ;\
-	chmod +x $(OPM) ;\
+	mkdir -p $(dir $@) ;\
+	base=https://github.com/operator-framework/operator-registry/releases/download/$(OPM_VERSION) ;\
+	curl -sSfLo $@.download $$base/$(OS)-$(ARCH)-opm ;\
+	expected=$$(curl -sSfL $$base/checksums.txt | awk '$$2 == "$(OS)-$(ARCH)-opm" {print $$1}') ;\
+	actual=$$(shasum -a 256 $@.download | awk '{print $$1}') ;\
+	if [ -z "$$expected" ] || [ "$$expected" != "$$actual" ]; then \
+	  echo "opm $(OPM_VERSION) checksum mismatch (expected '$$expected', got '$$actual'); leaving $@.download for inspection" >&2 ;\
+	  exit 1 ;\
+	fi ;\
+	chmod +x $@.download ;\
+	mv $@.download $@ ;\
 	}
-else
-OPM = $(shell which opm)
-endif
-endif
 
 # A comma-separated list of bundle images (e.g. make catalog-build BUNDLE_IMGS=example.com/operator-bundle:v0.1.0,example.com/operator-bundle:v0.2.0).
 # These images MUST exist in a registry and be pull-able.
@@ -233,7 +246,14 @@ endif
 # https://github.com/operator-framework/community-operators/blob/7f1438c/docs/packaging-operator.md#updating-your-existing-operator
 .PHONY: catalog-build
 catalog-build: opm ## Build a catalog image.
-	$(OPM) index add --container-tool $(CONTAINER_ENGINE) --mode semver --tag $(CATALOG_IMG) --bundles $(BUNDLE_IMGS) $(FROM_INDEX_OPT)
+	$(OPM) index add --container-tool $(CONTAINER_ENGINE) --mode semver --binary-image $(OPM_IMAGE) --tag $(CATALOG_IMG) --bundles $(BUNDLE_IMGS) $(FROM_INDEX_OPT)
+
+# Write database/index.db and index.Dockerfile without building, so the image
+# can be built with an explicit --platform (catalog-build builds for the host
+# architecture). --binary-image keeps the generated FROM pinned.
+.PHONY: catalog-dockerfile
+catalog-dockerfile: opm ## Generate index.Dockerfile + database/index.db for a manual --platform build.
+	$(OPM) index add --container-tool $(CONTAINER_ENGINE) --mode semver --binary-image $(OPM_IMAGE) --tag $(CATALOG_IMG) --bundles $(BUNDLE_IMGS) $(FROM_INDEX_OPT) --generate --out-dockerfile index.Dockerfile
 
 # Push the catalog image.
 .PHONY: catalog-push
