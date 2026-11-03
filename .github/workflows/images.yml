@@ -1,0 +1,27 @@
+name: Images
+
+# Nightly: every image in images.yaml still exists on its registry with the
+# archs we need. Upstream images vanish without notice (MinIO 2026-10, ose-cli
+# :latest 2026-09); this turns the next install failure into a red badge.
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - images.yaml
+      - scripts/check-images.sh
+
+permissions:
+  contents: read
+
+jobs:
+  check-images:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: make check-images
+        run: make check-images
