@@ -219,6 +219,7 @@ func (o *installOptions) run(ctx context.Context, root *RootOptions) error {
 		// needs no SCIM permissions.
 		SkipSCIMAuthorization: !cfg.HasComponent(config.InstallComponentSCIM),
 		CheckIDPCfgOverwrite:  cfg.ConfigureMASAuth,
+		RequiredAccess:        installRequiredAccess(cfg, o.runsInCluster()),
 		IDPCfgPlan: preflight.IDPCfgPlan{
 			CoreNamespace:  cfg.MASAuthCoreNamespace,
 			InstanceID:     cfg.MASAuthInstanceID,
@@ -494,6 +495,32 @@ func discoverInstallDiscovery(ctx context.Context, client *oc.Client) installDis
 	}
 
 	return discovery
+}
+
+// installRequiredAccess lists the cluster-scoped permissions this install
+// needs, for the preflight RBAC check. inCluster is true for the launcher of
+// an in-cluster install, which itself creates the installer's ClusterRole and
+// ClusterRoleBinding. The Job's own (--local) run only needs the operator
+// set, all of which the installer ClusterRole grants its service account.
+func installRequiredAccess(cfg config.InstallConfig, inCluster bool) []preflight.AccessCheck {
+	checks := []preflight.AccessCheck{}
+	if inCluster {
+		checks = append(checks,
+			preflight.AccessCheck{Verb: "create", Resource: "clusterroles.rbac.authorization.k8s.io", Why: "the in-cluster installer's ClusterRole"},
+			preflight.AccessCheck{Verb: "create", Resource: "clusterrolebindings.rbac.authorization.k8s.io", Why: "the in-cluster installer's ClusterRoleBinding"},
+		)
+	}
+	if cfg.HasComponent(config.InstallComponentLDAP) || cfg.HasComponent(config.InstallComponentKeycloak) || cfg.HasComponent(config.InstallComponentSCIM) {
+		checks = append(checks,
+			preflight.AccessCheck{Verb: "create", Resource: "customresourcedefinitions.apiextensions.k8s.io", Why: "the MasIamStack CRD"},
+			preflight.AccessCheck{Verb: "create", Resource: "catalogsources.operators.coreos.com", Namespace: "openshift-marketplace", Why: "the mas-iam-operator CatalogSource"},
+			preflight.AccessCheck{Verb: "create", Resource: "securitycontextconstraints.security.openshift.io", Why: "the OpenLDAP TLS generator SCC"},
+		)
+		if !inCluster {
+			checks = append(checks, preflight.AccessCheck{Verb: "create", Resource: "clusterrolebindings.rbac.authorization.k8s.io", Why: "the operator's anyuid ClusterRoleBinding"})
+		}
+	}
+	return checks
 }
 
 // usesMASAdminAPI reports whether this install talks to the MAS API with the

@@ -1,6 +1,35 @@
 package oc
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
+
+func TestParseCanI(t *testing.T) {
+	cases := []struct {
+		name    string
+		output  string
+		err     error
+		want    bool
+		wantErr bool
+	}{
+		{name: "yes", output: "yes\n", want: true},
+		{name: "yes after a warning", output: "Warning: resource 'clusterroles' is not namespace scoped\nyes\n", want: true},
+		{name: "no exits 1", err: errors.New("oc auth can-i create clusterroles failed: exit status 1: no"), want: false},
+		{name: "no with a reason", err: errors.New("oc auth can-i create x failed: exit status 1: no - RBAC: clusterrole.rbac.authorization.k8s.io \"x\" not found"), want: false},
+		{name: "multi-line no", err: errors.New("oc auth can-i failed: exit status 1: Warning: something\nno"), want: false},
+		{name: "api unreachable", err: errors.New("oc auth can-i failed: exit status 1: Unable to connect to the server: dial tcp: i/o timeout"), wantErr: true},
+		{name: "garbage on success", output: "maybe", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := ParseCanI(tc.output, tc.err)
+			if (err != nil) != tc.wantErr || got != tc.want {
+				t.Fatalf("ParseCanI = (%v, %v), want (%v, err=%v)", got, err, tc.want, tc.wantErr)
+			}
+		})
+	}
+}
 
 func TestSplitManageWorkspaceName(t *testing.T) {
 	cases := []struct {

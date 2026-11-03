@@ -49,6 +49,76 @@ type Input struct {
 	// time IDPCfgPlan is populated.
 	CheckIDPCfgOverwrite bool
 	IDPCfgPlan           IDPCfgPlan
+	// RequiredAccess lists the cluster-scoped permissions the install needs
+	// (see CheckClusterPermissions). Empty skips the check.
+	RequiredAccess []AccessCheck
+}
+
+// AccessCheck is one permission the install needs: `oc auth can-i Verb
+// Resource [-n Namespace]`. Why is shown to the user when it is missing.
+type AccessCheck struct {
+	Verb      string
+	Resource  string
+	Namespace string
+	Why       string
+}
+
+func (a AccessCheck) String() string {
+	if a.Namespace != "" {
+		return fmt.Sprintf("%s %s in namespace %s", a.Verb, a.Resource, a.Namespace)
+	}
+	return fmt.Sprintf("%s %s (cluster-scoped)", a.Verb, a.Resource)
+}
+
+// AccessReviewer answers one `oc auth can-i` question. A func type so the
+// check is testable without a cluster.
+type AccessReviewer func(ctx context.Context, verb, resource, namespace string) (bool, error)
+
+// CheckClusterPermissions fails when the current user lacks any of the
+// listed permissions, naming each one. The install creates a ClusterRole and
+// ClusterRoleBinding, a CatalogSource in openshift-marketplace, CRDs and an
+// SCC; without the rights it used to fail partway through with a bare
+// Forbidden, after the namespace and part of the stack already existed. A
+// check whose review itself errors only warns: a flaky API must not block.
+func CheckClusterPermissions(ctx context.Context, review AccessReviewer, checks []AccessCheck) Result {
+	const name = "cluster-permissions"
+	if len(checks) == 0 || review == nil {
+		return Result{Name: name, Status: StatusOK, Message: "no cluster-scoped permissions to check"}
+	}
+	missing := []string{}
+	unknown := []string{}
+	for _, check := range checks {
+		allowed, err := review(ctx, check.Verb, check.Resource, check.Namespace)
+		if err != nil {
+			unknown = append(unknown, fmt.Sprintf("%s (%v)", check, err))
+			continue
+		}
+		if !allowed {
+			entry := check.String()
+			if check.Why != "" {
+				entry += " — needed for " + check.Why
+			}
+			missing = append(missing, entry)
+		}
+	}
+	if len(missing) > 0 {
+		return Result{
+			Name:   name,
+			Status: StatusError,
+			Message: fmt.Sprintf("the logged-in user is missing %d permission(s) the install needs:\n  - %s\n"+
+				"  mas-est install creates cluster-scoped objects and needs cluster-admin (or an equivalent role). "+
+				"Log in as a cluster-admin user ('oc login'), or ask a cluster administrator to run the install.",
+				len(missing), strings.Join(missing, "\n  - ")),
+		}
+	}
+	if len(unknown) > 0 {
+		return Result{
+			Name:    name,
+			Status:  StatusWarn,
+			Message: fmt.Sprintf("could not verify %d permission(s): %s", len(unknown), strings.Join(unknown, "; ")),
+		}
+	}
+	return Result{Name: name, Status: StatusOK, Message: fmt.Sprintf("logged-in user holds the %d cluster-scoped permission(s) the install needs", len(checks))}
 }
 
 // IDPCfgPlan is everything needed to compute the IDPCfg object names a
@@ -155,6 +225,10 @@ func Run(ctx context.Context, client *oc.Client, input Input) Report {
 		Status:  StatusOK,
 		Message: fmt.Sprintf("logged in as %s against %s", user, server),
 	})
+
+	if len(input.RequiredAccess) > 0 {
+		report.Results = append(report.Results, CheckClusterPermissions(ctx, client.CanI, input.RequiredAccess))
+	}
 
 	classes, err := client.StorageClasses(ctx)
 	if err != nil {

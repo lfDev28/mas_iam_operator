@@ -925,6 +925,48 @@ func (c *Client) Logs(ctx context.Context, namespace string, args []string, stdo
 	}, stdout, stderr)
 }
 
+// CanI asks the API server (SelfSubjectAccessReview via `oc auth can-i`)
+// whether the current user may perform verb on resource. namespace "" means
+// cluster scope. resource may be "type", "type.group" or "type.group/name".
+func (c *Client) CanI(ctx context.Context, verb, resource, namespace string) (bool, error) {
+	args := []string{"auth", "can-i", verb, resource}
+	if namespace != "" {
+		args = append(args, "-n", namespace)
+	}
+	output, err := c.runner.Output(ctx, executil.Options{Name: "oc", Args: args})
+	return ParseCanI(output, err)
+}
+
+// ParseCanI interprets `oc auth can-i` output. The command prints yes/no on
+// its last line and exits 1 for "no", which the runner reports as an error
+// whose text ends with the output; anything else is a real failure (API
+// unreachable, unknown flag).
+func ParseCanI(output string, err error) (bool, error) {
+	lastLine := func(text string) string {
+		lines := strings.Split(strings.TrimSpace(text), "\n")
+		return strings.TrimSpace(lines[len(lines)-1])
+	}
+	// A denial may carry a reason: "no - <reason>".
+	isNo := func(line string) bool {
+		return line == "no" || strings.HasPrefix(line, "no - ") ||
+			strings.HasSuffix(line, ": no") || strings.Contains(line, ": no - ")
+	}
+	if err == nil {
+		last := lastLine(output)
+		switch {
+		case last == "yes":
+			return true, nil
+		case isNo(last):
+			return false, nil
+		}
+		return false, fmt.Errorf("unexpected oc auth can-i output: %q", strings.TrimSpace(output))
+	}
+	if isNo(lastLine(err.Error())) {
+		return false, nil
+	}
+	return false, err
+}
+
 func IsNotFound(err error) bool {
 	if err == nil {
 		return false
