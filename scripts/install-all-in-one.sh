@@ -203,17 +203,7 @@ else
 fi
 
 log_wait "waiting for CatalogSource mas-iam-operator to report READY"
-for i in $(seq 1 60); do
-  state="$(oc -n openshift-marketplace get catalogsource mas-iam-operator -o jsonpath='{.status.connectionState.lastObservedState}' 2>/dev/null || true)"
-  if [[ "${state}" == "READY" ]]; then
-    log_wait "catalog_source=mas-iam-operator state=READY"
-    break
-  fi
-  sleep 5
-done
-if [[ "${state}" != "READY" ]]; then
-  log_warn "CatalogSource mas-iam-operator did not report READY within 5m; proceeding anyway"
-fi
+wait_for_catalog_source_ready mas-iam-operator 300
 
 # Now poll packagemanifests until packageserver has indexed the new catalog.
 # packagemanifests/mas-iam-operator is the cluster-wide view of what
@@ -245,7 +235,7 @@ if [[ -s "${sub_manifest}" ]]; then
 fi
 
 log_wait "waiting for the MAS EST IAM operator CSV to reach Succeeded"
-wait_for_operator_csv_succeeded "${NAMESPACE}" 900
+wait_for_operator_csv_succeeded "${NAMESPACE}" 900 "${sub_manifest}"
 
 log_install "applying sample MAS EST IAM stack"
 install_sample_args=(--namespace "${NAMESPACE}" --components "${COMPONENTS}")
