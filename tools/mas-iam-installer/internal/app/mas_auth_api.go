@@ -126,10 +126,6 @@ func providerKeyWithSuffix(idpId, providerType string) string {
 	return idpId
 }
 
-const (
-	pollInterval = 5 * time.Second
-)
-
 // applyViaAdminAPI is the default mas-auth path. It PUTs each requested
 // provider's configuration to the MAS Admin API sequentially (LDAP → OIDC →
 // SAML SP → SAML IdP metadata), optionally polling each one to Ready before
@@ -156,11 +152,12 @@ func (o *masAuthApplyOptions) applyViaAdminAPI(ctx context.Context, client *oc.C
 		if err != nil {
 			return err
 		}
+		putAt := time.Now()
 		resp, err := mc.SetLDAP(ctx, o.ldapProviderID, req)
 		if err != nil {
 			return fmt.Errorf("setLDAPConfig %s: %w", o.ldapProviderID, err)
 		}
-		if err := o.maybeWait(ctx, mc, "ldap", o.ldapProviderID, resp); err != nil {
+		if err := o.maybeWait(ctx, mc, "ldap", o.ldapProviderID, putAt, resp); err != nil {
 			return err
 		}
 	}
@@ -168,6 +165,7 @@ func (o *masAuthApplyOptions) applyViaAdminAPI(ctx context.Context, client *oc.C
 	if o.hasProvider(config.MASAuthProviderOIDC) {
 		fmt.Fprintf(os.Stdout, "[mas-auth] PUT /config/oidc/%s\n", o.oidcProviderID)
 		req := o.buildOIDCRequest(kc)
+		putAt := time.Now()
 		resp, err := mc.SetOIDC(ctx, o.oidcProviderID, req)
 		if err != nil {
 			// MAS 9.0 has no /config/oidc endpoint at all: the PUT 404s with
@@ -178,7 +176,7 @@ func (o *masAuthApplyOptions) applyViaAdminAPI(ctx context.Context, client *oc.C
 			}
 			return fmt.Errorf("setOIDCConfig %s: %w", o.oidcProviderID, err)
 		}
-		if err := o.maybeWait(ctx, mc, "oidc", o.oidcProviderID, resp); err != nil {
+		if err := o.maybeWait(ctx, mc, "oidc", o.oidcProviderID, putAt, resp); err != nil {
 			return err
 		}
 	}
@@ -186,6 +184,7 @@ func (o *masAuthApplyOptions) applyViaAdminAPI(ctx context.Context, client *oc.C
 	if o.hasProvider(config.MASAuthProviderSAML) {
 		fmt.Fprintf(os.Stdout, "[mas-auth] PUT /config/saml/%s\n", o.samlProviderID)
 		spReq := o.buildSAMLSPRequest()
+		putAt := time.Now()
 		resp, err := mc.SetSAMLSP(ctx, o.samlProviderID, spReq)
 		if err != nil {
 			return fmt.Errorf("setSAMLConfig %s: %w", o.samlProviderID, err)
@@ -196,7 +195,7 @@ func (o *masAuthApplyOptions) applyViaAdminAPI(ctx context.Context, client *oc.C
 				return fmt.Errorf("setSAMLIDPConfig %s: %w", o.samlProviderID, err)
 			}
 		}
-		if err := o.maybeWait(ctx, mc, "saml", o.samlProviderID, resp); err != nil {
+		if err := o.maybeWait(ctx, mc, "saml", o.samlProviderID, putAt, resp); err != nil {
 			return err
 		}
 	}
@@ -472,45 +471,97 @@ func (o *masAuthApplyOptions) buildSAMLSPRequest() masadmin.SAMLSPConfigRequest 
 	}
 }
 
-// maybeWait polls the given provider until Ready or until o.timeout elapses,
-// when o.wait is true. If the initial PUT response already reports Ready,
-// no polling is performed.
-func (o *masAuthApplyOptions) maybeWait(ctx context.Context, mc *masadmin.Client, kind, idpId string, initial *masadmin.IDPConfigResponse) error {
+// maybeWait polls the given provider until it is Ready for the configuration
+// just PUT, or until o.timeout elapses, when o.wait is true.
+//
+// A Ready=True in the PUT response (or the first polls) is usually the
+// condition left over from the previous apply, so it only counts when it is
+// provably newer than the PUT — see readinessGate. putAt is the local time
+// just before the PUT; the PUT response's Date header (the cluster clock) is
+// preferred when present so a skewed laptop clock does not matter.
+//
+// A failed poll is logged and retried rather than aborting the wait: the
+// masadmin client already retries transient errors, but a route blip that
+// outlasts those retries must not fail an apply that has otherwise worked.
+// maxConsecutivePollErrors failures in a row still abort.
+func (o *masAuthApplyOptions) maybeWait(ctx context.Context, mc *masadmin.Client, kind, idpId string, putAt time.Time, initial *masadmin.IDPConfigResponse) error {
 	if !o.wait {
 		return nil
 	}
-	if initial != nil && initial.Ready() {
-		fmt.Fprintf(os.Stdout, "[mas-auth] %s/%s Ready\n", kind, idpId)
-		return nil
-	}
-	deadline := time.Now().Add(o.timeout)
-	for {
-		var (
-			resp *masadmin.IDPConfigResponse
-			err  error
-		)
+	poll := func() (*masadmin.IDPConfigResponse, error) {
 		switch kind {
 		case "ldap":
-			resp, err = mc.GetLDAP(ctx, idpId)
+			return mc.GetLDAP(ctx, idpId)
 		case "oidc":
-			resp, err = mc.GetOIDC(ctx, idpId)
+			return mc.GetOIDC(ctx, idpId)
 		case "saml":
-			resp, err = mc.GetSAML(ctx, idpId)
+			return mc.GetSAML(ctx, idpId)
+		}
+		return nil, fmt.Errorf("maybeWait: unknown kind %q", kind)
+	}
+	if kind != "ldap" && kind != "oidc" && kind != "saml" {
+		return fmt.Errorf("maybeWait: unknown kind %q", kind)
+	}
+	return waitForAdminAPIReady(ctx, kind+"/"+idpId, putAt, initial, o.timeout, poll)
+}
+
+func waitForAdminAPIReady(ctx context.Context, label string, putAt time.Time, initial *masadmin.IDPConfigResponse, timeout time.Duration, poll func() (*masadmin.IDPConfigResponse, error)) error {
+	since := putAt
+	if initial != nil && !initial.ServerTime.IsZero() {
+		since = initial.ServerTime
+	}
+	gate := newReadinessGate()
+	ready := func(resp *masadmin.IDPConfigResponse) bool {
+		done, note := gate.observe(resp.ReadyAfter(since, readinessClockSkew), time.Now())
+		if !done {
+			return false
+		}
+		if note != "" {
+			fmt.Fprintf(os.Stdout, "[mas-auth] %s: %s\n", label, note)
+		}
+		fmt.Fprintf(os.Stdout, "[mas-auth] %s Ready\n", label)
+		return true
+	}
+	if initial != nil && ready(initial) {
+		return nil
+	}
+
+	deadline := time.Now().Add(timeout)
+	var (
+		last           *masadmin.IDPConfigResponse
+		lastErr        error
+		consecutiveErr int
+	)
+	for {
+		if err := sleepCtx(ctx, readinessPollInterval); err != nil {
+			return err
+		}
+		resp, err := poll()
+		switch {
+		case err == nil:
+			consecutiveErr = 0
+			last = resp
+			if ready(resp) {
+				return nil
+			}
+		case masadmin.IsNotFound(err):
+			// Not created yet: counts as not-Ready.
+			consecutiveErr = 0
+			gate.observe(masadmin.NotReady, time.Now())
 		default:
-			return fmt.Errorf("maybeWait: unknown kind %q", kind)
-		}
-		if err != nil && !masadmin.IsNotFound(err) {
-			return fmt.Errorf("poll %s/%s: %w", kind, idpId, err)
-		}
-		if resp != nil && resp.Ready() {
-			fmt.Fprintf(os.Stdout, "[mas-auth] %s/%s Ready\n", kind, idpId)
-			return nil
+			consecutiveErr++
+			lastErr = err
+			if consecutiveErr >= maxConsecutivePollErrors {
+				return fmt.Errorf("poll %s: %d consecutive failures, last: %w", label, consecutiveErr, err)
+			}
+			fmt.Fprintf(os.Stderr, "[mas-auth] WARN: poll %s failed (%d/%d), retrying: %v\n", label, consecutiveErr, maxConsecutivePollErrors, err)
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("timed out waiting %s for %s/%s to become Ready: %s", o.timeout, kind, idpId, conditionSummary(resp))
-		}
-		if err := sleepCtx(ctx, pollInterval); err != nil {
-			return err
+			summary := conditionSummary(last)
+			if lastErr != nil && last == nil {
+				summary = "last poll error: " + lastErr.Error()
+			}
+			return fmt.Errorf("timed out waiting %s for %s to become Ready after the update: %s", timeout, label, summary)
 		}
 	}
 }

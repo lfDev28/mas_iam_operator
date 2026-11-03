@@ -99,10 +99,14 @@ type JobStatus struct {
 }
 
 type ConditionStatus struct {
-	Type    string
-	Status  string
-	Reason  string
-	Message string
+	Type               string
+	Status             string
+	Reason             string
+	Message            string
+	LastTransitionTime string
+	// ObservedGeneration is the condition's own observedGeneration, falling
+	// back to status.observedGeneration; 0 when the controller sets neither.
+	ObservedGeneration int64
 }
 
 type PVCStatus struct {
@@ -670,38 +674,66 @@ func (c *Client) PVCs(ctx context.Context, namespace string) ([]PVCStatus, error
 }
 
 func (c *Client) ObjectStorageCfgConditions(ctx context.Context, namespace, name string) ([]ConditionStatus, error) {
+	_, conditions, err := c.ResourceConditions(ctx, namespace, "objectstoragecfg", name)
+	return conditions, err
+}
+
+// ResourceConditions returns metadata.generation and status.conditions of any
+// namespaced resource that follows the Kubernetes condition conventions.
+func (c *Client) ResourceConditions(ctx context.Context, namespace, resource, name string) (int64, []ConditionStatus, error) {
 	output, err := c.runner.Output(ctx, executil.Options{
 		Name: "oc",
-		Args: []string{"get", "objectstoragecfg", name, "-n", namespace, "-o", "json"},
+		Args: []string{"get", resource, name, "-n", namespace, "-o", "json"},
 	})
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
+	generation, conditions, err := ParseResourceConditions([]byte(output))
+	if err != nil {
+		return 0, nil, fmt.Errorf("decode %s %s: %w", resource, name, err)
+	}
+	return generation, conditions, nil
+}
 
+// ParseResourceConditions decodes generation + conditions from `oc get -o
+// json` output. Exported for tests.
+func ParseResourceConditions(raw []byte) (int64, []ConditionStatus, error) {
 	var payload struct {
+		Metadata struct {
+			Generation int64 `json:"generation"`
+		} `json:"metadata"`
 		Status struct {
-			Conditions []struct {
-				Type    string `json:"type"`
-				Status  string `json:"status"`
-				Reason  string `json:"reason"`
-				Message string `json:"message"`
+			ObservedGeneration int64 `json:"observedGeneration"`
+			Conditions         []struct {
+				Type               string `json:"type"`
+				Status             string `json:"status"`
+				Reason             string `json:"reason"`
+				Message            string `json:"message"`
+				LastTransitionTime string `json:"lastTransitionTime"`
+				ObservedGeneration int64  `json:"observedGeneration"`
 			} `json:"conditions"`
 		} `json:"status"`
 	}
-	if err := json.Unmarshal([]byte(output), &payload); err != nil {
-		return nil, fmt.Errorf("decode objectstoragecfg %s: %w", name, err)
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return 0, nil, err
 	}
 
 	conditions := make([]ConditionStatus, 0, len(payload.Status.Conditions))
 	for _, condition := range payload.Status.Conditions {
+		observed := condition.ObservedGeneration
+		if observed == 0 {
+			observed = payload.Status.ObservedGeneration
+		}
 		conditions = append(conditions, ConditionStatus{
-			Type:    condition.Type,
-			Status:  condition.Status,
-			Reason:  condition.Reason,
-			Message: condition.Message,
+			Type:               condition.Type,
+			Status:             condition.Status,
+			Reason:             condition.Reason,
+			Message:            condition.Message,
+			LastTransitionTime: condition.LastTransitionTime,
+			ObservedGeneration: observed,
 		})
 	}
-	return conditions, nil
+	return payload.Metadata.Generation, conditions, nil
 }
 
 func (c *Client) ConfigMapData(ctx context.Context, namespace, name string) (map[string]string, error) {

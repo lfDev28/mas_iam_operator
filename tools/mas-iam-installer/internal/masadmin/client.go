@@ -323,8 +323,19 @@ func (c *Client) doWithRetry(ctx context.Context, method string, build func() (*
 		if err := json.Unmarshal(body, out); err != nil {
 			return fmt.Errorf("masadmin: decode %s %s response: %w", req.Method, req.URL.Path, err)
 		}
+		if stamped, ok := out.(serverTimeSetter); ok {
+			if date, err := http.ParseTime(resp.Header.Get("Date")); err == nil {
+				stamped.setServerTime(date)
+			}
+		}
 		return nil
 	}
+}
+
+// serverTimeSetter is implemented by response types that record the
+// server's Date header (see IDPConfigResponse.ServerTime).
+type serverTimeSetter interface {
+	setServerTime(time.Time)
 }
 
 // transientError marks a failure worth retrying (network error, 429, 502,

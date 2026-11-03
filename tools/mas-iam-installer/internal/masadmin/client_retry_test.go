@@ -185,6 +185,29 @@ func TestBackoffDelay(t *testing.T) {
 	}
 }
 
+func TestIDPResponseRecordsServerTime(t *testing.T) {
+	srv := newTestServer(t, "jwt-1", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Date", "Wed, 04 Nov 2026 10:00:00 GMT")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"metadata":{"generation":2},"status":{"conditions":[{"type":"Ready","status":"True","lastTransitionTime":"2026-11-04T09:00:00Z"}]}}`))
+	})
+	defer srv.Close()
+	resp, err := newFastRetryClient(t, srv, 1).SetLDAP(context.Background(), "default", LDAPConfigRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := time.Date(2026, 11, 4, 10, 0, 0, 0, time.UTC)
+	if !resp.ServerTime.Equal(want) {
+		t.Fatalf("ServerTime = %s, want %s", resp.ServerTime, want)
+	}
+	if resp.Metadata.Generation != 2 {
+		t.Fatalf("generation = %d, want 2", resp.Metadata.Generation)
+	}
+	if got := resp.ReadyAfter(resp.ServerTime, 5*time.Second); got != ReadyStale {
+		t.Fatalf("ReadyAfter = %v, want ReadyStale (Ready predates the PUT)", got)
+	}
+}
+
 func TestInsecureTransportHonoursProxyEnv(t *testing.T) {
 	if NewInsecureTransport().Proxy == nil {
 		t.Fatal("NewInsecureTransport must set Proxy (http.ProxyFromEnvironment); a nil Proxy ignores HTTPS_PROXY")

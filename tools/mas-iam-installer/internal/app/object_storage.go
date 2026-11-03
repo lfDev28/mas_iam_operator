@@ -249,10 +249,11 @@ func (o *objectStorageInstallOptions) run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	appliedAt := time.Now()
 	if err := o.applyMASConfig(ctx, client, details, endpointURL, caCert); err != nil {
 		return err
 	}
-	if err := waitForObjectStorageCfgReady(ctx, client, o.masCoreNamespace, o.objectStorageCfg, o.timeout); err != nil {
+	if err := waitForObjectStorageCfgReady(ctx, client, o.masCoreNamespace, o.objectStorageCfg, appliedAt, o.timeout); err != nil {
 		return err
 	}
 
@@ -327,6 +328,7 @@ func (o *minioInstallOptions) run(ctx context.Context) error {
 		return nil
 	}
 
+	appliedAt := time.Now()
 	if err := applyMASObjectStorageConfig(ctx, client, masObjectStorageConfigOptions{
 		masInstanceID:      o.masInstanceID,
 		masCoreNamespace:   o.masCoreNamespace,
@@ -339,7 +341,7 @@ func (o *minioInstallOptions) run(ctx context.Context) error {
 	}); err != nil {
 		return err
 	}
-	if err := waitForObjectStorageCfgReady(ctx, client, o.masCoreNamespace, o.objectStorageCfg, o.timeout); err != nil {
+	if err := waitForObjectStorageCfgReady(ctx, client, o.masCoreNamespace, o.objectStorageCfg, appliedAt, o.timeout); err != nil {
 		return err
 	}
 
@@ -916,17 +918,25 @@ func waitForDeployment(ctx context.Context, client *oc.Client, namespace, name s
 	}
 }
 
-func waitForObjectStorageCfgReady(ctx context.Context, client *oc.Client, namespace, name string, timeout time.Duration) error {
+// waitForObjectStorageCfgReady waits for a Ready condition that belongs to a
+// reconcile after `since` (the apply time); a Ready=True left over from the
+// previous install does not count. See readinessGate.
+func waitForObjectStorageCfgReady(ctx context.Context, client *oc.Client, namespace, name string, since time.Time, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
+	gate := newReadinessGate()
 	var lastState string
 	for {
-		conditions, err := client.ObjectStorageCfgConditions(ctx, namespace, name)
+		generation, conditions, err := client.ResourceConditions(ctx, namespace, "objectstoragecfg", name)
 		if err == nil {
-			ready, state := objectStorageReadyState(conditions)
-			if ready {
+			_, state := objectStorageReadyState(conditions)
+			lastState = state
+			done, note := gate.observe(conditionsFreshness(generation, conditions, since), time.Now())
+			if done {
+				if note != "" {
+					fmt.Fprintf(os.Stdout, "[object-storage] objectstoragecfg/%s: %s\n", name, note)
+				}
 				return nil
 			}
-			lastState = state
 		} else {
 			lastState = err.Error()
 		}

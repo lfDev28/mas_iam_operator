@@ -336,6 +336,7 @@ func (o *masAuthApplyOptions) applyViaCR(ctx context.Context, client *oc.Client,
 	if err != nil {
 		return err
 	}
+	appliedAt := time.Now()
 	for _, manifest := range manifests {
 		if err := applyManifest(ctx, client, manifest); err != nil {
 			return err
@@ -344,12 +345,42 @@ func (o *masAuthApplyOptions) applyViaCR(ctx context.Context, client *oc.Client,
 
 	if o.wait {
 		for _, name := range o.idpCfgNames() {
-			if _, err := client.WaitForCondition(ctx, o.masCoreNamespace, "idpcfg/"+name, "Ready", o.timeout.String()); err != nil {
-				return fmt.Errorf("wait for idpcfg/%s in namespace %s: %w", name, o.masCoreNamespace, err)
+			if err := waitForIDPCfgReady(ctx, client, o.masCoreNamespace, name, appliedAt, o.timeout); err != nil {
+				return err
 			}
 		}
 	}
 	return nil
+}
+
+// waitForIDPCfgReady replaces `oc wait --for=condition=Ready`, which returns
+// at once on the Ready=True left by the previous apply. See readinessGate.
+func waitForIDPCfgReady(ctx context.Context, client *oc.Client, namespace, name string, since time.Time, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	gate := newReadinessGate()
+	lastState := "no status conditions yet"
+	for {
+		generation, conditions, err := client.ResourceConditions(ctx, namespace, "idpcfg", name)
+		if err == nil {
+			_, lastState = objectStorageReadyState(conditions)
+			done, note := gate.observe(conditionsFreshness(generation, conditions, since), time.Now())
+			if done {
+				if note != "" {
+					fmt.Fprintf(os.Stdout, "[mas-auth] idpcfg/%s: %s\n", name, note)
+				}
+				fmt.Fprintf(os.Stdout, "[mas-auth] idpcfg/%s Ready\n", name)
+				return nil
+			}
+		} else {
+			lastState = err.Error()
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("wait for idpcfg/%s in namespace %s to become Ready after the update: %s", name, namespace, lastState)
+		}
+		if err := sleepCtx(ctx, readinessPollInterval); err != nil {
+			return err
+		}
+	}
 }
 
 func (o *masAuthApplyOptions) defaultAndValidate(ctx context.Context, client *oc.Client) error {
