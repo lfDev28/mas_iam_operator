@@ -10,22 +10,28 @@ import (
 
 // keycloakSource is the slice of the Keycloak client the scoping logic needs.
 type keycloakSource interface {
-	ListUsers(ctx context.Context, params keycloak.ListUsersParams) ([]keycloak.User, error)
+	ListUsersPage(ctx context.Context, first, max int) ([]keycloak.User, int, error)
 	ListGroups(ctx context.Context, search string) ([]keycloak.Group, error)
 	ListGroupMembers(ctx context.Context, groupID string, first, max int) ([]keycloak.User, int, error)
 	Realm() string
 }
 
-// groupMembersPageSize bounds each members request; the page loop keeps
-// going until Keycloak returns a short page, so the scoped set is not
-// capped at a single page the way ListUsers is.
-const groupMembersPageSize = 50
+// groupMembersPageSize and usersPageSize bound each request; the page loops
+// keep going until Keycloak returns a short page, so neither scoped set is
+// capped at a single page.
+const (
+	groupMembersPageSize = 50
+	usersPageSize        = 100
+	// maxPages stops a runaway loop (e.g. a proxy that ignores `first`
+	// and returns the same full page forever) instead of spinning.
+	maxPages = 10000
+)
 
 // userScope resolves which Keycloak users the bridge is allowed to touch.
 // Groups (when configured) select the candidate set; the username filters
-// then narrow it (AND). Phase 2 (deactivate-on-removal) will diff the
-// resolved set against the state store, so candidates/filter keep it an
-// explicit value rather than a side effect.
+// then narrow it (AND). Removal detection diffs the resolved set against
+// the state store, so candidates/filter keep it an explicit value rather
+// than a side effect.
 type userScope struct {
 	kc               keycloakSource
 	includeUsernames map[string]struct{}
@@ -33,30 +39,54 @@ type userScope struct {
 	includeGroups    []string
 }
 
+// Keycloak stores usernames lowercased, so the username allowlist and
+// prefix are matched case-insensitively: "Scim.User1" in config must still
+// match Keycloak's "scim.user1".
 func newUserScope(kc keycloakSource, includeUsernames []string, includePrefix string, includeGroups []string) userScope {
 	includeSet := make(map[string]struct{}, len(includeUsernames))
 	for _, u := range includeUsernames {
-		includeSet[u] = struct{}{}
+		includeSet[strings.ToLower(u)] = struct{}{}
 	}
 	return userScope{
 		kc:               kc,
 		includeUsernames: includeSet,
-		includePrefix:    includePrefix,
+		includePrefix:    strings.ToLower(includePrefix),
 		includeGroups:    includeGroups,
 	}
 }
 
 // candidates sources the pre-filter user set: group membership when groups
-// are configured, otherwise the realm user list.
+// are configured, otherwise every realm user (paged).
 func (s *userScope) candidates(ctx context.Context) ([]keycloak.User, error) {
 	if len(s.includeGroups) == 0 {
-		users, err := s.kc.ListUsers(ctx, keycloak.ListUsersParams{Max: 50})
+		return s.realmUsers(ctx)
+	}
+	return s.groupMembers(ctx)
+}
+
+// realmUsers pages through the realm user list until a short page.
+func (s *userScope) realmUsers(ctx context.Context) ([]keycloak.User, error) {
+	seen := make(map[string]struct{})
+	var users []keycloak.User
+	for page := 0; ; page++ {
+		if page >= maxPages {
+			return nil, fmt.Errorf("list users: gave up after %d pages; is Keycloak honouring the `first` parameter?", maxPages)
+		}
+		batch, rawCount, err := s.kc.ListUsersPage(ctx, page*usersPageSize, usersPageSize)
 		if err != nil {
 			return nil, fmt.Errorf("list users: %w", err)
 		}
-		return users, nil
+		for _, u := range batch {
+			if _, dup := seen[u.ID]; dup {
+				continue
+			}
+			seen[u.ID] = struct{}{}
+			users = append(users, u)
+		}
+		if rawCount < usersPageSize {
+			return users, nil
+		}
 	}
-	return s.groupMembers(ctx)
 }
 
 // groupMembers unions the direct members of every configured group,
@@ -70,6 +100,9 @@ func (s *userScope) groupMembers(ctx context.Context) ([]keycloak.User, error) {
 			return nil, err
 		}
 		for first := 0; ; first += groupMembersPageSize {
+			if first/groupMembersPageSize >= maxPages {
+				return nil, fmt.Errorf("list members of group %q: gave up after %d pages", name, maxPages)
+			}
 			page, rawCount, err := s.kc.ListGroupMembers(ctx, group.ID, first, groupMembersPageSize)
 			if err != nil {
 				return nil, fmt.Errorf("list members of group %q: %w", name, err)
@@ -118,12 +151,13 @@ func (s *userScope) filter(users []keycloak.User) []keycloak.User {
 	}
 	filtered := make([]keycloak.User, 0, len(users))
 	for _, user := range users {
+		name := strings.ToLower(user.Username)
 		if len(s.includeUsernames) > 0 {
-			if _, ok := s.includeUsernames[user.Username]; !ok {
+			if _, ok := s.includeUsernames[name]; !ok {
 				continue
 			}
 		}
-		if s.includePrefix != "" && !strings.HasPrefix(user.Username, s.includePrefix) {
+		if s.includePrefix != "" && !strings.HasPrefix(name, s.includePrefix) {
 			continue
 		}
 		filtered = append(filtered, user)

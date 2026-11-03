@@ -43,8 +43,11 @@ type fakeKC struct {
 	err   error
 }
 
-func (f *fakeKC) ListUsers(ctx context.Context, params keycloak.ListUsersParams) ([]keycloak.User, error) {
-	return f.users, f.err
+func (f *fakeKC) ListUsersPage(ctx context.Context, first, max int) ([]keycloak.User, int, error) {
+	if f.err != nil || first > 0 {
+		return nil, 0, f.err
+	}
+	return f.users, len(f.users), nil
 }
 
 func (f *fakeKC) ListGroups(ctx context.Context, search string) ([]keycloak.Group, error) {
@@ -74,16 +77,36 @@ func TestBackfillMapsSingleUser(t *testing.T) {
 	}
 }
 
-func TestBackfillMarksErrorWhenMissing(t *testing.T) {
+// A user backfill cannot map must stay unseen, so the poller creates it,
+// rather than get a status=error entry that used to strand it.
+func TestBackfillLeavesUnmappedUserForPollerToCreate(t *testing.T) {
 	store, _ := state.NewStore("memory", state.Options{DefaultProfileID: "p"})
 	resolver := NewProfileResolver("p", map[string]string{"users": "p"}, false)
 	b := NewBackfill(&fakeKC{
 		users: []keycloak.User{{ID: "kc1", Username: "alice", MasProfile: "users"}},
 	}, resolver, store, nil, "", nil, stubLogger{}).WithMASClient(&fakeSearchMAS{})
 
-	_ = b.Run(context.Background())
+	if err := b.Run(context.Background()); err != nil {
+		t.Fatalf("backfill run: %v", err)
+	}
+	if entry, ok, _ := store.Lookup(context.Background(), "kc1"); ok {
+		t.Fatalf("expected no state entry for unmapped user, got %+v", entry)
+	}
+}
+
+func TestBackfillUsernameMatchIsNotMarkedBridgeOwned(t *testing.T) {
+	store, _ := state.NewStore("memory", state.Options{DefaultProfileID: "p"})
+	resolver := NewProfileResolver("p", nil, false)
+	b := NewBackfill(&fakeKC{
+		users: []keycloak.User{{ID: "kc1", Username: "alice"}},
+	}, resolver, store, nil, "", nil, stubLogger{}).WithMASClient(&fakeSearchMAS{
+		results: map[string]string{`userName eq "alice"`: "mas-legacy"},
+	})
+	if err := b.Run(context.Background()); err != nil {
+		t.Fatalf("backfill run: %v", err)
+	}
 	entry, ok, _ := store.Lookup(context.Background(), "kc1")
-	if !ok || entry.Status != state.StatusError {
-		t.Fatalf("expected error entry when no MAS user found, got %+v ok=%v", entry, ok)
+	if !ok || entry.MASID != "mas-legacy" || entry.CreatedByBridge {
+		t.Fatalf("expected username-mapped entry without bridge ownership, got %+v ok=%v", entry, ok)
 	}
 }

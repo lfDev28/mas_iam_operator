@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/lfDev28/mas-iam/services/scim-bridge/internal/keycloak"
-	"github.com/lfDev28/mas-iam/services/scim-bridge/internal/state"
 )
 
 // Poller performs a single pass reconciliation between Keycloak and MAS.
@@ -52,18 +51,10 @@ func (p *Poller) RunOnce(ctx context.Context) error {
 		}
 	}
 	actions := p.planner.Plan(ctx, users)
+	// Failed entries are not skipped here: the executor retries them with
+	// backoff (and parks repeated permanent failures), so one transient MAS
+	// error no longer stops a user from ever syncing.
 	for _, action := range actions {
-		if action.Type == ActionUpdate && action.StateStatus == state.StatusError {
-			p.logger.Info("skip update due to prior MAS error",
-				"username", action.User.Username,
-				"id", action.User.ID,
-				"mas_profile_label", action.ProfileLabel,
-				"mas_profile_id", action.ProfileID,
-				"existing_mas_id", action.ExistingMAS,
-				"last_error", action.StateLastError,
-			)
-			continue
-		}
 		p.logger.Info("plan action",
 			"action", action.Type,
 			"username", action.User.Username,
@@ -76,11 +67,11 @@ func (p *Poller) RunOnce(ctx context.Context) error {
 			return fmt.Errorf("execute action: %w", err)
 		}
 	}
-	// Removal detection runs in group mode only: group membership is paged
-	// fully, so the scoped set is complete and safe to diff against state.
-	// The legacy ListUsers path fetches a single 50-user page — diffing state
-	// against that page would mass-deactivate every tracked user beyond page
-	// one, so it must never feed removal detection.
+	// Removal detection runs in group mode only. The realm-wide path now
+	// pages through every user too, but turning on deactivate-on-removal
+	// for prefix/allowlist scoping is a separate behaviour change (it was
+	// never enabled there, and a user dropping out of a prefix filter is
+	// not the same signal as leaving a group).
 	if len(p.scope.includeGroups) == 0 {
 		return nil
 	}

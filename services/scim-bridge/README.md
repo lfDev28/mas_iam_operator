@@ -7,7 +7,7 @@ A Go service that polls the Keycloak Admin REST API and pushes users to the MAS 
 | Path | Contents |
 | --- | --- |
 | `cmd/scim-bridge` | Main binary: flag parsing on top of env config |
-| `cmd/scim-bridge-cleanup` | Lists state entries with `status=error`. With `--delete`, it also deletes those users from MAS and from state |
+| `cmd/scim-bridge-cleanup` | Lists state entries with `status=error`. `--reset-state` (recommended) clears error/parked bookkeeping without touching MAS. `--delete` deletes MAS users, but only for parked entries the bridge created |
 | `internal/config` | Settings, defaults, `SCIM_BRIDGE_*` env loading, validation |
 | `internal/bridge` | Poller, user scope (groups and username filters), planner, executor, backfill |
 | `internal/keycloak`, `internal/mas` | API clients; MAS token fetch and refresh, payload redaction |
@@ -16,9 +16,12 @@ A Go service that polls the Keycloak Admin REST API and pushes users to the MAS 
 ## Behaviour
 
 - **Modes.** `poll` (default) and `hybrid` run a cycle every poll interval. `hybrid` is currently the same as `poll`. `run-once` runs a single cycle and exits. `backfill` searches MAS for existing users by `externalId`, then `userName`, and seeds the state store without writing to MAS.
-- **Scope.** Without `INCLUDE_GROUPS`, candidates come from one page of the realm user list (50 users). With `INCLUDE_GROUPS`, candidates are the direct members of the named groups, fetched page by page, and a group that cannot be resolved fails the cycle. `INCLUDE_USERNAMES` and `INCLUDE_USERNAME_PREFIX` then narrow the set; all configured filters must match. LDAP-federated users are skipped unless `KEYCLOAK_INCLUDE_FEDERATED_USERS=true`.
-- **Deactivation (group mode only).** A tracked user who drops out of the scoped set gets SCIM `active:false` once. The bridge never deletes users. Without groups there is no removal detection, because the one-page user list is incomplete.
-- **Conflicts and auth.** When a create returns 409, the bridge adopts the existing MAS user if exactly one match is found. When a request returns 401 and `MAS_API_TOKEN_NAME`/`MAS_API_TOKEN_VALUE` are set, the bridge fetches a new token and retries the cycle once.
+- **Scope.** Without `INCLUDE_GROUPS`, candidates are every realm user, fetched page by page. With `INCLUDE_GROUPS`, candidates are the direct members of the named groups, fetched page by page, and a group that cannot be resolved fails the cycle. `INCLUDE_USERNAMES` and `INCLUDE_USERNAME_PREFIX` then narrow the set (case-insensitively; Keycloak lowercases usernames); all configured filters must match. LDAP-federated users are skipped unless `KEYCLOAK_INCLUDE_FEDERATED_USERS=true`.
+- **Deactivation (group mode only).** A tracked user who drops out of the scoped set gets SCIM `active:false` once. The bridge never deletes users. Without groups there is no removal detection.
+- **Failures and retries.** A failed MAS call is recorded on the user's state entry (`attempts`, `nextRetryAt`, `errorClass`) and retried on later cycles with exponential backoff (30s doubling, 30 min cap). Transient failures (5xx, 429, timeouts) are never given up on. Repeated 400/404/422 or unresolvable 409s park the entry after 3 tries. A parked entry is retried as soon as the Keycloak user, its MAS profile or the bridge config changes, or after `scim-bridge-cleanup --reset-state`. A failed poll cycle (Keycloak or MAS down) is retried with backoff; the process keeps running.
+- **Conflicts and auth.** When a create returns 409, the bridge adopts the existing MAS user only if it is provably the bridge's (its `externalId` is the Keycloak user ID, or state already maps it), then PUTs the desired payload. A same-named MAS user owned by someone else is not taken over: the entry is parked as a `conflict`. When a request returns 401 and `MAS_API_TOKEN_NAME`/`MAS_API_TOKEN_VALUE` are set, the bridge fetches a new token and retries the cycle once.
+- **Dry run.** `BRIDGE_DRY_RUN=true` calls no MAS write API and writes no state.
+- **Health.** In `poll`/`hybrid` mode, port 8081 serves `/healthz` (fails after `HEALTH_STALE_CYCLES` poll intervals without a successful cycle), `/readyz` (a first cycle succeeded) and `/status` (JSON counters, including error and parked entry counts).
 - **Profile routing.** A user's `masProfile` Keycloak attribute is mapped through `MAS_PROFILE_MAP` to a MAS profile id. Users without a mapped label fall back to `MAS_PROFILE_ID`, or are skipped when `MAS_PROFILE_REQUIRE_LABEL=true`.
 
 `mas-est install` sets `SCIM_BRIDGE_INCLUDE_GROUPS=mas-scim-users` and `SCIM_BRIDGE_INCLUDE_USERNAME_PREFIX=scim.` (`scripts/install-all-in-one.sh`). Design notes: [docs/design/SCIM-GROUP-SCOPING.md](../../docs/design/SCIM-GROUP-SCOPING.md).
@@ -55,8 +58,10 @@ Every setting is read from a `SCIM_BRIDGE_`-prefixed env var. Most settings also
 | `INCLUDE_USERNAMES` | `--include-usernames` | | comma-separated |
 | `INCLUDE_USERNAME_PREFIX` | `--include-username-prefix` | | |
 | `INCLUDE_GROUPS` | `--include-groups` | | group names or paths, comma-separated |
+| `HEALTH_PORT` | `--health-port` | `8081` | `0` disables the health server |
+| `HEALTH_STALE_CYCLES` | `--health-stale-cycles` | `5` | poll intervals without a successful cycle before `/healthz` fails |
 
-The ConfigMap also holds `SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_*` keys. The bridge binary ignores them; they are read by the profile bootstrap Job in `manifests/scim-bridge-mas-profile-bootstrap.yaml`. The Deployment mounts CA bundles from the optional `Secret/scim-bridge-ca`, `ConfigMap/scim-bridge-ca`, and `ConfigMap/scim-bridge-mas-ca` at `/etc/scim-bridge/certs`.
+The ConfigMap also holds `SCIM_BRIDGE_MAS_PROFILE_BOOTSTRAP_*` keys. The bridge binary ignores them; they are read by the profile bootstrap Job in `manifests/scim-bridge-mas-profile-bootstrap.yaml`. The Deployment mounts CA bundles from the optional `Secret/scim-bridge-ca`, `ConfigMap/scim-bridge-ca`, and `ConfigMap/scim-bridge-mas-ca` at `/etc/scim-bridge/certs` and sets `SSL_CERT_DIR` to that directory. `KEYCLOAK_CA_FILE` and `MAS_CA_FILE` are added to the system trust store, not used instead of it.
 
 On a running install, change the log level or payload logging with `mas-est config set bridge --log-level <level> --payload-logging <true|false>`. Rotate the MAS token with `mas-est config set mas-api-token`.
 

@@ -3,6 +3,7 @@ package bridge
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/lfDev28/mas-iam/services/scim-bridge/internal/state"
 )
@@ -56,55 +57,46 @@ func (b *Backfill) Run(ctx context.Context) error {
 			continue
 		}
 
-		masID, searchFilter, err := b.searchMASUser(ctx, profileRes.ProfileID, u.ID, u.Username)
+		masID, searchFilter, byExternalID, err := b.searchMASUser(ctx, profileRes.ProfileID, u.ID, u.Username)
 		if err != nil {
 			return fmt.Errorf("search MAS for user %s: %w", u.Username, err)
 		}
 
-		switch masID {
-		case "":
-			msg := fmt.Sprintf("no unique MAS user found (filter=%s)", searchFilter)
-			b.logger.Info("backfill could not map user", "username", u.Username, "id", u.ID, "mas_profile_id", profileRes.ProfileID, "filter", searchFilter)
-			_ = b.store.Save(ctx, u.ID, state.Entry{
-				MASID:     "",
-				ProfileID: profileRes.ProfileID,
-				Status:    state.StatusError,
-				LastError: msg,
-				Username:  u.Username,
-			})
-		default:
-			b.logger.Info("backfill mapped user", "username", u.Username, "id", u.ID, "mas_id", masID, "mas_profile_id", profileRes.ProfileID, "filter", searchFilter)
-			_ = b.store.Save(ctx, u.ID, state.Entry{
-				MASID:     masID,
-				ProfileID: profileRes.ProfileID,
-				Status:    state.StatusOK,
-				Username:  u.Username,
-			})
+		if masID == "" {
+			// No unique MAS user: leave state alone. Writing a status=error
+			// entry here used to strand the user; with no entry the poller
+			// simply creates it (and resolves any 409 itself).
+			b.logger.Info("backfill could not map user; the poller will create it", "username", u.Username, "id", u.ID, "mas_profile_id", profileRes.ProfileID, "filter", searchFilter)
+			continue
 		}
+		b.logger.Info("backfill mapped user", "username", u.Username, "id", u.ID, "mas_id", masID, "mas_profile_id", profileRes.ProfileID, "filter", searchFilter)
+		// Backfill is an explicit operator action, so a userName match is
+		// accepted here, but only an externalId match marks the MAS user as
+		// bridge-owned (the only kind cleanup will ever delete).
+		_ = b.store.Save(ctx, u.ID, state.Entry{
+			MASID:           masID,
+			ProfileID:       profileRes.ProfileID,
+			Status:          state.StatusOK,
+			Username:        u.Username,
+			CreatedByBridge: byExternalID,
+		})
 	}
 	return nil
 }
 
-func (b *Backfill) searchMASUser(ctx context.Context, profileID, keycloakID, username string) (masID string, filterUsed string, err error) {
+func (b *Backfill) searchMASUser(ctx context.Context, profileID, keycloakID, username string) (masID string, filterUsed string, byExternalID bool, err error) {
 	filter := fmt.Sprintf(`externalId eq "%s"`, keycloakID)
 	users, err := b.masClient.SearchUsers(ctx, profileID, filter)
-	if err != nil {
-		// fallback via username
-		filter = fmt.Sprintf(`userName eq "%s"`, username)
-		users, err = b.masClient.SearchUsers(ctx, profileID, filter)
-		if err != nil {
-			return "", filter, err
-		}
+	if err == nil && len(users) == 1 && (users[0].ExternalID == "" || strings.EqualFold(users[0].ExternalID, keycloakID)) {
+		return users[0].ID, filter, true, nil
 	}
-	if len(users) == 0 {
-		filter = fmt.Sprintf(`userName eq "%s"`, username)
-		users, err = b.masClient.SearchUsers(ctx, profileID, filter)
-		if err != nil {
-			return "", filter, err
-		}
+	filter = fmt.Sprintf(`userName eq "%s"`, username)
+	users, err = b.masClient.SearchUsers(ctx, profileID, filter)
+	if err != nil {
+		return "", filter, false, err
 	}
 	if len(users) == 1 {
-		return users[0].ID, filter, nil
+		return users[0].ID, filter, strings.EqualFold(users[0].ExternalID, keycloakID), nil
 	}
-	return "", filter, nil
+	return "", filter, false, nil
 }

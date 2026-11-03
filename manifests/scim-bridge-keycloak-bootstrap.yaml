@@ -56,6 +56,14 @@ spec:
                 echo "error: SCIM_CLIENT_SECRET is empty; populate scim-bridge-secret.SCIM_BRIDGE_KEYCLOAK_CLIENT_SECRET" >&2
                 exit 1
               fi
+              # Refuse the published placeholder: this Job sets it as the
+              # secret of a client that can read every realm user.
+              case "${SCIM_CLIENT_SECRET}" in
+                CHANGEME|changeme)
+                  echo "error: SCIM_CLIENT_SECRET is the placeholder '${SCIM_CLIENT_SECRET}'; set scim-bridge-secret.SCIM_BRIDGE_KEYCLOAK_CLIENT_SECRET to a random value (e.g. openssl rand -hex 32)" >&2
+                  exit 1
+                  ;;
+              esac
 
               host_port="${KC_HOST#*://}"
               if [[ "$host_port" == "$KC_HOST" ]]; then

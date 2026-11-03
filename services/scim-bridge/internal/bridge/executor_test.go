@@ -3,6 +3,7 @@ package bridge
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/lfDev28/mas-iam/services/scim-bridge/internal/keycloak"
@@ -15,6 +16,8 @@ type fakeMAS struct {
 	createErr     error
 	updateErr     error
 	updateCalled  int
+	lastPutID     string
+	lastPut       mas.UserResource
 	patchErr      error
 	patchOps      []mas.PatchOperation
 	patchID       string
@@ -34,6 +37,8 @@ func (f *fakeMAS) CreateUser(ctx context.Context, profileID string, payload mas.
 
 func (f *fakeMAS) UpdateUser(ctx context.Context, profileID, masID string, payload mas.UserResource) error {
 	f.updateCalled++
+	f.lastPutID = masID
+	f.lastPut = payload
 	return f.updateErr
 }
 
@@ -83,13 +88,13 @@ func TestExecutorConflictAdoptsExisting(t *testing.T) {
 	store, _ := state.NewStore("memory", state.Options{DefaultProfileID: "p"})
 	fake := &fakeMAS{
 		createErr:    conflict,
-		searchResult: []mas.User{{ID: "adopt-1"}},
+		searchResult: []mas.User{{ID: "adopt-1", ExternalID: "kc1", UserName: "alice"}},
 	}
 	exec := NewExecutor(fake, store, false, true, stubLogger{})
 
 	action := Action{
 		Type:         ActionCreate,
-		User:         keycloak.User{ID: "kc1", Username: "alice"},
+		User:         keycloak.User{ID: "kc1", Username: "alice", Email: "a@example.com", Enabled: true},
 		ProfileID:    "p",
 		ProfileLabel: "users",
 	}
@@ -99,9 +104,32 @@ func TestExecutorConflictAdoptsExisting(t *testing.T) {
 	if fake.lastFilter != `externalId eq "kc1"` {
 		t.Fatalf("expected externalId filter, got %q", fake.lastFilter)
 	}
+	// Adoption must push the desired payload, not just record it.
+	if fake.updateCalled != 1 || fake.lastPutID != "adopt-1" || fake.lastPut.UserName != "alice" {
+		t.Fatalf("expected PUT of desired payload to adopted user, got calls=%d id=%q payload=%+v", fake.updateCalled, fake.lastPutID, fake.lastPut)
+	}
 	entry, ok, _ := store.Lookup(context.Background(), "kc1")
-	if !ok || entry.MASID != "adopt-1" || entry.Status != state.StatusOK {
+	if !ok || entry.MASID != "adopt-1" || entry.Status != state.StatusOK || !entry.CreatedByBridge || entry.LastApplied.Email != "a@example.com" {
 		t.Fatalf("unexpected entry after adopt: %+v (ok=%v)", entry, ok)
+	}
+}
+
+func TestExecutorConflictAdoptFailedPutRetriesAsUpdate(t *testing.T) {
+	conflict := &mas.ResponseError{StatusCode: 409, Status: "409 Conflict", Body: "conflict"}
+	store, _ := state.NewStore("memory", state.Options{DefaultProfileID: "p"})
+	fake := &fakeMAS{
+		createErr:    conflict,
+		updateErr:    &mas.ResponseError{StatusCode: 503, Status: "503 Service Unavailable"},
+		searchResult: []mas.User{{ID: "adopt-1", ExternalID: "kc1"}},
+	}
+	exec := NewExecutor(fake, store, false, true, stubLogger{})
+	action := Action{Type: ActionCreate, User: keycloak.User{ID: "kc1", Username: "alice"}, ProfileID: "p"}
+	if err := exec.Execute(context.Background(), action); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	entry, _, _ := store.Lookup(context.Background(), "kc1")
+	if entry.MASID != "adopt-1" || entry.Status != state.StatusError || entry.ErrorClass != state.ErrorClassTransient || !entry.LastApplied.IsZero() {
+		t.Fatalf("expected adopted MAS ID kept with transient error and no snapshot, got %+v", entry)
 	}
 }
 
@@ -135,13 +163,13 @@ func TestExecutorConflictMultipleResultsMarksError(t *testing.T) {
 	}
 }
 
-func TestExecutorConflictFallbackToUsernameFilter(t *testing.T) {
+func TestExecutorConflictFallbackToUsernameFilterAdoptsWhenExternalIDMatches(t *testing.T) {
 	conflict := &mas.ResponseError{StatusCode: 409, Status: "409 Conflict", Body: "conflict"}
 	store, _ := state.NewStore("memory", state.Options{DefaultProfileID: "p"})
 	fake := &fakeMAS{
 		createErr:     conflict,
 		searchErrs:    []error{errors.New("externalId unsupported")},
-		searchResults: [][]mas.User{{}, {{ID: "adopt-username"}}},
+		searchResults: [][]mas.User{{}, {{ID: "adopt-username", UserName: "alice", ExternalID: "kc1"}}},
 	}
 	exec := NewExecutor(fake, store, false, true, stubLogger{})
 
@@ -151,9 +179,40 @@ func TestExecutorConflictFallbackToUsernameFilter(t *testing.T) {
 	if fake.lastFilter != `userName eq "alice"` {
 		t.Fatalf("expected username fallback filter, got %q", fake.lastFilter)
 	}
+	if fake.updateCalled != 1 || fake.lastPutID != "adopt-username" {
+		t.Fatalf("expected desired payload PUT after adoption, got calls=%d id=%q", fake.updateCalled, fake.lastPutID)
+	}
 	entry, ok, _ := store.Lookup(context.Background(), "kc1")
 	if !ok || entry.MASID != "adopt-username" || entry.Status != state.StatusOK || entry.LastApplied.IsZero() {
 		t.Fatalf("unexpected entry after fallback adopt: %+v (ok=%v)", entry, ok)
+	}
+}
+
+func TestExecutorConflictRefusesToAdoptUnownedUser(t *testing.T) {
+	conflict := &mas.ResponseError{StatusCode: 409, Status: "409 Conflict", Body: "conflict"}
+	store, _ := state.NewStore("memory", state.Options{DefaultProfileID: "p"})
+	fake := &fakeMAS{
+		createErr: conflict,
+		// externalId search: nothing; userName search: a pre-existing
+		// MAS user with no (or someone else's) externalId.
+		searchResults: [][]mas.User{{}, {{ID: "someone-else", UserName: "alice", ExternalID: "other-system-42"}}},
+		searchErrs:    []error{nil, nil},
+	}
+	exec := NewExecutor(fake, store, false, true, stubLogger{})
+
+	action := Action{Type: ActionCreate, User: keycloak.User{ID: "kc1", Username: "alice"}, ProfileID: "p"}
+	if err := exec.Execute(context.Background(), action); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if fake.updateCalled != 0 || fake.patchCalls != 0 {
+		t.Fatalf("must not write to an unowned MAS user, got put=%d patch=%d", fake.updateCalled, fake.patchCalls)
+	}
+	entry, ok, _ := store.Lookup(context.Background(), "kc1")
+	if !ok || entry.MASID != "" || entry.Status != state.StatusError || entry.ErrorClass != state.ErrorClassConflict || !entry.Parked {
+		t.Fatalf("expected parked conflict with no MAS ID, got %+v (ok=%v)", entry, ok)
+	}
+	if !strings.Contains(entry.LastError, "not owned by this bridge") {
+		t.Fatalf("expected clear conflict message, got %q", entry.LastError)
 	}
 }
 
