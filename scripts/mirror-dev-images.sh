@@ -55,7 +55,7 @@ if [[ -z "${dest_repo}" ]]; then
   exit 1
 fi
 
-if ! command -v oc >/dev/null 2>&1; then
+if [[ "${dry_run}" != "true" ]] && ! command -v oc >/dev/null 2>&1; then
   echo "error: oc CLI is required on PATH" >&2
   exit 1
 fi
@@ -65,6 +65,13 @@ images=(
   # manifest-list digest published on 2025-11-08 so oc can still pull it.
   "postgresql-17.6.0-debian-12-r4=docker.io/bitnami/postgresql@sha256:14aa30df4c41d43590a0ae59b1963522f5e4344bedda67e1f2e423ea8267c115"
   "openldap-1.5.0=docker.io/osixia/openldap:1.5.0"
+  # MinIO server and client from Pigsty's fork, at the tags pinned in
+  # tools/mas-iam-installer/internal/app/object_storage.go (upstream minio/*
+  # images are gone). The installer still pulls docker.io/pgsty directly;
+  # these copies are a fallback should those tags disappear too. Keep the
+  # tags in step with object_storage.go and images.yaml.
+  "minio-RELEASE.2026-08-04T00-00-00Z=docker.io/pgsty/minio:RELEASE.2026-08-04T00-00-00Z"
+  "mc-RELEASE.2026-09-16T00-00-00Z=docker.io/pgsty/mc:RELEASE.2026-09-16T00-00-00Z"
 )
 
 for mapping in "${images[@]}"; do
