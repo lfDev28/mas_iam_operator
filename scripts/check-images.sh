@@ -72,7 +72,7 @@ ok()   { echo "ok    $*"; }
 parse_images_file() {
   awk '
     function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
-    function unquote(s) { s = trim(s); if (s ~ /^".*"$/ || s ~ /^\x27.*\x27$/) s = substr(s, 2, length(s) - 2); return s }
+    function unquote(s) { s = trim(s); if (s ~ /^".*"$/ || s ~ /^\047.*\047$/) s = substr(s, 2, length(s) - 2); return s }
     function flush() {
       if (ref != "") printf "%s|%s|%s|%s|%s|%s\n", section, ref, kind, archs, optional, used
       ref = ""; kind = ""; archs = ""; optional = "false"; used = ""
