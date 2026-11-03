@@ -4,7 +4,9 @@ metadata:
   name: manager-role
 rules:
 ##
-## Base operator rules
+## Cluster-scoped rules only. Everything the chart renders lives in the
+## watched namespace and is granted by manager_namespaced_role.yaml, which
+## becomes the CSV's namespaced `permissions`.
 ##
 # We need to get namespaces so the operator can read namespaces to ensure they exist
 - apiGroups:
@@ -13,91 +15,8 @@ rules:
   - namespaces
   verbs:
   - get
-# We need to manage Helm release secrets
-- apiGroups:
-  - ""
-  resources:
-  - secrets
-  verbs:
-  - "*"
-# We need to create events on CRs about things happening during reconciliation
-- apiGroups:
-  - ""
-  resources:
-  - events
-  verbs:
-  - create
-
-##
-## Rules for iam.mas.ibm.com/v1alpha1, Kind: MasIamStack
-##
-- apiGroups:
-  - iam.mas.ibm.com
-  resources:
-  - masiamstacks
-  - masiamstacks/status
-  - masiamstacks/finalizers
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- verbs:
-  - "*"
-  apiGroups:
-  - "networking.k8s.io"
-  resources:
-  - "networkpolicies"
-- verbs:
-  - "*"
-  apiGroups:
-  - ""
-  resources:
-  - "configmaps"
-  - "secrets"
-  - "serviceaccounts"
-  - "services"
-- verbs:
-  - "*"
-  apiGroups:
-  - "apps"
-  resources:
-  - "deployments"
-  - "statefulsets"
-- verbs:
-  - "*"
-  apiGroups:
-  - "batch"
-  resources:
-  - "jobs"
-- verbs:
-  - "*"
-  apiGroups:
-  - "policy"
-  resources:
-  - "poddisruptionbudgets"
-- verbs:
-  - "*"
-  apiGroups:
-  - "route.openshift.io"
-  resources:
-  - "routes"
-- apiGroups:
-  - "rbac.authorization.k8s.io"
-  resources:
-  - "roles"
-  - "rolebindings"
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
+# SecurityContextConstraints are cluster-scoped. Holding `use` lets the
+# operator create the chart's RoleBindings to system:openshift:scc:anyuid.
 - apiGroups:
   - "security.openshift.io"
   resources:
