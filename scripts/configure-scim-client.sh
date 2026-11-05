@@ -162,6 +162,6 @@ for role in view-users query-users query-groups; do
 done
 EOF
 
-echo "SCIM client '${client_id}' configured. Store the following credentials securely:"
-echo "  Client ID:     ${client_id}"
-echo "  Client Secret: ${client_secret}"
+# Never echo the secret: this output lands in the install log.
+echo "SCIM client '${client_id}' configured in realm ${realm}; its secret is the one passed with --client-secret"
+echo "  (the installer stores it in secret/scim-bridge-secret key SCIM_BRIDGE_KEYCLOAK_CLIENT_SECRET)."

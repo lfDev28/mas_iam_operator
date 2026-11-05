@@ -18,7 +18,7 @@ TLS_CONTEXT   ?= images/openldap-tls-generator
 VALUES_FLAGS := -f $(CHART)/values.yaml
 
 .PHONY: lint deps deploy status health teardown redeploy tls-image tls-push scim-keycloak-image scim-keycloak-push scim-bridge-build doc-pdf docs-pdf doc-pdf-clean docs-pdf-clean user-guide-pdf user-guide-clean
-.PHONY: check check-go check-scripts check-helm check-images check-images-scan release-check bump release-images release-verify release-tag smoke test-openldap-storage
+.PHONY: check check-go check-scripts check-helm check-images check-images-scan release-check bump release-images release-verify release-tag smoke test-openldap-storage login-check
 
 # ---- Checks ------------------------------------------------------------------
 # `make check` is the definition of done: the same checks CI runs
@@ -39,6 +39,8 @@ check-go:
 check-scripts:
 	@echo "== bash -n scripts/*.sh"
 	@set -e; for f in scripts/*.sh; do bash -n "$$f"; done
+	@echo "== python3 syntax scripts/*.py"
+	@set -e; for f in scripts/*.py; do python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read(), sys.argv[1])' "$$f"; done
 
 check-helm:
 	@echo "== helm lint $(HELM_CHART)"
@@ -89,6 +91,12 @@ smoke:
 # Needs podman or docker; CI runs it on every change to the chart.
 test-openldap-storage:
 	./scripts/test-openldap-storage.sh
+
+# Headless SAML/OIDC logins of the Keycloak demo users through MAS (no browser).
+#   make login-check HOME_URL=https://home.<instance>.<apps-domain> [USERS="saml.user1 oidc.user2"]
+login-check:
+	@test -n "$(HOME_URL)" || { echo "usage: make login-check HOME_URL=https://home.<instance>.<apps-domain> [USERS=...]" >&2; exit 2; }
+	@python3 -I ./scripts/mas-login-check.py --home "$(HOME_URL)" $(USERS)
 
 lint:
 	./scripts/verify-helm-chart.sh

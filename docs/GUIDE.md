@@ -190,6 +190,14 @@ LDAP, OIDC and SAML users are created in MAS on their first login. SCIM users ar
 
 Use a private browser window for every login. Keycloak keeps you signed in after you log out of MAS, so the next login in the same window returns the previous user.
 
+To check the Keycloak logins without a browser, run this from a checkout of this repo (Python 3, no packages):
+
+```bash
+make login-check HOME_URL=https://home.<instance>.<apps-domain>
+```
+
+It logs in each OIDC, SAML and SCIM demo user through MAS and passes a user when MAS accepts the login. A failure names the MAS error code, such as `AIUOM0024E` (user deactivated in MAS). LDAP logins aren't covered. A user's first check self-registers it, as a first browser login does.
+
 ![MAS login page with the Log in with MAS EST LDAP, OIDC and SAML options](images/login-screen.png)
 
 ![MAS Users after every demo user has logged in once: SCIM users Active, the others Newly self-registered](images/mas-users-screen.png)
