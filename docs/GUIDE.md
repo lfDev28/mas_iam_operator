@@ -21,7 +21,7 @@ Placeholders: `<instance>` is your MAS instance ID, `<cluster-domain>` the clust
 ### 1. Bootstrap the CLI
 
 ```bash
-export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.15'
+export MAS_EST_IMAGE='quay.io/lee_forster/mas-external-services-tool:v0.1.16'
 mkdir -p "$HOME/mas-est"
 podman run -ti --rm -v "$HOME/mas-est:/tmp" --pull always "$MAS_EST_IMAGE" bootstrap --force
 export PATH="$HOME/mas-est:$PATH"
@@ -159,7 +159,7 @@ Users sign in again afterwards. OIDC picks up the new keys by itself. The last c
 
 | Component | In namespace `mas-est` | In namespace `mas-<instance>-core` |
 |---|---|---|
-| MAS IAM operator | CSV `mas-iam-operator.v0.0.15`, from CatalogSource `mas-iam-operator` in `openshift-marketplace` | |
+| MAS IAM operator | CSV `mas-iam-operator.v0.0.16`, from CatalogSource `mas-iam-operator` in `openshift-marketplace` | |
 | OpenLDAP | `deployment/mas-est-iam-openldap` | `idpcfg/<instance>-ldap-default-system` |
 | Keycloak, realm `maximo`, with PostgreSQL | `deployment/mas-est-iam`, route `mas-est-iam` | `idpcfg/<instance>-oidc-default-system`, `idpcfg/<instance>-saml-default-system` |
 | SCIM bridge | `deployment/scim-bridge` | SCIM profile `demo` |

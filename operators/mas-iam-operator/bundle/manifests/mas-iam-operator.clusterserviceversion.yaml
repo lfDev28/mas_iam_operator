@@ -310,7 +310,7 @@ metadata:
     olm.skipRange: '<0.0.16'
     operators.operatorframework.io/builder: operator-sdk-v1.33.0
     operators.operatorframework.io/project_layout: helm.sdk.operatorframework.io/v1
-  name: mas-iam-operator.v0.0.15
+  name: mas-iam-operator.v0.0.16
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -414,7 +414,7 @@ spec:
                   valueFrom:
                     fieldRef:
                       fieldPath: metadata.annotations['olm.targetNamespaces']
-                image: quay.io/lee_forster/mas-iam-operator:0.0.15
+                image: quay.io/lee_forster/mas-iam-operator:0.0.16
                 imagePullPolicy: Always
                 livenessProbe:
                   httpGet:
@@ -579,4 +579,4 @@ spec:
   provider:
     name: Provider Name
     url: https://your.domain
-  version: 0.0.15
+  version: 0.0.16
