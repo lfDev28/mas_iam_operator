@@ -30,11 +30,11 @@ images:
     kind: release
     archs: [amd64]
     used_in: [env/scim-bridge.env.release, scripts/install-all-in-one.sh, manifests/scim-bridge-install.yaml]
-  - ref: quay.io/lee_forster/mas-iam-operator:0.0.16
+  - ref: quay.io/lee_forster/mas-iam-operator:0.0.17
     kind: release
     archs: [amd64]
     used_in: [operators/mas-iam-operator/bundle/manifests/mas-iam-operator.clusterserviceversion.yaml, operators/mas-iam-operator/config/manager/kustomization.yaml]
-  - ref: quay.io/lee_forster/mas-iam-operator:catalog-0.0.16
+  - ref: quay.io/lee_forster/mas-iam-operator:catalog-0.0.17
     kind: release
     archs: [amd64]
     used_in: [manifests/install-olm.yaml, scripts/install-operator-from-catalog.sh]

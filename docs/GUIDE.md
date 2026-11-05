@@ -159,7 +159,7 @@ Users sign in again afterwards. OIDC picks up the new keys by itself. The last c
 
 | Component | In namespace `mas-est` | In namespace `mas-<instance>-core` |
 |---|---|---|
-| MAS IAM operator | CSV `mas-iam-operator.v0.0.16`, from CatalogSource `mas-iam-operator` in `openshift-marketplace` | |
+| MAS IAM operator | CSV `mas-iam-operator.v0.0.17`, from CatalogSource `mas-iam-operator` in `openshift-marketplace` | |
 | OpenLDAP | `deployment/mas-est-iam-openldap` | `idpcfg/<instance>-ldap-default-system` |
 | Keycloak, realm `maximo`, with PostgreSQL | `deployment/mas-est-iam`, route `mas-est-iam` | `idpcfg/<instance>-oidc-default-system`, `idpcfg/<instance>-saml-default-system` |
 | SCIM bridge | `deployment/scim-bridge` | SCIM profile `demo` |

@@ -147,3 +147,25 @@ func TestParseKeycloakOIDCSecretIgnoresNoise(t *testing.T) {
 		t.Fatal("ok for output without the marker")
 	}
 }
+
+func TestUsableMASOIDCSecret(t *testing.T) {
+	cases := []struct {
+		name string
+		data map[string]string
+		want bool
+	}{
+		{"random hex", map[string]string{"clientSecret": "0f1e2d3c4b5a69788796a5b4c3d2e1f0"}, true},
+		{"trimmed", map[string]string{"clientSecret": "  0f1e2d3c4b5a69788796a5b4c3d2e1f0\n"}, true},
+		{"missing", map[string]string{"clientId": "default"}, false},
+		{"too short", map[string]string{"clientSecret": "short"}, false},
+		{"json quote", map[string]string{"clientSecret": `0f1e2d3c4b5a6978"8796a5b4c3d2e1f0`}, false},
+		{"shell expansion", map[string]string{"clientSecret": "0f1e2d3c4b5a6978$(id)96a5b4c3d2e1f0"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, ok := usableMASOIDCSecret(tc.data); ok != tc.want {
+				t.Fatalf("usableMASOIDCSecret(%q) ok=%v, want %v", tc.data["clientSecret"], ok, tc.want)
+			}
+		})
+	}
+}

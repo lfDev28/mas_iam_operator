@@ -523,7 +523,7 @@ func (o *masAuthApplyOptions) configureKeycloak(ctx context.Context, runner *exe
 	}
 	// Only used when the OIDC client does not exist yet: the script reuses
 	// an existing client's current secret (see keycloakMASClientScript).
-	oidcSecret, err := randomSecretString(32)
+	oidcSecret, seededFromMAS, err := o.newOIDCClientSecret(ctx, client)
 	if err != nil {
 		return keycloakMASClients{}, err
 	}
@@ -565,9 +565,13 @@ func (o *masAuthApplyOptions) configureKeycloak(ctx context.Context, runner *exe
 			return keycloakMASClients{}, fmt.Errorf("configure Keycloak MAS clients: the client script did not report the OIDC client secret; refusing to send MAS a secret Keycloak may not hold")
 		}
 		oidcSecret = effective
-		if state == "reused" {
+		switch {
+		case state == "reused":
 			fmt.Fprintf(os.Stdout, "[mas-auth] Keycloak OIDC client %s exists; keeping its current client secret\n", o.oidcProviderID)
-		} else {
+		case seededFromMAS:
+			fmt.Fprintf(os.Stdout, "[mas-auth] Keycloak OIDC client %s created with the client secret MAS already holds (%s/%s), so MAS sees no secret change\n",
+				o.oidcProviderID, o.masCoreNamespace, o.masOIDCCredsSecretName())
+		default:
 			fmt.Fprintf(os.Stdout, "[mas-auth] Keycloak OIDC client %s configured with a new client secret\n", o.oidcProviderID)
 		}
 	}
@@ -621,6 +625,46 @@ func tlsCertificatesFromHost(ctx context.Context, host, prefix string) []certifi
 		})
 	}
 	return entries
+}
+
+// masOIDCCredsSecretName is the secret MAS keeps the OIDC client credentials
+// in, recreated on every PUT /config/oidc/{idpId}.
+func (o *masAuthApplyOptions) masOIDCCredsSecretName() string {
+	return o.masInstanceID + "-usersupplied-oidc-" + o.oidcProviderID + "-creds-system"
+}
+
+// newOIDCClientSecret picks the secret for a Keycloak OIDC client that has to
+// be created (a fresh Keycloak, e.g. after uninstall and reinstall). When MAS
+// already holds a secret for this provider, Keycloak is given that same one:
+// MAS coreidp caches the secret in memory and does not reload it when the
+// IDPCfg is re-PUT, so a new secret would break every OIDC login with
+// unauthorized_client until coreidp restarts. Otherwise a random secret.
+func (o *masAuthApplyOptions) newOIDCClientSecret(ctx context.Context, client *oc.Client) (string, bool, error) {
+	if o.hasProvider(config.MASAuthProviderOIDC) && o.masCoreNamespace != "" && o.masInstanceID != "" {
+		data, err := client.SecretData(ctx, o.masCoreNamespace, o.masOIDCCredsSecretName())
+		switch {
+		case err == nil:
+			if secret, ok := usableMASOIDCSecret(data); ok {
+				return secret, true, nil
+			}
+		case oc.IsNotFound(err):
+		default:
+			// Not fatal: an unreadable secret only costs the seeding.
+			fmt.Fprintf(os.Stderr, "[warn] could not read %s/%s to reuse its OIDC client secret: %v\n", o.masCoreNamespace, o.masOIDCCredsSecretName(), err)
+		}
+	}
+	secret, err := randomSecretString(32)
+	return secret, false, err
+}
+
+// usableMASOIDCSecret returns the clientSecret MAS holds, if it is one the
+// Keycloak client JSON can carry verbatim.
+func usableMASOIDCSecret(data map[string]string) (string, bool) {
+	secret := strings.TrimSpace(data["clientSecret"])
+	if len(secret) < 16 || strings.ContainsAny(secret, "\"\\$`\n\r") {
+		return "", false
+	}
+	return secret, true
 }
 
 func (o *masAuthApplyOptions) keycloakAdminSecret(ctx context.Context, client *oc.Client) (map[string]string, string, error) {
@@ -1024,7 +1068,7 @@ func (o *masAuthApplyOptions) masManifests(ctx context.Context, client *oc.Clien
 		)
 	}
 	if o.hasProvider(config.MASAuthProviderOIDC) {
-		oidcCredSecret := o.masInstanceID + "-usersupplied-oidc-" + o.oidcProviderID + "-creds-system"
+		oidcCredSecret := o.masOIDCCredsSecretName()
 		manifests = append(manifests,
 			secretStringDataManifest(o.masCoreNamespace, oidcCredSecret, map[string]string{
 				"clientId":     kc.OIDCClientID,

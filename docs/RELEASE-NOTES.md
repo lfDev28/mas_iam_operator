@@ -10,12 +10,12 @@ Each entry lists which versions it ships with.
 
 ## v0.1.16
 
-CLI `v0.1.16` · bridge `scim-bridge-v0.1.3` · operator `0.0.16`
+CLI `v0.1.16` · bridge `scim-bridge-v0.1.3` · operator `0.0.17`
 
 A stability release, from a review of the whole repository. Most fixes stop a second `install` or `mas-auth apply` from breaking an install that was working.
 
 - **Security:** the Keycloak realm shipped with a fixed set of signing keys, published in this repository, so every install signed tokens with the same key. New installs generate their own keys. **Rotate the keys on existing installs**: see [Upgrading an install made before v0.1.16](GUIDE.md#upgrading-an-install-made-before-v0116).
-- **Fixed:** every OIDC login failed with `unauthorized_client` after a second `install` or `mas-auth apply`. Each run generated a new client secret. Re-runs now keep it.
+- **Fixed:** every OIDC login failed with `unauthorized_client` after a second `install` or `mas-auth apply`, or after an uninstall and reinstall. Each run gave Keycloak a new client secret, which MAS stored but `coreidp` kept the old one in memory. Re-runs now keep the secret, and a reinstall gives the new Keycloak the secret MAS already holds.
 - **Fixed:** LDAP logins could fail TLS checks after a re-run. Each re-run more than 5 minutes after the last regenerated the OpenLDAP certificates. A valid certificate is now kept.
 - **Fixed:** `mas-auth apply --providers <subset>` deleted self-registration for the providers left out. Those entries are now kept.
 - **Fixed:** OpenLDAP crash-looped whenever its pod moved to a new node, because its configuration wasn't on its volume. On the first start after the upgrade it is migrated, and existing entries are kept. OpenLDAP now also uses the `Recreate` strategy, has health probes, and starts in seconds instead of generating DH parameters.

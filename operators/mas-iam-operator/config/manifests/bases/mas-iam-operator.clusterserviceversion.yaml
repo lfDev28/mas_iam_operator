@@ -4,7 +4,7 @@ metadata:
   annotations:
     alm-examples: '[]'
     capabilities: Basic Install
-    olm.skipRange: <0.0.16
+    olm.skipRange: <0.0.17
   name: mas-iam-operator.v0.0.0
   namespace: placeholder
 spec:
