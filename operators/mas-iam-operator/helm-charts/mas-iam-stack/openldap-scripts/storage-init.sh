@@ -86,7 +86,8 @@ if /container/tool/run -k --run-only startup --loglevel info true; then
   # mdb does not record its suffix, so "slapcat works" is not enough: the
   # database must also hold the base entry for LDAP_BASE_DN, or the rebuilt
   # config (suffix, rootDN, ACLs) would not match the data.
-  if slapcat -F /etc/ldap/slapd.d -b "${LDAP_BASE_DN}" -o ldif_wrap=no -l /tmp/existing.ldif \
+  # ldif-wrap, with a hyphen: slapcat 2.4 rejects ldif_wrap with a usage error.
+  if slapcat -F /etc/ldap/slapd.d -b "${LDAP_BASE_DN}" -o ldif-wrap=no -l /tmp/existing.ldif \
     && grep -qixF "dn: ${LDAP_BASE_DN}" /tmp/existing.ldif; then
     regenerated=true
   else

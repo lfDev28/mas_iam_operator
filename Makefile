@@ -18,7 +18,7 @@ TLS_CONTEXT   ?= images/openldap-tls-generator
 VALUES_FLAGS := -f $(CHART)/values.yaml
 
 .PHONY: lint deps deploy status health teardown redeploy tls-image tls-push scim-keycloak-image scim-keycloak-push scim-bridge-build doc-pdf docs-pdf doc-pdf-clean docs-pdf-clean user-guide-pdf user-guide-clean
-.PHONY: check check-go check-scripts check-helm check-images check-images-scan release-check bump release-images release-verify release-tag smoke
+.PHONY: check check-go check-scripts check-helm check-images check-images-scan release-check bump release-images release-verify release-tag smoke test-openldap-storage
 
 # ---- Checks ------------------------------------------------------------------
 # `make check` is the definition of done: the same checks CI runs
@@ -84,6 +84,11 @@ release-tag:
 SMOKE_ARGS ?= --help
 smoke:
 	@./scripts/smoke.sh $(SMOKE_ARGS)
+
+# Container test of the OpenLDAP storage init script (legacy-volume migration).
+# Needs podman or docker; CI runs it on every change to the chart.
+test-openldap-storage:
+	./scripts/test-openldap-storage.sh
 
 lint:
 	./scripts/verify-helm-chart.sh

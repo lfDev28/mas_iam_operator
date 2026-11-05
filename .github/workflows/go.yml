@@ -49,3 +49,17 @@ jobs:
 
       - name: bash -n, helm lint, chart symlink, image refs listed in images.yaml
         run: make check-scripts check-helm lint check-images-scan
+
+  openldap-storage:
+    name: openldap storage migration (container test)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Starts the chart's OpenLDAP image on a legacy (chart <= 0.1.7) volume,
+      # runs openldap-scripts/storage-init.sh, and checks the data survives.
+      - name: storage-init.sh migrates a legacy volume and keeps its data
+        run: make test-openldap-storage
+        env:
+          CONTAINER_ENGINE: docker
