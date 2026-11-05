@@ -12,43 +12,33 @@ metadata:
           },
           "spec": {
             "keycloak": {
-              "enabled": true,
-              "devMode": {
-                "enabled": false
-              },
-              "image": {
-                "registry": "quay.io",
-                "repository": "keycloak/keycloak",
-                "tag": "26.0.5",
-                "pullPolicy": "IfNotPresent",
-                "pullSecret": ""
-              },
               "args": [
                 "start"
               ],
-              "replicaCount": 1,
-              "resources": {
-                "requests": {
-                  "cpu": "250m",
-                  "memory": "1Gi"
-                },
-                "limits": {
-                  "memory": "2Gi"
-                }
+              "bootstrapAdmin": {
+                "createSecret": false,
+                "password": "",
+                "passwordKey": "password",
+                "secretName": "mas-est-iam-bootstrap-admin",
+                "username": "admin",
+                "usernameKey": "username"
               },
               "containerSecurityContext": {
                 "allowPrivilegeEscalation": false,
-                "runAsNonRoot": true,
                 "capabilities": {
                   "drop": [
                     "ALL"
                   ]
                 },
+                "runAsNonRoot": true,
                 "seccompProfile": {
                   "type": "RuntimeDefault"
                 }
               },
-              "startupProbeFailureThreshold": 60,
+              "devMode": {
+                "enabled": false
+              },
+              "enabled": true,
               "env": [
                 {
                   "name": "KC_HEALTH_ENABLED",
@@ -67,226 +57,127 @@ metadata:
                   "value": "xforwarded"
                 }
               ],
-              "scim": {
-                "enabled": false,
-                "authenticationMode": "KEYCLOAK",
-                "externalIssuer": "",
-                "externalAudience": "",
-                "externalJwksUri": "",
-                "linkIdentityProvider": false,
-                "emailAsUsername": false
+              "image": {
+                "pullPolicy": "IfNotPresent",
+                "pullSecret": "",
+                "registry": "quay.io",
+                "repository": "keycloak/keycloak",
+                "tag": "26.0.5"
               },
-              "bootstrapAdmin": {
-                "createSecret": false,
-                "secretName": "mas-est-iam-bootstrap-admin",
-                "usernameKey": "username",
-                "passwordKey": "password",
-                "username": "admin",
-                "password": ""
-              },
-              "route": {
-                "enabled": true,
-                "host": "",
-                "autoHost": {
-                  "enabled": false,
-                  "appsDomain": ""
-                },
+              "ldap": {
+                "autoConfigure": true,
+                "autoConfigureOnUpgrade": false,
+                "baseDn": "dc=demo,dc=local",
+                "bindCredentialKey": "password",
+                "bindCredentialSecret": "mas-est-iam-openldap-admin",
+                "bindDn": "cn=admin,dc=demo,dc=local",
+                "cachePolicy": "DEFAULT",
+                "changedSyncPeriod": 600,
+                "configJobActiveDeadlineSeconds": 1800,
+                "configJobWaitTimeoutSeconds": 900,
+                "connectionUrl": "",
+                "editMode": "READ_ONLY",
+                "fullSyncPeriod": 86400,
+                "groupsDn": "ou=groups,dc=demo,dc=local",
+                "importUsers": true,
+                "providerName": "openldap",
+                "rdnLDAPAttribute": "uid",
+                "realm": "maximo",
+                "searchScope": "SUBTREE",
+                "syncPeriod": 3600,
                 "tls": {
-                  "termination": "edge",
-                  "insecurePolicy": "Redirect",
-                  "certificate": "",
-                  "key": "",
-                  "caCertificate": "",
-                  "destinationCACertificate": ""
-                }
-              },
-              "service": {
-                "port": 8080
+                  "caBundleKey": "ca.crt",
+                  "caSecret": "mas-est-iam-keycloak-openldap-tls",
+                  "enabled": true,
+                  "hostnameVerificationPolicy": "ANY",
+                  "truststoreFile": "ldap-truststore.p12",
+                  "truststorePassword": "changeit"
+                },
+                "truststoreKey": "truststore.jks",
+                "truststorePasswordKey": "password",
+                "truststorePasswordSecret": "",
+                "truststoreSecret": "",
+                "useTruststoreSpi": "Always",
+                "usernameLDAPAttribute": "uid",
+                "usersDn": "ou=users,dc=demo,dc=local",
+                "uuidLDAPAttribute": "entryUUID"
               },
               "realmImport": {
                 "enabled": true,
-                "overrideExisting": false,
                 "files": [
                   {
                     "file": "realm-config/maximo-realm.json",
                     "target": "maximo-realm.json"
                   }
-                ]
+                ],
+                "overrideExisting": false
+              },
+              "replicaCount": 1,
+              "resources": {
+                "limits": {
+                  "memory": "2Gi"
+                },
+                "requests": {
+                  "cpu": "250m",
+                  "memory": "1Gi"
+                }
+              },
+              "route": {
+                "autoHost": {
+                  "appsDomain": "",
+                  "enabled": false
+                },
+                "enabled": true,
+                "host": "",
+                "tls": {
+                  "caCertificate": "",
+                  "certificate": "",
+                  "destinationCACertificate": "",
+                  "insecurePolicy": "Redirect",
+                  "key": "",
+                  "termination": "edge"
+                }
+              },
+              "scim": {
+                "authenticationMode": "KEYCLOAK",
+                "emailAsUsername": false,
+                "enabled": false,
+                "externalAudience": "",
+                "externalIssuer": "",
+                "externalJwksUri": "",
+                "linkIdentityProvider": false
+              },
+              "service": {
+                "port": 8080
               },
               "serviceAccount": {
                 "create": true,
                 "name": ""
               },
-              "ldap": {
-                "autoConfigure": true,
-                "realm": "maximo",
-                "providerName": "openldap",
-                "connectionUrl": "",
-                "baseDn": "dc=demo,dc=local",
-                "bindDn": "cn=admin,dc=demo,dc=local",
-                "bindCredentialSecret": "mas-est-iam-openldap-admin",
-                "autoConfigureOnUpgrade": false,
-                "bindCredentialKey": "password",
-                "usersDn": "ou=users,dc=demo,dc=local",
-                "groupsDn": "ou=groups,dc=demo,dc=local",
-                "useTruststoreSpi": "Always",
-                "truststoreSecret": "",
-                "truststoreKey": "truststore.jks",
-                "truststorePasswordSecret": "",
-                "truststorePasswordKey": "password",
-                "tls": {
-                  "enabled": true,
-                  "caSecret": "mas-est-iam-keycloak-openldap-tls",
-                  "caBundleKey": "ca.crt",
-                  "truststorePassword": "changeit",
-                  "truststoreFile": "ldap-truststore.p12",
-                  "hostnameVerificationPolicy": "ANY"
-                },
-                "editMode": "READ_ONLY",
-                "importUsers": true,
-                "syncPeriod": 3600,
-                "fullSyncPeriod": 86400,
-                "changedSyncPeriod": 600,
-                "cachePolicy": "DEFAULT",
-                "searchScope": "SUBTREE",
-                "uuidLDAPAttribute": "entryUUID",
-                "usernameLDAPAttribute": "uid",
-                "rdnLDAPAttribute": "uid",
-                "configJobWaitTimeoutSeconds": 900,
-                "configJobActiveDeadlineSeconds": 1800
-              }
-            },
-            "postgresql": {
-              "enabled": true,
-              "image": {
-                "registry": "quay.io",
-                "repository": "lee_forster/mas-iam-operator",
-                "tag": "postgresql-17.6.0-debian-12-r4-multi",
-                "pullPolicy": "IfNotPresent"
-              },
-              "auth": {
-                "existingSecret": "mas-est-iam-postgresql",
-                "username": "keycloak",
-                "database": "keycloak",
-                "secretKeys": {
-                  "adminPasswordKey": "postgres-password",
-                  "userPasswordKey": "password"
-                },
-                "password": "unused-see-existingSecret"
-              },
-              "primary": {
-                "persistence": {
-                  "enabled": true,
-                  "storageClass": "rook-ceph-block",
-                  "size": "8Gi"
-                },
-                "podSecurityContext": {
-                  "enabled": true,
-                  "fsGroup": 1001
-                },
-                "containerSecurityContext": {
-                  "enabled": true,
-                  "runAsUser": 1001,
-                  "runAsNonRoot": true
-                },
-                "resourcesPreset": "none",
-                "resources": {
-                  "requests": {
-                    "cpu": "100m",
-                    "memory": "256Mi"
-                  },
-                  "limits": {
-                    "cpu": "1",
-                    "memory": "512Mi"
-                  }
-                }
-              }
+              "startupProbeFailureThreshold": 60
             },
             "openldap": {
-              "enabled": true,
-              "image": {
-                "repository": "quay.io/lee_forster/mas-iam-operator",
-                "tag": "openldap-1.5.0-multi",
-                "pullPolicy": "IfNotPresent"
-              },
-              "replicaCount": 1,
               "admin": {
-                "createSecret": false,
-                "secretName": "mas-est-iam-openldap-admin",
-                "passwordKey": "password",
-                "password": "",
                 "configPassword": "",
-                "configPasswordKey": "configPassword"
+                "configPasswordKey": "configPassword",
+                "createSecret": false,
+                "password": "",
+                "passwordKey": "password",
+                "secretName": "mas-est-iam-openldap-admin"
               },
-              "service": {
-                "port": 389,
-                "tlsPort": 636,
-                "type": "ClusterIP"
-              },
-              "persistence": {
-                "enabled": true,
-                "size": "2Gi",
-                "storageClass": ""
-              },
-              "probes": {
-                "enabled": true,
-                "startupFailureThreshold": 60
-              },
+              "affinity": {},
               "config": {
-                "organisation": "Demo Org",
-                "domain": "demo.local",
                 "baseDN": "dc=demo,dc=local",
-                "enableConfigAdmin": false
-              },
-              "podSecurityContext": {
-                "enabled": true,
-                "fsGroup": 0
+                "domain": "demo.local",
+                "enableConfigAdmin": false,
+                "organisation": "Demo Org"
               },
               "containerSecurityContext": {
                 "enabled": false,
                 "runAsNonRoot": false,
                 "runAsUser": 0
               },
-              "userPasswords": {
-                "createSecret": false,
-                "secretName": "mas-est-iam-openldap-user-passwords",
-                "data": {}
-              },
-              "podAnnotations": {},
-              "podLabels": {},
-              "resources": {
-                "requests": {
-                  "cpu": "100m",
-                  "memory": "256Mi"
-                },
-                "limits": {
-                  "cpu": "500m",
-                  "memory": "512Mi"
-                }
-              },
-              "nodeSelector": {},
-              "tolerations": [],
-              "affinity": {},
-              "serviceAccount": {
-                "create": true,
-                "name": ""
-              },
-              "seedLDIFs": [
-                {
-                  "file": "ldap-seed/dev-base.ldif"
-                }
-              ],
-              "tls": {
-                "enabled": true,
-                "createSecret": false,
-                "secretName": "mas-est-iam-keycloak-openldap-tls",
-                "certKey": "tls.crt",
-                "privateKeyKey": "tls.key",
-                "caKey": "ca.crt",
-                "truststoreKey": "ldap-truststore.p12",
-                "truststorePasswordKey": "truststorePassword",
-                "enforce": false
-              },
+              "enabled": true,
               "extraEnv": [
                 {
                   "name": "CONTAINER_LOG_LEVEL",
@@ -300,14 +191,123 @@ metadata:
                   "name": "LDAP_TLS_VERIFY_CLIENT",
                   "value": "never"
                 }
-              ]
+              ],
+              "image": {
+                "pullPolicy": "IfNotPresent",
+                "repository": "quay.io/lee_forster/mas-iam-operator",
+                "tag": "openldap-1.5.0-multi"
+              },
+              "nodeSelector": {},
+              "persistence": {
+                "enabled": true,
+                "size": "2Gi",
+                "storageClass": ""
+              },
+              "podAnnotations": {},
+              "podLabels": {},
+              "podSecurityContext": {
+                "enabled": true,
+                "fsGroup": 0
+              },
+              "probes": {
+                "enabled": true,
+                "startupFailureThreshold": 60
+              },
+              "replicaCount": 1,
+              "resources": {
+                "limits": {
+                  "cpu": "500m",
+                  "memory": "512Mi"
+                },
+                "requests": {
+                  "cpu": "100m",
+                  "memory": "256Mi"
+                }
+              },
+              "seedLDIFs": [
+                {
+                  "file": "ldap-seed/dev-base.ldif"
+                }
+              ],
+              "service": {
+                "port": 389,
+                "tlsPort": 636,
+                "type": "ClusterIP"
+              },
+              "serviceAccount": {
+                "create": true,
+                "name": ""
+              },
+              "tls": {
+                "caKey": "ca.crt",
+                "certKey": "tls.crt",
+                "createSecret": false,
+                "enabled": true,
+                "enforce": false,
+                "privateKeyKey": "tls.key",
+                "secretName": "mas-est-iam-keycloak-openldap-tls",
+                "truststoreKey": "ldap-truststore.p12",
+                "truststorePasswordKey": "truststorePassword"
+              },
+              "tolerations": [],
+              "userPasswords": {
+                "createSecret": false,
+                "data": {},
+                "secretName": "mas-est-iam-openldap-user-passwords"
+              }
+            },
+            "postgresql": {
+              "auth": {
+                "database": "keycloak",
+                "existingSecret": "mas-est-iam-postgresql",
+                "password": "unused-see-existingSecret",
+                "secretKeys": {
+                  "adminPasswordKey": "postgres-password",
+                  "userPasswordKey": "password"
+                },
+                "username": "keycloak"
+              },
+              "enabled": true,
+              "image": {
+                "pullPolicy": "IfNotPresent",
+                "registry": "quay.io",
+                "repository": "lee_forster/mas-iam-operator",
+                "tag": "postgresql-17.6.0-debian-12-r4-multi"
+              },
+              "primary": {
+                "containerSecurityContext": {
+                  "enabled": true,
+                  "runAsNonRoot": true,
+                  "runAsUser": 1001
+                },
+                "persistence": {
+                  "enabled": true,
+                  "size": "8Gi",
+                  "storageClass": "rook-ceph-block"
+                },
+                "podSecurityContext": {
+                  "enabled": true,
+                  "fsGroup": 1001
+                },
+                "resources": {
+                  "limits": {
+                    "cpu": "1",
+                    "memory": "512Mi"
+                  },
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "256Mi"
+                  }
+                },
+                "resourcesPreset": "none"
+              }
             }
           }
         }
       ]
     capabilities: Basic Install
-    createdAt: "2026-08-20T00:47:41Z"
-    olm.skipRange: '<0.0.16'
+    createdAt: "2026-11-05T00:57:17Z"
+    olm.skipRange: <0.0.16
     operators.operatorframework.io/builder: operator-sdk-v1.33.0
     operators.operatorframework.io/project_layout: helm.sdk.operatorframework.io/v1
   name: mas-iam-operator.v0.0.16

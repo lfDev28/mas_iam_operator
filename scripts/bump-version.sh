@@ -93,6 +93,10 @@ case "${artifact}" in
     csv=operators/mas-iam-operator/bundle/manifests/mas-iam-operator.clusterserviceversion.yaml
     subst "${csv}" 's/^(  name: mas-iam-operator\.v)\d+\.\d+\.\d+$/${1}$ENV{NEW}/'
     subst "${csv}" 's/^(  version: )\d+\.\d+\.\d+$/${1}$ENV{NEW}/'
+    # skipRange lets OLM jump any earlier release straight to this one.
+    for f in "${csv}" operators/mas-iam-operator/config/manifests/bases/mas-iam-operator.clusterserviceversion.yaml; do
+      subst "${f}" "s/^(\s*olm\.skipRange:\s*'?<)\d+\.\d+\.\d+/\${1}\$ENV{NEW}/"
+    done
     for f in "${csv}" manifests/install-olm.yaml scripts/install-operator-from-catalog.sh images.yaml; do
       subst "${f}" 's/(mas-iam-operator:(?:catalog-)?)\d+\.\d+\.\d+(?![-\w.])/${1}$ENV{NEW}/g'
     done
