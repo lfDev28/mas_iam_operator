@@ -433,7 +433,7 @@ expected_operator_csv() {
     -o jsonpath="{.status.channels[?(@.name==\"${channel}\")].currentCSV}" 2>/dev/null || true
 }
 
-# csv_version_older succeeds when CSV $1 (e.g. mas-iam-operator.v0.0.14) has
+# csv_version_older succeeds when CSV $1 (a name like <package>.v1.2.3) has
 # a lower version than CSV $2. Numeric dotted compare; anything it cannot
 # parse counts as "not older", so the caller never acts on a guess.
 csv_version_older() {
