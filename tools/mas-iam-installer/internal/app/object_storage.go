@@ -34,8 +34,13 @@ const (
 	// anonymous pulls, pinned release tags included. Pigsty's fork is a
 	// drop-in replacement (same entrypoints). Pinned, never :latest, so an
 	// upstream change can't break installs again.
-	defaultMinIOImage   = "docker.io/pgsty/minio:RELEASE.2026-08-04T00-00-00Z"
-	defaultMinIOMCImage = "docker.io/pgsty/mc:RELEASE.2026-09-16T00-00-00Z"
+	//
+	// Pulled from our Quay mirror (scripts/mirror-dev-images.sh), not Docker
+	// Hub: Docker Hub allows 10 anonymous pulls an hour per IP, and lab
+	// clusters (Fyre, TechZone) share egress IPs, so a fresh install there
+	// failed with "toomanyrequests" and MinIO in ImagePullBackOff.
+	defaultMinIOImage   = "quay.io/lee_forster/mas-iam-operator:minio-RELEASE.2026-08-04T00-00-00Z"
+	defaultMinIOMCImage = "quay.io/lee_forster/mas-iam-operator:mc-RELEASE.2026-09-16T00-00-00Z"
 )
 
 type objectStorageInstallOptions struct {

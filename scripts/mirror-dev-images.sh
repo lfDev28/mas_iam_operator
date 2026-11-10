@@ -67,8 +67,9 @@ images=(
   "openldap-1.5.0=docker.io/osixia/openldap:1.5.0"
   # MinIO server and client from Pigsty's fork, at the tags pinned in
   # tools/mas-iam-installer/internal/app/object_storage.go (upstream minio/*
-  # images are gone). The installer still pulls docker.io/pgsty directly;
-  # these copies are a fallback should those tags disappear too. Keep the
+  # images are gone). The installer pulls these Quay copies, never Docker
+  # Hub (anonymous pull rate limit on shared-IP lab clusters), and they
+  # survive Pigsty pruning those tags. Keep the
   # tags in step with object_storage.go and images.yaml.
   "minio-RELEASE.2026-08-04T00-00-00Z=docker.io/pgsty/minio:RELEASE.2026-08-04T00-00-00Z"
   "mc-RELEASE.2026-09-16T00-00-00Z=docker.io/pgsty/mc:RELEASE.2026-09-16T00-00-00Z"

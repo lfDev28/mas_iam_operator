@@ -18,7 +18,7 @@ One entry per limitation, with the workaround. `<instance>` is your MAS instance
 
 **One SCIM profile.** Every synced user lands in profile `demo`. To route a user elsewhere, set the Keycloak user attribute `masProfile` and map it with `SCIM_BRIDGE_MAS_PROFILE_MAP`.
 
-**MinIO is a community fork.** MinIO stopped publishing its images and is no longer maintained, so the install uses Pigsty's drop-in fork (`docker.io/pgsty/minio`), pinned to a fixed release. It's fine for demos and testing. Don't treat it as production storage.
+**MinIO is a community fork.** MinIO stopped publishing its images and is no longer maintained, so the install uses Pigsty's drop-in fork (`docker.io/pgsty/minio`), pinned to a fixed release and pulled from a copy on Quay. It's fine for demos and testing. Don't treat it as production storage.
 
 **Mailpit and Manage doclinks aren't connected automatically.** Both are manual steps in the [Guide](GUIDE.md#connect-smtp). Mail from MAS into Mailpit hasn't been tested end to end.
 

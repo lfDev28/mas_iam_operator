@@ -22,6 +22,7 @@ A stability release, from a review of the whole repository. Most fixes stop a se
 - **Fixed (bridge):** a single MAS error stopped a user syncing permanently, even after MAS recovered. Errors now retry with backoff. A Keycloak outage no longer crash-loops the bridge, and without group scoping it now syncs every user, not only the first 50. It also gains health probes.
 - **Fixed:** the published SCIM bridge install manifest carried the build machine's home directory, and its Keycloak bootstrap Job could never pass its secret check.
 - **Fixed:** an instance ID with a dash, such as `mas-dev`, was read as the wrong workspace.
+- **Fixed:** a fresh install with S3 could fail at `Install MinIO S3` with pod `mas-minio` in `ImagePullBackOff` and `toomanyrequests` in its events. Docker Hub limits anonymous pulls per IP, and lab clusters share their IPs. The MinIO images now come from Quay.
 - **New:** `make login-check HOME_URL=https://home.<instance>.<apps-domain>` logs in the OIDC, SAML and SCIM demo users through MAS without a browser, and names the MAS error code when one fails.
 - **Fixed:** the SCIM client setup no longer prints the Keycloak client secret into the install log.
 - **New:** preflight checks for cluster-admin rights and validates `--workspace-id`. Auth-only installs now check the MAS API URL and key up front, which also catches the missing OIDC API on MAS 9.0.

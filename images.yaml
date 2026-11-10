@@ -67,15 +67,16 @@ images:
     kind: runtime
     archs: [amd64, arm64]
     used_in: [env/scim-bridge.env.release, manifests/scim-bridge-install.yaml, scripts/scim-bridge-02-deploy.sh, scripts/scim-bridge-04-render-install-manifest.sh]
-  - ref: docker.io/pgsty/minio:RELEASE.2026-08-04T00-00-00Z
+  - ref: quay.io/lee_forster/mas-iam-operator:minio-RELEASE.2026-08-04T00-00-00Z
     kind: runtime
     archs: [amd64, arm64]
     used_in: [tools/mas-iam-installer/internal/app/object_storage.go]
-    note: Pigsty fork; upstream minio/minio images were deleted 2026-10. Mirror target in scripts/mirror-dev-images.sh.
-  - ref: docker.io/pgsty/mc:RELEASE.2026-09-16T00-00-00Z
+    note: Mirror of docker.io/pgsty/minio (Pigsty fork; upstream minio/minio images were deleted 2026-10). Mirrored so installs never pull from rate-limited Docker Hub. See scripts/mirror-dev-images.sh.
+  - ref: quay.io/lee_forster/mas-iam-operator:mc-RELEASE.2026-09-16T00-00-00Z
     kind: runtime
     archs: [amd64, arm64]
     used_in: [tools/mas-iam-installer/internal/app/object_storage.go]
+    note: Mirror of docker.io/pgsty/mc. See scripts/mirror-dev-images.sh.
   - ref: ghcr.io/axllent/mailpit:v1.30.1
     kind: runtime
     archs: [amd64, arm64]
@@ -104,6 +105,16 @@ images:
     optional: true
     used_in: [scripts/mirror-dev-images.sh]
   - ref: docker.io/osixia/openldap:1.5.0
+    kind: mirror-source
+    archs: [amd64, arm64]
+    optional: true
+    used_in: [scripts/mirror-dev-images.sh]
+  - ref: docker.io/pgsty/minio:RELEASE.2026-08-04T00-00-00Z
+    kind: mirror-source
+    archs: [amd64, arm64]
+    optional: true
+    used_in: [scripts/mirror-dev-images.sh]
+  - ref: docker.io/pgsty/mc:RELEASE.2026-09-16T00-00-00Z
     kind: mirror-source
     archs: [amd64, arm64]
     optional: true

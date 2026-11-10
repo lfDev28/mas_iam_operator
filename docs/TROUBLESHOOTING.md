@@ -97,6 +97,7 @@ Start with `mas-est logs --component bridge --tail 300` and `mas-est config view
 
 | Symptom | Cause | Fix |
 |---|---|---|
+| `Install MinIO S3` times out, and pod `mas-minio` shows `ImagePullBackOff` with `toomanyrequests: You have reached your unauthenticated pull rate limit` | CLI v0.1.15 pulls MinIO from Docker Hub, which allows 10 anonymous pulls an hour per IP. Lab clusters share their IPs | Upgrade to v0.1.16 or later, which pulls from Quay. With v0.1.15, wait for the limit to reset (the pod retries by itself) and re-run the install. |
 | `Install MinIO S3` times out, and pod `mas-minio` shows `ImagePullBackOff` with `quay.io/minio/minio: unauthorized` | CLI v0.1.14 or earlier. MinIO stopped serving its images in September 2026. | Upgrade to v0.1.15 or later, then run `mas-est install` again. On an older CLI, run `mas-est object-storage install-minio --mas-instance-id <instance> --image docker.io/pgsty/minio:RELEASE.2026-08-04T00-00-00Z --mc-image docker.io/pgsty/mc:RELEASE.2026-09-16T00-00-00Z`. |
 | `SignatureDoesNotMatch` on every attachment | `mxe.cosregion` isn't set | Add it as `us-east-1`. See [Connect S3 to Manage](GUIDE.md#connect-s3-to-manage). |
 | HTTP 503 or a certificate error on upload | `mxe.cosendpointuri` points at the MinIO route | Set it to `http://<namespace>.svc.cluster.local:9000`, which is `http://mas-est.svc.cluster.local:9000` in the default namespace. `mas-est` here is the namespace, not the service: Manage reaches the bucket at `<bucket>.<namespace>.svc`. |
