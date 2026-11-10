@@ -153,7 +153,7 @@ SH
 mas-est mas-auth apply --mas-instance-id <instance> --self-reg-workspace <workspace> --providers saml
 ```
 
-Users sign in again afterwards. OIDC picks up the new keys by itself. The last command re-uploads the SAML metadata, because MAS keeps a copy with the old signing certificate.
+Users sign in again afterwards. OIDC picks up the new keys by itself. The last command re-uploads the SAML metadata, because MAS keeps a copy with the old signing certificate. MAS takes up to about 15 minutes to apply it, and the command waits for that. SAML logins fail until then; no restart is needed.
 
 ## What gets installed
 

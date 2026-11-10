@@ -190,6 +190,17 @@ func (o *masAuthApplyOptions) applyViaAdminAPI(ctx context.Context, client *oc.C
 		if err != nil {
 			return fmt.Errorf("setSAMLConfig %s: %w", o.samlProviderID, err)
 		}
+		// Whether coreidp already has Keycloak's signing certificates, read
+		// before the PUTs: only a change needs the propagation wait below.
+		wantCerts := samlMetadataCerts(kc.SAMLMetadata)
+		certsCurrent := true
+		if len(wantCerts) > 0 {
+			current, err := o.coreIDPSAMLCertsCurrent(ctx, client, wantCerts)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "[mas-auth] WARN: could not read configmap/%s in %s: %v\n", masSAMLIdPConfigMapName, o.masCoreNamespace, err)
+			}
+			certsCurrent = current
+		}
 		if kc.SAMLMetadata != "" {
 			fmt.Fprintf(os.Stdout, "[mas-auth] PUT /config/saml/%s/metadata\n", o.samlProviderID)
 			if _, err := mc.SetSAMLIDPMetadata(ctx, o.samlProviderID, []byte(kc.SAMLMetadata)); err != nil {
@@ -198,6 +209,13 @@ func (o *masAuthApplyOptions) applyViaAdminAPI(ctx context.Context, client *oc.C
 		}
 		if err := o.maybeWait(ctx, mc, "saml", o.samlProviderID, putAt, resp); err != nil {
 			return err
+		}
+		// Ready (above) can be left over from the previous apply; the
+		// rendered metadata is what coreidp actually uses.
+		if o.wait && !certsCurrent {
+			if err := o.waitForCoreIDPSAMLMetadata(ctx, client, wantCerts); err != nil {
+				return err
+			}
 		}
 	}
 
