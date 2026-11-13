@@ -26,8 +26,6 @@ One entry per limitation, with the workaround. `<instance>` is your MAS instance
 
 **The install needs cluster-admin or an equivalent role,** for both the in-cluster Job and `--local`. It creates a ClusterRole, a CatalogSource in `openshift-marketplace`, an SCC and `anyuid` bindings, reads secrets in the MAS namespaces, and runs `pods/exec` on MongoDB. From v0.1.16, preflight checks this and names any missing permission.
 
-**Re-running `mas-auth apply` with nothing to change can take up to 2 minutes longer per provider.** The install only trusts a provider's `Ready` status once it is newer than its own update. When MAS has nothing to reconcile, that status never changes, so the install waits 2 minutes before accepting it.
-
 **Proxies:** the MAS Admin API calls honour `HTTPS_PROXY` and `NO_PROXY`, but the Keycloak route-certificate probe connects directly. When the probe can't connect, it falls back to the route's own certificate secret.
 
 **The operator and the SCIM bridge are built for amd64 only.** From operator 0.0.16 the operator pod runs only on amd64 nodes. Keycloak, OpenLDAP, PostgreSQL, MinIO and the CLI are multi-arch.

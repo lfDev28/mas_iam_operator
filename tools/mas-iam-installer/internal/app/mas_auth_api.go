@@ -153,12 +153,13 @@ func (o *masAuthApplyOptions) applyViaAdminAPI(ctx context.Context, client *oc.C
 		if err != nil {
 			return err
 		}
+		genBefore := o.idpCfgGeneration(ctx, client, o.ldapIDPCfgName())
 		putAt := time.Now()
 		resp, err := mc.SetLDAP(ctx, o.ldapProviderID, req)
 		if err != nil {
 			return fmt.Errorf("setLDAPConfig %s: %w", o.ldapProviderID, err)
 		}
-		if err := o.maybeWait(ctx, mc, "ldap", o.ldapProviderID, putAt, resp); err != nil {
+		if err := o.waitUnlessUnchanged(ctx, client, mc, "ldap", o.ldapProviderID, o.ldapIDPCfgName(), genBefore, putAt, resp); err != nil {
 			return err
 		}
 	}
@@ -166,6 +167,7 @@ func (o *masAuthApplyOptions) applyViaAdminAPI(ctx context.Context, client *oc.C
 	if o.hasProvider(config.MASAuthProviderOIDC) {
 		fmt.Fprintf(os.Stdout, "[mas-auth] PUT /config/oidc/%s\n", o.oidcProviderID)
 		req := o.buildOIDCRequest(kc)
+		genBefore := o.idpCfgGeneration(ctx, client, o.oidcIDPCfgName())
 		putAt := time.Now()
 		resp, err := mc.SetOIDC(ctx, o.oidcProviderID, req)
 		if err != nil {
@@ -177,7 +179,7 @@ func (o *masAuthApplyOptions) applyViaAdminAPI(ctx context.Context, client *oc.C
 			}
 			return fmt.Errorf("setOIDCConfig %s: %w", o.oidcProviderID, err)
 		}
-		if err := o.maybeWait(ctx, mc, "oidc", o.oidcProviderID, putAt, resp); err != nil {
+		if err := o.waitUnlessUnchanged(ctx, client, mc, "oidc", o.oidcProviderID, o.oidcIDPCfgName(), genBefore, putAt, resp); err != nil {
 			return err
 		}
 	}
@@ -185,6 +187,7 @@ func (o *masAuthApplyOptions) applyViaAdminAPI(ctx context.Context, client *oc.C
 	if o.hasProvider(config.MASAuthProviderSAML) {
 		fmt.Fprintf(os.Stdout, "[mas-auth] PUT /config/saml/%s\n", o.samlProviderID)
 		spReq := o.buildSAMLSPRequest()
+		genBefore := o.idpCfgGeneration(ctx, client, o.samlIDPCfgName())
 		putAt := time.Now()
 		resp, err := mc.SetSAMLSP(ctx, o.samlProviderID, spReq)
 		if err != nil {
@@ -207,7 +210,8 @@ func (o *masAuthApplyOptions) applyViaAdminAPI(ctx context.Context, client *oc.C
 				return fmt.Errorf("setSAMLIDPConfig %s: %w", o.samlProviderID, err)
 			}
 		}
-		if err := o.maybeWait(ctx, mc, "saml", o.samlProviderID, putAt, resp); err != nil {
+		// Covers both PUTs: genBefore was read before the SP PUT.
+		if err := o.waitUnlessUnchanged(ctx, client, mc, "saml", o.samlProviderID, o.samlIDPCfgName(), genBefore, putAt, resp); err != nil {
 			return err
 		}
 		// Ready (above) can be left over from the previous apply; the
