@@ -230,6 +230,10 @@ arch_name="$(uname -m)"
 case "${os_name}" in
   Darwin) os_name="darwin" ;;
   Linux) os_name="linux" ;;
+  MINGW*|MSYS*|CYGWIN*)
+    echo "error: mas-est does not run in Git Bash or Cygwin (${os_name}). On Windows, run it in WSL2: see 'On Windows' in docs/GUIDE.md" >&2
+    exit 1
+    ;;
   *)
     echo "error: unsupported operating system ${os_name}" >&2
     exit 1

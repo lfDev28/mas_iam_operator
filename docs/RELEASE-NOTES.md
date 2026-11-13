@@ -24,6 +24,7 @@ A stability release, from a review of the whole repository. Most fixes stop a se
 - **Fixed:** an instance ID with a dash, such as `mas-dev`, was read as the wrong workspace.
 - **Fixed:** after a reinstall, the install reported success while every SAML login failed with `AIUOM0100E` for up to 15 minutes. MAS applies new SAML metadata late and kept showing Ready. The install now waits until MAS serves Keycloak's new signing certificate, and warns if it doesn't within 15 minutes.
 - **Fixed:** a fresh install with S3 could fail at `Install MinIO S3` with pod `mas-minio` in `ImagePullBackOff` and `toomanyrequests` in its events. Docker Hub limits anonymous pulls per IP, and lab clusters share their IPs. The MinIO images now come from Quay.
+- **New:** the Guide covers Windows: run mas-est in WSL2. In Git Bash or Cygwin, the launcher now says so instead of "unsupported operating system".
 - **New:** `make login-check HOME_URL=https://home.<instance>.<apps-domain>` logs in the OIDC, SAML and SCIM demo users through MAS without a browser, and names the MAS error code when one fails.
 - **Fixed:** the SCIM client setup no longer prints the Keycloak client secret into the install log.
 - **New:** preflight checks for cluster-admin rights and validates `--workspace-id`. Auth-only installs now check the MAS API URL and key up front, which also catches the missing OIDC API on MAS 9.0.

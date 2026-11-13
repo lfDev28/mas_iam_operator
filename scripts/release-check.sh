@@ -113,6 +113,11 @@ if grep -q "^subtitle: \"v${version}\"" docs/ANNOUNCEMENT.md; then
 else
   fail "docs/ANNOUNCEMENT.md subtitle is not \"v${version}\""
 fi
+if grep -qF "\`version\` must print \`${version}\`" docs/GUIDE.md; then
+  ok "docs/GUIDE.md bootstrap check prints ${version}"
+else
+  fail "docs/GUIDE.md: the bootstrap step's \"\`version\` must print\" line is not ${version} (make bump ARTIFACT=cli updates it)"
+fi
 
 expect_pins "bridge image pins" "mas-iam-scim-bridge:scim-bridge-v${bridge_version}" \
   'mas-iam-scim-bridge:scim-bridge-v[0-9][0-9A-Za-z.-]*' . "${EXCLUDES[@]}"

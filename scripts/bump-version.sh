@@ -64,6 +64,7 @@ case "${artifact}" in
         subst "${f}" 's/(mas-external-services-tool:v)\d+\.\d+\.\d+(?![-\w.])/${1}$ENV{NEW}/g'
       done
       subst docs/ANNOUNCEMENT.md 's/^subtitle: "v[^"]*"/subtitle: "v$ENV{NEW}"/'
+      subst docs/GUIDE.md 's/(`version` must print `)\d+\.\d+\.\d+(`)/${1}$ENV{NEW}${2}/'
       if ! grep -q "^## v${new}\$" docs/RELEASE-NOTES.md; then
         line="CLI \`v${new}\` · bridge \`scim-bridge-v$(current_bridge)\` · operator \`$(current_operator)\`"
         NEW="${new}" LINE="${line}" perl -0pi -e 's/\n## /\n## v$ENV{NEW}\n\n$ENV{LINE}\n\n- **Fixed:** TODO symptom the user saw. One-line cause or change.\n\n## /' docs/RELEASE-NOTES.md

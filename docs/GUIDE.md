@@ -10,7 +10,7 @@ Placeholders: `<instance>` is your MAS instance ID, `<cluster-domain>` the clust
 
 | Need | Detail |
 |---|---|
-| Local tools | `podman`, `oc`, bash 3.2 or later |
+| Local tools | macOS or Linux with `podman`, `oc` and bash 3.2 or later. On Windows, use WSL2: see [On Windows](#on-windows). |
 | Cluster access | `oc` logged in as cluster-admin. The install creates namespaces, ClusterRoles and OLM resources. |
 | MAS API key | Name and value, with the **userAdmin** and **systemAdmin** permissions. Preflight rejects a key without them. |
 | Storage | A block (RBD) storage class. Preflight recommends one. |
@@ -28,7 +28,27 @@ export PATH="$HOME/mas-est:$PATH"
 mas-est version
 ```
 
-`version` must print `0.1.13`. `--force` overwrites an earlier runtime and is safe on a first install.
+`version` must print `0.1.16`. `--force` overwrites an earlier runtime and is safe on a first install.
+
+#### On Windows
+
+mas-est has no native Windows build. Run it in WSL2, where the Linux build works unchanged. Git Bash and Cygwin are not supported.
+
+In PowerShell as Administrator, then restart:
+
+```powershell
+wsl --install -d Ubuntu
+```
+
+In the Ubuntu terminal, install `podman` and `oc`, then bootstrap as above:
+
+```bash
+sudo apt-get update && sudo apt-get install -y podman curl
+curl -sL https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz | sudo tar -xz -C /usr/local/bin oc kubectl
+oc version --client
+```
+
+Add the `export PATH=...` line to `~/.bashrc` so `mas-est` is found in new terminals.
 
 ### 2. Preflight
 
