@@ -10,7 +10,7 @@ Each entry lists which versions it ships with.
 
 ## v0.1.16
 
-CLI `v0.1.16` · bridge `scim-bridge-v0.1.3` · operator `0.0.17`
+CLI `v0.1.16` · bridge `scim-bridge-v0.1.4` · operator `0.0.17`
 
 A stability release, from a review of the whole repository. Most fixes stop a second `install` or `mas-auth apply` from breaking an install that was working.
 
@@ -20,6 +20,7 @@ A stability release, from a review of the whole repository. Most fixes stop a se
 - **Fixed:** `mas-auth apply --providers <subset>` deleted self-registration for the providers left out. Those entries are now kept.
 - **Fixed:** OpenLDAP crash-looped whenever its pod moved to a new node, because its configuration wasn't on its volume. On the first start after the upgrade it is migrated, and existing entries are kept. OpenLDAP now also uses the `Recreate` strategy, has health probes, and starts in seconds instead of generating DH parameters.
 - **Fixed (bridge):** a single MAS error stopped a user syncing permanently, even after MAS recovered. Errors now retry with backoff. A Keycloak outage no longer crash-loops the bridge, and without group scoping it now syncs every user, not only the first 50. It also gains health probes.
+- **Changed (bridge):** the bridge no longer logs a `plan action update` line for every user on every cycle. It logs `MAS user updated` with the changed attributes when an update changes something, and one `sync cycle` summary per cycle.
 - **Fixed:** the published SCIM bridge install manifest carried the build machine's home directory, and its Keycloak bootstrap Job could never pass its secret check.
 - **Fixed:** an instance ID with a dash, such as `mas-dev`, was read as the wrong workspace.
 - **Fixed:** after a reinstall, the install reported success while every SAML login failed with `AIUOM0100E` for up to 15 minutes. MAS applies new SAML metadata late and kept showing Ready. The install now waits until MAS serves Keycloak's new signing certificate, and warns if it doesn't within 15 minutes.

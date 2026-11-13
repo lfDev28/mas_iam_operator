@@ -2,7 +2,9 @@ package bridge
 
 import (
 	"context"
+	"fmt"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/lfDev28/mas-iam/services/scim-bridge/internal/keycloak"
@@ -225,5 +227,69 @@ func TestPollerGroupMembersPaginateBeyondSinglePage(t *testing.T) {
 	}
 	if len(masClient.created) != 120 {
 		t.Fatalf("expected all 120 members across pages (no 50-user cap), got %d", len(masClient.created))
+	}
+}
+
+// recordingLogger keeps every message with its key/value args.
+type recordingLogger struct{ lines []string }
+
+func (r *recordingLogger) add(msg string, args ...any) {
+	r.lines = append(r.lines, fmt.Sprint(append([]any{msg}, args...)...))
+}
+func (r *recordingLogger) Info(msg string, args ...any)  { r.add(msg, args...) }
+func (r *recordingLogger) Warn(msg string, args ...any)  { r.add(msg, args...) }
+func (r *recordingLogger) Error(msg string, args ...any) { r.add(msg, args...) }
+func (r *recordingLogger) count(prefix string) int {
+	n := 0
+	for _, l := range r.lines {
+		if strings.HasPrefix(l, prefix) {
+			n++
+		}
+	}
+	return n
+}
+
+// A synced user that has not changed is re-checked every cycle; it must not
+// log a "plan action" line each time, but a real change must still show.
+func TestPollerLogsOnlyMeaningfulActions(t *testing.T) {
+	kc := &fakeScopeKC{users: []keycloak.User{{ID: "u1", Username: "scim.user1", Email: "one@demo.local", Enabled: true}}}
+	store, err := state.NewStore("memory", state.Options{DefaultProfileID: "p"})
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	log := &recordingLogger{}
+	planner := NewPlanner(store, NewProfileResolver("p", nil, false), stubLogger{})
+	executor := NewExecutor(&recordingMAS{}, store, false, true, log)
+	p := NewPoller(kc, planner, executor, nil, "scim.", nil, log)
+	ctx := context.Background()
+
+	if err := p.RunOnce(ctx); err != nil {
+		t.Fatalf("cycle 1: %v", err)
+	}
+	if got := log.count("plan action"); got != 1 {
+		t.Fatalf("cycle 1 (create): %d plan action lines, want 1: %v", got, log.lines)
+	}
+
+	log.lines = nil
+	if err := p.RunOnce(ctx); err != nil {
+		t.Fatalf("cycle 2: %v", err)
+	}
+	if got := log.count("plan action"); got != 0 {
+		t.Fatalf("cycle 2 (unchanged): %d plan action lines, want 0: %v", got, log.lines)
+	}
+	if got := log.count("MAS user updated"); got != 0 {
+		t.Fatalf("cycle 2 (unchanged): logged an update: %v", log.lines)
+	}
+	if got := log.count("sync cycle"); got != 1 {
+		t.Fatalf("cycle 2: want one sync cycle summary: %v", log.lines)
+	}
+
+	log.lines = nil
+	kc.users[0].Email = "changed@demo.local"
+	if err := p.RunOnce(ctx); err != nil {
+		t.Fatalf("cycle 3: %v", err)
+	}
+	if got := log.count("MAS user updated"); got != 1 {
+		t.Fatalf("cycle 3 (email changed): %d update lines, want 1: %v", got, log.lines)
 	}
 }

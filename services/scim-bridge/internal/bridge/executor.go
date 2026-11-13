@@ -394,6 +394,11 @@ func (e *Executor) updateWithPatch(ctx context.Context, action Action, payload m
 		e.logger.Error("MAS patch failed", "username", action.User.Username, "mas_id", action.ExistingMAS, "error_class", class, "error", detail, "mas_profile_label", action.ProfileLabel, "mas_profile_id", action.ProfileID)
 		return e.recordFailure(ctx, action, base, hash, class, detail)
 	}
+	paths := make([]string, 0, len(ops))
+	for _, op := range ops {
+		paths = append(paths, op.Op+" "+op.Path)
+	}
+	e.logger.Info("MAS user updated", "username", action.User.Username, "mas_id", action.ExistingMAS, "changes", strings.Join(paths, ", "))
 	base.Status = state.StatusOK
 	base.LastApplied = nextSnapshot
 	base.ClearRetry()

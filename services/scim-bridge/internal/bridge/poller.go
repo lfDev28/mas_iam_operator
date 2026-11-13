@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/lfDev28/mas-iam/services/scim-bridge/internal/keycloak"
+	"github.com/lfDev28/mas-iam/services/scim-bridge/internal/state"
 )
 
 // Poller performs a single pass reconciliation between Keycloak and MAS.
@@ -54,19 +55,28 @@ func (p *Poller) RunOnce(ctx context.Context) error {
 	// Failed entries are not skipped here: the executor retries them with
 	// backoff (and parks repeated permanent failures), so one transient MAS
 	// error no longer stops a user from ever syncing.
+	routine := 0
 	for _, action := range actions {
-		p.logger.Info("plan action",
-			"action", action.Type,
-			"username", action.User.Username,
-			"id", action.User.ID,
-			"mas_profile_label", action.ProfileLabel,
-			"mas_profile_id", action.ProfileID,
-			"existing_mas_id", action.ExistingMAS,
-		)
+		// A healthy, already-synced user is re-checked every cycle; logging
+		// each one buried the lines that matter. The executor logs when such
+		// a check actually changes the MAS user.
+		if isRoutineUpdate(action) {
+			routine++
+		} else {
+			p.logger.Info("plan action",
+				"action", action.Type,
+				"username", action.User.Username,
+				"id", action.User.ID,
+				"mas_profile_label", action.ProfileLabel,
+				"mas_profile_id", action.ProfileID,
+				"existing_mas_id", action.ExistingMAS,
+			)
+		}
 		if err := p.executor.Execute(ctx, action); err != nil {
 			return fmt.Errorf("execute action: %w", err)
 		}
 	}
+	p.logger.Info("sync cycle", "realm", p.kc.Realm(), "users", len(users), "checked_in_sync", routine, "other_actions", len(actions)-routine)
 	// Removal detection runs in group mode only. The realm-wide path now
 	// pages through every user too, but turning on deactivate-on-removal
 	// for prefix/allowlist scoping is a separate behaviour change (it was
@@ -109,4 +119,10 @@ func (p *Poller) reconcileRemovals(ctx context.Context, scoped []keycloak.User) 
 		}
 	}
 	return nil
+}
+
+// isRoutineUpdate reports an update of a user whose last sync succeeded:
+// usually a no-op diff, so it gets no per-cycle log line.
+func isRoutineUpdate(action Action) bool {
+	return action.Type == ActionUpdate && action.HasPrior && action.Prior.Status == state.StatusOK
 }
