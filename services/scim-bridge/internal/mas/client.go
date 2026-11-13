@@ -25,6 +25,9 @@ type Client struct {
 	cfg  config.MASConfig
 	base string
 	http *http.Client
+	// httpWrite sends POST/PUT/PATCH/DELETE with the longer WriteTimeout.
+	// Nil falls back to http.
+	httpWrite *http.Client
 }
 
 // User is a minimal SCIM user representation for search results.
@@ -66,14 +69,21 @@ func NewClient(cfg config.MASConfig) (*Client, error) {
 		return nil, err
 	}
 	return &Client{
-		cfg:  cfg,
-		base: trimmed,
-		http: httpClient,
+		cfg:       cfg,
+		base:      trimmed,
+		http:      httpClient,
+		httpWrite: &http.Client{Timeout: WriteTimeout, Transport: httpClient.Transport},
 	}, nil
 }
 
-// RequestTimeout bounds every MAS HTTP call, including /v1/authenticate.
+// RequestTimeout bounds MAS reads and /v1/authenticate.
 const RequestTimeout = 30 * time.Second
+
+// WriteTimeout bounds MAS writes. On MAS 9.2 a SCIM create or update also
+// writes the user into Manage and took over 30s on a lab cluster; with the
+// read timeout the bridge gave up, logged an ERROR and retried a user MAS had
+// in fact created.
+const WriteTimeout = 2 * time.Minute
 
 // NewHTTPClient builds the HTTP client every MAS call goes through: system
 // roots plus MAS_CA_FILE, optional skip-verify, and a request timeout.
@@ -340,7 +350,11 @@ func (c *Client) doWithRetry(req *http.Request) (*http.Response, error) {
 		}
 		last := attempt >= maxRetries
 		var wait time.Duration
-		resp, err := c.http.Do(req)
+		hc := c.http
+		if req.Method != http.MethodGet && c.httpWrite != nil {
+			hc = c.httpWrite
+		}
+		resp, err := hc.Do(req)
 		switch {
 		case err != nil:
 			if ctxErr := ctx.Err(); ctxErr != nil {

@@ -24,7 +24,36 @@ func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { retu
 func newTestClient(rt http.RoundTripper) *Client {
 	c, _ := NewClient(config.MASConfig{BaseURL: "https://example.com", ProfileID: "p", AuthType: "api-key", Token: "t"})
 	c.http = &http.Client{Transport: rt, Timeout: 5 * time.Second}
+	c.httpWrite = nil // writes fall back to c.http and its fake transport
 	return c
+}
+
+func TestWritesUseTheLongerTimeout(t *testing.T) {
+	c, err := NewClient(config.MASConfig{BaseURL: "https://example.com", ProfileID: "p", AuthType: "api-key", Token: "t"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.http.Timeout != RequestTimeout || c.httpWrite.Timeout != WriteTimeout || WriteTimeout <= RequestTimeout {
+		t.Fatalf("timeouts: read %s, write %s", c.http.Timeout, c.httpWrite.Timeout)
+	}
+	var reads, writes atomic.Int32
+	c.http = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		reads.Add(1)
+		return resp(200, `{"Resources":[]}`, nil), nil
+	})}
+	c.httpWrite = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		writes.Add(1)
+		return resp(201, `{"id":"m1"}`, nil), nil
+	})}
+	if _, err := c.SearchUsers(context.Background(), "p", `userName eq "a"`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.CreateUser(context.Background(), "p", UserResource{}); err != nil {
+		t.Fatal(err)
+	}
+	if reads.Load() != 1 || writes.Load() != 1 {
+		t.Fatalf("reads=%d writes=%d, want 1 and 1", reads.Load(), writes.Load())
+	}
 }
 
 func fastRetries(t *testing.T, retries int) {

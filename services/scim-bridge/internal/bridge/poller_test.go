@@ -269,6 +269,9 @@ func TestPollerLogsOnlyMeaningfulActions(t *testing.T) {
 	if got := log.count("plan action"); got != 1 {
 		t.Fatalf("cycle 1 (create): %d plan action lines, want 1: %v", got, log.lines)
 	}
+	if got := log.count("MAS user created"); got != 1 {
+		t.Fatalf("cycle 1 (create): %d \"MAS user created\" lines, want 1: %v", got, log.lines)
+	}
 
 	log.lines = nil
 	if err := p.RunOnce(ctx); err != nil {

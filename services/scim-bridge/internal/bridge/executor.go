@@ -204,6 +204,7 @@ func (e *Executor) create(ctx context.Context, action Action, payload mas.UserRe
 	if err := e.store.Save(ctx, action.User.ID, base); err != nil {
 		return fmt.Errorf("store correlation: %w", err)
 	}
+	e.logger.Info("MAS user created", "username", action.User.Username, "mas_id", masID, "mas_profile_id", action.ProfileID)
 	return nil
 }
 
