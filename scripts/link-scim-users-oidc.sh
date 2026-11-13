@@ -147,6 +147,12 @@ echo "[link-users] checking ${db_name}.User for SCIM-managed users missing ident
 oc exec -n "${mongo_namespace}" "${pod}" -c mongod -- \
   mongosh "${conn_string}" --tls --tlsAllowInvalidCertificates --quiet --eval "
 db = db.getSiblingDB('${db_name}');
+// MAS 9.2 keeps users in Manage, not in a Mongo User collection: there is
+// nothing to link here, and a silent 'needing link: 0' would read as success.
+if (!db.getCollectionNames().includes('User')) {
+  print('[link-users] ${db_name} has no User collection (MAS 9.2 and later keep users in Manage); skipping the identity link');
+  quit(0);
+}
 const idp = '${idp}';
 const idpType = '${idp_type}';
 const users = db.User.find({

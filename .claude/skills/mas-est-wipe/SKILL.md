@@ -40,6 +40,7 @@ The full wipe sequence below handles all of it. Run in order — skipping the Su
 If the user provided arguments via `$ARGUMENTS`, parse them. Otherwise use defaults:
 
 - `--instance <id>` — MAS instance ID (default `mas91`)
+- `--workspace <id>` — MAS workspace ID, used for the Manage db2u pod name (default: read it from `oc get workspace -n mas-{instance}-core -o jsonpath='{.items[0].metadata.labels.mas\.ibm\.com/workspaceId}'`)
 - `--full-olm-reset` — also delete the `CatalogSource` (simulates a brand-new cluster's OLM state — useful when validating beta hardening like the OLM resolver race guard)
 - `--skip-mongo` — leave MongoDB User docs alone (implied on MAS 9.2+)
 - `--skip-db2` — leave Maximo db2 rows alone
@@ -156,7 +157,7 @@ Confirm the connection-string hostnames use `.svc.cluster.local` — the shorter
 
 **On MAS 9.2 these Manage rows ARE the MAS user records** (there is no Mongo copy), so this removes the demo users from MAS entirely. That is the point of a wipe, but say so to the user before running it. Never extend the ID list beyond the demo users.
 
-The db2u pod is `c-mas-{instance}-workspace-manage-db2u-0` in the `db2u` namespace. Always run sql via `su - db2inst1` to get the right environment. Connect string is `BLUDB`. Test users have UPPERCASE PERSONID/USERID:
+The db2u pod is `c-mas-{instance}-{workspace}-manage-db2u-0` in the `db2u` namespace (confirm with `oc get pods -n db2u | grep manage-db2u`; the workspace is not always named `workspace`). Always run sql via `su - db2inst1` to get the right environment. Connect string is `BLUDB`. Test users have UPPERCASE PERSONID/USERID:
 
 ```bash
 cat > /tmp/wipe.sh <<'SH'
@@ -169,8 +170,8 @@ db2 "delete from MAXIMO.PERSONANCESTOR where PERSONID in (${IDS})"
 db2 "delete from MAXIMO.PERSON where PERSONID in (${IDS})"
 db2 commit
 SH
-oc -n db2u cp /tmp/wipe.sh c-mas-{instance}-workspace-manage-db2u-0:/tmp/wipe.sh
-oc -n db2u exec c-mas-{instance}-workspace-manage-db2u-0 -- bash -lc 'su - db2inst1 -c "bash /tmp/wipe.sh"'
+oc -n db2u cp /tmp/wipe.sh c-mas-{instance}-{workspace}-manage-db2u-0:/tmp/wipe.sh
+oc -n db2u exec c-mas-{instance}-{workspace}-manage-db2u-0 -- bash -lc 'su - db2inst1 -c "bash /tmp/wipe.sh"'
 ```
 
 Tables to clean: `MAXUSER`, `GROUPUSER`, `PERSONANCESTOR`, `PERSON`. `GROUPUSER` is the one that bit Lee on 2026-06-30 — leaving stale `GROUPUSER` rows from a prior install causes the next user-sync to surface as `BMXAA10249E - Your security privileges do not allow access to add new users to DEFLTREG security group`. The error message is misleading: the *symptom* is a privilege error, but the *cause* is the GROUPUSER unique-key conflict on (USERID, GROUPNAME). The first user to sync through happens to win the race; everyone else fails.

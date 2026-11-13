@@ -389,6 +389,7 @@ Deletes the `mas-est` namespace. It leaves behind:
 
 - The login providers. Remove them with `mas-est mas-auth delete --mas-instance-id <instance>`.
 - `configmap/<instance>-selfreg` and the Suite CR memory bump.
+- The S3 connection in MAS: `objectstoragecfg/ibm-mas-<instance>-objectstoragecfg-system` and its credentials secret in `mas-<instance>-core`. It points at the deleted MinIO until you remove it or reinstall, and a reinstall updates it.
 - MAS user records in MongoDB and Manage.
 - `clusterrole/mas-est-installer`, `clusterrolebinding/mas-est-installer-mas-est`, the SCC `mas-est-iam-openldap-tls-generator`, and the CRD `masiamstacks.iam.mas.ibm.com`.
 - CatalogSource `mas-iam-operator` in `openshift-marketplace`.
