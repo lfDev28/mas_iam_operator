@@ -197,7 +197,7 @@ func (o *masAuthApplyOptions) applyViaAdminAPI(ctx context.Context, client *oc.C
 		if len(wantCerts) > 0 {
 			current, err := o.coreIDPSAMLCertsCurrent(ctx, client, wantCerts)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "[mas-auth] WARN: could not read configmap/%s in %s: %v\n", masSAMLIdPConfigMapName, o.masCoreNamespace, err)
+				fmt.Fprintf(os.Stderr, "[mas-auth] WARN: could not read configmap/%s in %s (%v); will wait for it to show Keycloak's certificate\n", masSAMLIdPConfigMapName, o.masCoreNamespace, err)
 			}
 			certsCurrent = current
 		}
@@ -667,4 +667,3 @@ func toMASAdminCerts(entries []certificateEntry) []masadmin.Certificate {
 	}
 	return out
 }
-

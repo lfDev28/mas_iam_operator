@@ -415,6 +415,7 @@ func (e *Executor) performPut(ctx context.Context, action Action, payload mas.Us
 		e.logger.Error("MAS update failed", "username", action.User.Username, "mas_id", action.ExistingMAS, "error_class", class, "error", detail, "mas_profile_label", action.ProfileLabel, "mas_profile_id", action.ProfileID)
 		return e.recordFailure(ctx, action, base, hash, class, detail)
 	}
+	e.logger.Info("MAS user updated", "username", action.User.Username, "mas_id", action.ExistingMAS, "changes", "full replace (PUT)")
 	base.Status = state.StatusOK
 	base.LastApplied = snapshotFromPayload(payload, action.ProfileID)
 	base.ClearRetry()

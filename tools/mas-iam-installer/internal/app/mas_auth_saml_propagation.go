@@ -25,8 +25,14 @@ const masSAMLIdPConfigMapName = "mas-multi-saml-idp"
 // normal.
 var samlMetadataPropagationTimeout = 15 * time.Minute
 
-// samlMetadataPollInterval is a var so tests can shorten it.
-var samlMetadataPollInterval = 15 * time.Second
+// Vars so tests can shorten them.
+var (
+	samlMetadataPollInterval  = 15 * time.Second
+	samlMetadataProgressEvery = 2 * time.Minute
+	// samlMetadataSyncGrace covers kubelet's ConfigMap volume sync into the
+	// coreidp pod after MAS updates the ConfigMap (about 30s observed).
+	samlMetadataSyncGrace = 60 * time.Second
+)
 
 func (o *masAuthApplyOptions) samlIdPMetadataKey() string {
 	return o.masInstanceID + "-saml-" + o.samlProviderID + "-system_idpMetadata.xml"
@@ -75,7 +81,18 @@ func (o *masAuthApplyOptions) coreIDPSAMLCertsCurrent(ctx context.Context, clien
 		}
 		return false, err
 	}
-	return sameCerts(samlMetadataCerts(data[o.samlIdPMetadataKey()]), want), nil
+	if metadata, ok := data[o.samlIdPMetadataKey()]; ok {
+		return sameCerts(samlMetadataCerts(metadata), want), nil
+	}
+	// The key name ({IDPCfg name}_idpMetadata.xml) was measured on MAS 9.1;
+	// if another version names it differently, match on content instead of
+	// waiting out the timeout on every run.
+	for key, metadata := range data {
+		if strings.HasSuffix(key, "_idpMetadata.xml") && sameCerts(samlMetadataCerts(metadata), want) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // waitForCoreIDPSAMLMetadata waits until MAS has rendered Keycloak's current
@@ -91,16 +108,23 @@ func (o *masAuthApplyOptions) coreIDPSAMLCertsCurrent(ctx context.Context, clien
 func (o *masAuthApplyOptions) waitForCoreIDPSAMLMetadata(ctx context.Context, client *oc.Client, want []string) error {
 	where := fmt.Sprintf("configmap/%s key %s in %s", masSAMLIdPConfigMapName, o.samlIdPMetadataKey(), o.masCoreNamespace)
 	fmt.Fprintf(os.Stdout, "[mas-auth] waiting up to %s for MAS to render Keycloak's new SAML signing certificate (%s)\n", samlMetadataPropagationTimeout, where)
-	deadline := time.Now().Add(samlMetadataPropagationTimeout)
+	start := time.Now()
+	deadline := start.Add(samlMetadataPropagationTimeout)
+	nextProgress := start.Add(samlMetadataProgressEvery)
 	var lastErr error
 	for {
 		current, err := o.coreIDPSAMLCertsCurrent(ctx, client, want)
-		switch {
-		case err == nil && current:
-			fmt.Fprintln(os.Stdout, "[mas-auth] MAS rendered the new SAML IdP metadata for coreidp")
-			return nil
-		case err != nil:
-			lastErr = err
+		lastErr = err // only the latest read matters for the final message
+		if err == nil && current {
+			// The ConfigMap is updated; kubelet syncs it into the coreidp
+			// pod (up to about a minute) and Liberty then reloads the file.
+			fmt.Fprintf(os.Stdout, "[mas-auth] MAS rendered the new SAML IdP metadata after %s; allowing %s for coreidp to load it\n",
+				time.Since(start).Round(time.Second), samlMetadataSyncGrace)
+			return sleepCtx(ctx, samlMetadataSyncGrace)
+		}
+		if now := time.Now(); now.After(nextProgress) && now.Before(deadline) {
+			fmt.Fprintf(os.Stdout, "[mas-auth] still waiting for MAS to render the new SAML IdP metadata (%s so far)\n", now.Sub(start).Round(time.Second))
+			nextProgress = now.Add(samlMetadataProgressEvery)
 		}
 		if time.Now().After(deadline) {
 			detail := "it still holds the previous certificate"

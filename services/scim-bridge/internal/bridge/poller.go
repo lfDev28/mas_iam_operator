@@ -59,7 +59,7 @@ func (p *Poller) RunOnce(ctx context.Context) error {
 	for _, action := range actions {
 		// A healthy, already-synced user is re-checked every cycle; logging
 		// each one buried the lines that matter. The executor logs when such
-		// a check actually changes the MAS user.
+		// a check actually sends MAS a PATCH or PUT.
 		if isRoutineUpdate(action) {
 			routine++
 		} else {

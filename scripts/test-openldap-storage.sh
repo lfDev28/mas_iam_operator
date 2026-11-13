@@ -95,7 +95,7 @@ fi
 eng rm -f "${ID}-run" >/dev/null
 
 # --- 2. migrate and start with the new layout ------------------------------
-out="$(run_init "${ID}-legacy")"
+out="$(run_init "${ID}-legacy" || true)"  # keep the output when it fails
 if grep -q 'data kept' <<<"${out}"; then pass "init script: rebuilt cn=config, data kept"; else
   bad "init script did not keep the data:"; tail -15 <<<"${out}" | sed 's/^/      /'
 fi
@@ -122,14 +122,14 @@ fi
 eng rm -f "${ID}-run" >/dev/null
 
 # --- 3. idempotent re-run ---------------------------------------------------
-out="$(run_init "${ID}-legacy")"
+out="$(run_init "${ID}-legacy" || true)"  # keep the output when it fails
 if grep -q 'nothing to do' <<<"${out}"; then pass "second init run is a no-op"; else
   bad "second init run did work:"; tail -8 <<<"${out}" | sed 's/^/      /'
 fi
 
 # --- 4. fresh volume --------------------------------------------------------
 eng volume create "${ID}-empty" >/dev/null
-out="$(run_init "${ID}-empty")"
+out="$(run_init "${ID}-empty" || true)"
 grep -q 'Empty volume' <<<"${out}" && pass "empty volume: init leaves bootstrap to OpenLDAP" || bad "empty volume: unexpected init output"
 start_new_layout "${ID}-empty"
 if wait_ldap "${ID}-run"; then pass "fresh volume bootstraps"; else

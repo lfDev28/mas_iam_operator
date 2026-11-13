@@ -149,7 +149,12 @@ oc exec -n "${mongo_namespace}" "${pod}" -c mongod -- \
 db = db.getSiblingDB('${db_name}');
 // MAS 9.2 keeps users in Manage, not in a Mongo User collection: there is
 // nothing to link here, and a silent 'needing link: 0' would read as success.
-if (!db.getCollectionNames().includes('User')) {
+const collections = db.getCollectionNames();
+if (collections.length === 0) {
+  print('[link-users] error: database ${db_name} does not exist or is empty; check --instance');
+  quit(1);
+}
+if (!collections.includes('User')) {
   print('[link-users] ${db_name} has no User collection (MAS 9.2 and later keep users in Manage); skipping the identity link');
   quit(0);
 }

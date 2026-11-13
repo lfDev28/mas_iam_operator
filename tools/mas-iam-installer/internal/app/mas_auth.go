@@ -569,7 +569,7 @@ func (o *masAuthApplyOptions) configureKeycloak(ctx context.Context, runner *exe
 		case state == "reused":
 			fmt.Fprintf(os.Stdout, "[mas-auth] Keycloak OIDC client %s exists; keeping its current client secret\n", o.oidcProviderID)
 		case seededFromMAS:
-			fmt.Fprintf(os.Stdout, "[mas-auth] Keycloak OIDC client %s created with the client secret MAS already holds (%s/%s), so MAS sees no secret change\n",
+			fmt.Fprintf(os.Stdout, "[mas-auth] Keycloak OIDC client %s set to the client secret MAS already holds (%s/%s), so MAS sees no secret change\n",
 				o.oidcProviderID, o.masCoreNamespace, o.masOIDCCredsSecretName())
 		default:
 			fmt.Fprintf(os.Stdout, "[mas-auth] Keycloak OIDC client %s configured with a new client secret\n", o.oidcProviderID)
@@ -647,6 +647,10 @@ func (o *masAuthApplyOptions) newOIDCClientSecret(ctx context.Context, client *o
 			if secret, ok := usableMASOIDCSecret(data); ok {
 				return secret, true, nil
 			}
+			// Falling back to a new secret here re-creates the coreidp
+			// stale-secret failure, so say so where it can be found.
+			fmt.Fprintf(os.Stderr, "[warn] %s/%s holds a client secret Keycloak can't take verbatim (shorter than 16 characters, or contains a quote, backslash, $, backtick or newline); "+
+				"using a new secret. If OIDC logins then fail with unauthorized_client, MAS coreidp is still using the old one.\n", o.masCoreNamespace, o.masOIDCCredsSecretName())
 		case oc.IsNotFound(err):
 		default:
 			// Not fatal: an unreadable secret only costs the seeding.
