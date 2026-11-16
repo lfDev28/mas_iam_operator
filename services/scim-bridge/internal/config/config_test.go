@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestResolveProfile(t *testing.T) {
 	cfg := MASConfig{
@@ -56,5 +59,23 @@ func TestApplyEnvOverridesParsesIncludeGroups(t *testing.T) {
 	got := cfg.Bridge.IncludeGroups
 	if len(got) != 2 || got[0] != "mas-scim-users" || got[1] != "/parent/child" {
 		t.Fatalf("unexpected IncludeGroups: %#v", got)
+	}
+}
+
+func TestValidateRejectsUnimplementedStateBackend(t *testing.T) {
+	cfg := DefaultSettings()
+	cfg.Keycloak.BaseURL = "https://kc.example"
+	cfg.Keycloak.ClientID = "c"
+	cfg.Keycloak.ClientSecret = "s"
+	cfg.MAS.BaseURL = "https://mas.example/scim/v2"
+	cfg.MAS.ProfileID = "p"
+	cfg.MAS.Token = "t"
+	cfg.MAS.AuthType = "api-key"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("baseline settings invalid: %v", err)
+	}
+	cfg.Bridge.StateBackend = "postgresql"
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "state backend") {
+		t.Fatalf("postgresql state backend: got %v, want a state backend error at validation", err)
 	}
 }

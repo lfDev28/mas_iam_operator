@@ -268,9 +268,9 @@ func (s Settings) Validate() error {
 		return fmt.Errorf("bridge mode must be poll, hybrid, run-once, or backfill")
 	}
 	switch s.Bridge.StateBackend {
-	case "memory", "filesystem", "postgresql":
+	case "memory", "filesystem":
 	default:
-		return fmt.Errorf("state backend must be memory, filesystem, or postgresql")
+		return fmt.Errorf("state backend must be memory or filesystem")
 	}
 	switch s.Bridge.LogLevel {
 	case "debug", "info", "warn", "error":

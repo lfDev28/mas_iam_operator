@@ -124,8 +124,6 @@ func NewStore(backend string, opts Options) (Store, error) {
 			return nil, fmt.Errorf("state file path required for filesystem backend")
 		}
 		return newFilesystemStore(opts.FilePath, opts.DefaultProfileID)
-	case "postgresql":
-		return nil, fmt.Errorf("postgresql backend not implemented yet")
 	default:
 		return nil, fmt.Errorf("unknown backend %s", backend)
 	}

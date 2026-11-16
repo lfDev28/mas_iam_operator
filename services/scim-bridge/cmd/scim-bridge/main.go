@@ -53,7 +53,7 @@ func run(ctx context.Context, args []string) error {
 
 	fs.StringVar(&cfg.Bridge.Mode, "bridge-mode", cfg.Bridge.Mode, "Sync mode: poll, run-once, backfill, or hybrid")
 	fs.DurationVar(&cfg.Bridge.PollInterval, "bridge-poll-interval", cfg.Bridge.PollInterval, "Polling interval for reconciliation (poll/hybrid)")
-	fs.StringVar(&cfg.Bridge.StateBackend, "bridge-state-backend", cfg.Bridge.StateBackend, "State backend: memory, filesystem, or postgresql")
+	fs.StringVar(&cfg.Bridge.StateBackend, "bridge-state-backend", cfg.Bridge.StateBackend, "State backend: memory or filesystem")
 	fs.StringVar(&cfg.Bridge.StatePath, "bridge-state-path", cfg.Bridge.StatePath, "Path to correlation state file (filesystem backend)")
 	fs.BoolVar(&cfg.Bridge.DryRun, "bridge-dry-run", cfg.Bridge.DryRun, "If true, skip MAS API calls and only log actions")
 	fs.BoolVar(&cfg.Bridge.AllowUpdates, "bridge-allow-updates", cfg.Bridge.AllowUpdates, "Allow MAS updates; when false, updates are logged as skipped")
