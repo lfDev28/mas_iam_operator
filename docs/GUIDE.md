@@ -119,6 +119,20 @@ mas-est install --non-interactive \
   --storage-class '<block-class>' --scim-bridge-storage-class '<block-class>'
 ```
 
+#### When the cluster can't pull from public registries
+
+`mas-est images` lists every image the chosen components pull. To serve them from your own registry, run this from a machine that can reach both the public registries and your registry, logged in to your registry:
+
+```bash
+mas-est images --components ldap,keycloak,scim,s3,smtp \
+  --mirror registry.example.com/mas-est --format mapping > mapping.txt
+oc image mirror --keep-manifest-list=true -f mapping.txt
+mas-est images --components ldap,keycloak,scim,s3,smtp \
+  --mirror registry.example.com/mas-est --format mirrorset | oc apply -f -
+```
+
+The last command applies an ImageTagMirrorSet and an ImageDigestMirrorSet named `mas-est`, so every node pulls these images from your registry. It needs cluster-admin. The Machine Config Operator rolls the change out node by node; wait until `oc get mcp` shows every pool `UPDATED=True`. If your registry needs credentials, add them to the cluster's global pull secret. Then install as usual: the image names in the install don't change. To bootstrap the CLI itself from your registry, set `MAS_EST_IMAGE` to its mirrored name.
+
 ### 4. Verify
 
 ```bash

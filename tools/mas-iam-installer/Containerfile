@@ -72,6 +72,7 @@ WORKDIR /opt/mas-est
 COPY scripts /opt/mas-est/scripts
 COPY manifests /opt/mas-est/manifests
 COPY env /opt/mas-est/env
+COPY images.yaml /opt/mas-est/images.yaml
 COPY --from=builder /out/bin /opt/mas-est/runtime/bin
 COPY --from=builder /out/bin/linux-${TARGETARCH}/est /usr/local/bin/est
 

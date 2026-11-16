@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+
+	"github.com/lfDev28/mas_iam_operator/tools/mas-iam-installer/internal/images"
 )
 
 const (
@@ -131,6 +133,15 @@ func populateRuntimeTree(destination string) error {
 	for target, source := range layout {
 		if err := copyTree(source, target); err != nil {
 			return fmt.Errorf("copy %s to %s: %w", source, target, err)
+		}
+	}
+
+	// The image list for `mas-est images`. Older CLI images lack it; the
+	// command then says to update rather than failing bootstrap here.
+	imagesSource := filepath.Join("/opt/mas-est", images.FileName)
+	if info, err := os.Stat(imagesSource); err == nil {
+		if err := copyFile(imagesSource, filepath.Join(destination, "repo", images.FileName), info.Mode().Perm()); err != nil {
+			return fmt.Errorf("copy %s: %w", imagesSource, err)
 		}
 	}
 
