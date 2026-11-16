@@ -41,7 +41,7 @@ mas-est install
 
 # Supported MAS versions
 
-MAS 9.0.x and 9.1.x. MAS 9.0 has no OIDC API, so use LDAP and SAML there. MAS 9.2 has not been tested yet.
+MAS 9.0.x, 9.1.x and 9.2.x. MAS 9.0 has no OIDC API, so use LDAP and SAML there. MAS 9.2 is tested on 9.2.3.
 
 # Limitations to know up front
 
