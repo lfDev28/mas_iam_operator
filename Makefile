@@ -18,7 +18,7 @@ TLS_CONTEXT   ?= images/openldap-tls-generator
 VALUES_FLAGS := -f $(CHART)/values.yaml
 
 .PHONY: lint deps deploy status health teardown redeploy tls-image tls-push scim-keycloak-image scim-keycloak-push scim-bridge-build doc-pdf docs-pdf doc-pdf-clean docs-pdf-clean user-guide-pdf user-guide-clean
-.PHONY: check check-go check-scripts check-helm check-images check-images-scan release-check bump release-images release-verify release-tag smoke test-openldap-storage login-check
+.PHONY: check check-go check-scripts check-helm check-images check-images-scan check-upgrade release-check bump release-images release-verify release-tag smoke test-openldap-storage login-check
 
 # ---- Checks ------------------------------------------------------------------
 # `make check` is the definition of done: the same checks CI runs
@@ -27,7 +27,7 @@ GO_MODULES    ?= tools/mas-iam-installer services/scim-bridge
 GO_TEST_FLAGS ?= -race
 HELM_CHART    ?= operators/mas-iam-operator/helm-charts/mas-iam-stack
 
-check: check-go check-scripts check-helm lint check-images-scan
+check: check-go check-scripts check-helm check-upgrade lint check-images-scan
 	@echo "make check: all green"
 
 check-go:
@@ -45,6 +45,11 @@ check-scripts:
 check-helm:
 	@echo "== helm lint $(HELM_CHART)"
 	@helm lint $(HELM_CHART)
+
+# Upgrading an install from the last release (or BASE=<git ref>) must not hit
+# an immutable field or delete stateful objects (offline; needs git tags).
+check-upgrade:
+	@python3 ./scripts/check-chart-upgrade.py $(if $(BASE),--base $(BASE))
 
 # Every image ref in the tree is listed in images.yaml (offline).
 check-images-scan:

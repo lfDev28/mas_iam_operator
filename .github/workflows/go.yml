@@ -41,14 +41,19 @@ jobs:
     name: scripts, chart, image list
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout (with tags, so check-upgrade can render the last release)
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Helm
         uses: azure/setup-helm@v4
 
-      - name: bash -n, helm lint, chart symlink, image refs listed in images.yaml
-        run: make check-scripts check-helm lint check-images-scan
+      - name: PyYAML for check-upgrade
+        run: python3 -c 'import yaml' 2>/dev/null || python3 -m pip install --quiet --user --break-system-packages pyyaml
+
+      - name: bash -n, helm lint, chart symlink, image refs listed in images.yaml, chart upgrade from the last release
+        run: make check-scripts check-helm lint check-images-scan check-upgrade
 
   openldap-storage:
     name: openldap storage migration (container test)

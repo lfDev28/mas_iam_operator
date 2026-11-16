@@ -20,7 +20,9 @@ Every image the tree references is listed in `images.yaml`.
 
 `make check` runs what CI runs: go vet, go test -race and go build for both
 Go modules, `bash -n` on `scripts/*.sh`, `helm lint`, the chart symlink
-check, and the offline image-ref scan. A change is not done while it is red.
+check, the offline image-ref scan, and `check-upgrade` (renders the chart from
+the last release tag and the working tree; fails on an immutable-field change
+or a deleted PVC/Secret/ConfigMap, which break `helm upgrade` on clusters). A change is not done while it is red.
 `make check-images` also checks every pinned image still exists on its
 registry (network; nightly in CI).
 
