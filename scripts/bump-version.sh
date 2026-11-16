@@ -99,7 +99,7 @@ case "${artifact}" in
       subst "${f}" "s/^(\s*olm\.skipRange:\s*'?<)\d+\.\d+\.\d+/\${1}\$ENV{NEW}/"
     done
     for f in "${csv}" manifests/install-olm.yaml scripts/install-operator-from-catalog.sh images.yaml; do
-      subst "${f}" 's/(mas-iam-operator:(?:catalog-)?)\d+\.\d+\.\d+(?![-\w.])/${1}$ENV{NEW}/g'
+      subst "${f}" 's/(mas-iam-operator(?:-bundle)?:(?:catalog-)?)\d+\.\d+\.\d+(?![-\w.])/${1}$ENV{NEW}/g'
     done
     subst docs/GUIDE.md 's/(mas-iam-operator\.v)\d+\.\d+\.\d+/${1}$ENV{NEW}/g'
     echo "[bump] operator ${old} -> ${new} (image ${new}, catalog-${new}, CSV mas-iam-operator.v${new})"

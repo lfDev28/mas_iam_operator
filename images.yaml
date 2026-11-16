@@ -34,6 +34,11 @@ images:
     kind: release
     archs: [amd64]
     used_in: [operators/mas-iam-operator/bundle/manifests/mas-iam-operator.clusterserviceversion.yaml, operators/mas-iam-operator/config/manager/kustomization.yaml]
+  - ref: quay.io/lee_forster/mas-iam-operator-bundle:0.0.17
+    kind: release
+    archs: [amd64]
+    used_in: [scripts/release-images.sh]
+    note: The catalog references the bundle by tag, and OLM pulls it on every operator install or upgrade. Built and pushed with the operator.
   - ref: quay.io/lee_forster/mas-iam-operator:catalog-0.0.17
     kind: release
     archs: [amd64]
