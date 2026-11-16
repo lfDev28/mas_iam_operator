@@ -12,7 +12,7 @@ One entry per limitation, with the workaround. `<instance>` is your MAS instance
 
 **SCIM users added after the install aren't linked to a login identity.** They can't log in or reach Manage until you run `mas-est mas-auth apply --mas-instance-id <instance> --self-reg-workspace <workspace>`. From v0.1.16 that re-run keeps the existing OIDC client secret, so it no longer breaks OIDC logins.
 
-**MAS 9.2: the SCIM identity linker does nothing.** MAS 9.2 keeps users in Manage, not in MongoDB, so the linker finds no users to link. Whether SCIM users can log in through OIDC on 9.2 is untested. LDAP, OIDC and SAML self-registration are unaffected.
+**MAS 9.2: the SCIM identity linker does nothing, and isn't needed.** MAS 9.2 keeps users in Manage, not in MongoDB, so the linker finds no users to link. SCIM users still log in through OIDC: on their first login, OIDC self-registration links the user the bridge created (tested on MAS 9.2.3).
 
 **Deactivating users removed from `mas-scim-users` is experimental.** The bridge sets them inactive in MAS, and reactivates them when they're added back. This has never been validated on a cluster. Check the user in MAS after relying on it.
 
